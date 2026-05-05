@@ -1,0 +1,59 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: nutrigain-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: food_recommender
+      MYSQL_USER: nutrigain
+      MYSQL_PASSWORD: yennhi2602
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nutrigain-backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: NutriGain API
+      APP_ENV: production
+      FRONTEND_ORIGIN: http://localhost:5173
+      DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://nutrigain:yennhi2602@db:3306/food_recommender}
+      FOOD_DATASET_PATH: ${FOOD_DATASET_PATH:-/app/food_dataset_fixed.csv}
+      RAW_DATA_PATH: ${RAW_DATA_PATH:-/app/food_dataset_fixed.csv}
+      SCALED_DATA_PATH: ${SCALED_DATA_PATH:-/app/food_dataset_fixed.csv}
+      USER_HISTORY_PATH: ${USER_HISTORY_PATH:-/app/user_history.csv}
+      PREFERENCE_MODEL_PATH: ${PREFERENCE_MODEL_PATH:-/app/preference_model.joblib}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-before-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: nutrigain-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

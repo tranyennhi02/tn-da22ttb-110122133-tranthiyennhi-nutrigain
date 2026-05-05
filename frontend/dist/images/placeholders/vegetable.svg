@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Vegetable placeholder">
+  <rect width="320" height="200" fill="#f0fdfa"/>
+  <ellipse cx="160" cy="134" rx="92" ry="30" fill="#99f6e4"/>
+  <path d="M135 123c-37-18-31-57 4-55 31 2 42 34 21 58" fill="#22c55e"/>
+  <path d="M182 125c-24-31-7-62 25-52 28 9 23 46-9 58" fill="#10b981"/>
+  <path d="M158 135c8-34 26-50 56-58" fill="none" stroke="#065f46" stroke-width="6" stroke-linecap="round"/>
+  <path d="M150 135c-5-31-17-50-44-62" fill="none" stroke="#047857" stroke-width="6" stroke-linecap="round"/>
+  <path d="M96 164h128" stroke="#14b8a6" stroke-width="6" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Healthy fat placeholder">
+  <rect width="320" height="200" fill="#f7fee7"/>
+  <ellipse cx="160" cy="134" rx="92" ry="30" fill="#d9f99d"/>
+  <ellipse cx="134" cy="108" rx="34" ry="45" fill="#65a30d" transform="rotate(24 134 108)"/>
+  <ellipse cx="134" cy="108" rx="20" ry="30" fill="#bef264" transform="rotate(24 134 108)"/>
+  <circle cx="136" cy="116" r="10" fill="#854d0e"/>
+  <circle cx="190" cy="119" r="16" fill="#a16207"/>
+  <circle cx="216" cy="110" r="14" fill="#ca8a04"/>
+  <path d="M96 164h128" stroke="#84cc16" stroke-width="6" stroke-linecap="round"/>
+</svg>
