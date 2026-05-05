@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+.npm/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Environments
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
