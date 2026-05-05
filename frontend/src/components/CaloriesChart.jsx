@@ -26,21 +26,21 @@ export default function CaloriesChart({ data }) {
         </div>
       </div>
 
-      <div className="mt-6 h-[260px]">
+      <div className="mt-8 h-[280px] w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ left: -16, right: 8, top: 8, bottom: 0 }}>
+          <ComposedChart data={data} margin={{ left: 0, right: 16, top: 8, bottom: 0 }}>
             <defs>
               <linearGradient id="calorieArea" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
                 <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="#dbeafe" strokeDasharray="4 6" vertical={false} />
-            <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12, fontWeight: 800 }} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 700 }} />
+            <CartesianGrid stroke="#f1f5f9" strokeDasharray="4 6" vertical={false} />
+            <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12, fontWeight: 700 }} dy={8} />
+            <YAxis width={45} axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 600 }} dx={-4} />
             <Tooltip content={<CaloriesTooltip />} cursor={{ fill: "rgba(16,185,129,0.08)" }} />
-            <Bar dataKey="target" fill="#e2e8f0" radius={[10, 10, 0, 0]} barSize={18} />
-            <Area type="monotone" dataKey="calories" stroke="#0f766e" strokeWidth={3} fill="url(#calorieArea)" />
+            <Bar dataKey="target" fill="#e2e8f0" radius={[10, 10, 0, 0]} maxBarSize={32} />
+            <Area type="monotone" dataKey="calories" stroke="#10b981" strokeWidth={3} fill="url(#calorieArea)" />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

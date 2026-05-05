@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import { saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
 import AccountPanel from "../components/AccountPanel";
@@ -30,7 +30,6 @@ const pageTitles = {
   journal: "Nhật ký ăn uống",
   charts: "Biểu đồ dinh dưỡng",
   "meal-plan": "Kế hoạch bữa ăn",
-  foods: "Thực phẩm gợi ý",
   account: "Tài khoản",
   system: "Cài đặt hệ thống",
   notifications: "Thông báo",
@@ -60,6 +59,12 @@ const dislikedFoodGroupsStorageKey = "nutrigain_disliked_food_groups";
 export default function DashboardView({ userEmail, onLogout }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("overview");
+
+  useEffect(() => {
+    if (activeSection === "system" || activeSection === "settings") {
+      setActiveSection("overview");
+    }
+  }, [activeSection]);
   const [formState, setFormState] = useState(() => ({
     ...defaultFormState,
     disliked_foods: loadStoredList(dislikedFoodsStorageKey),
@@ -1172,88 +1177,111 @@ function FoodsPage({ foods, meals, profileSettings, onOpenAddToMeal, onOpenDisli
   const [mealFilter, setMealFilter] = useState("all");
   const [validity, setValidity] = useState("eligible");
   const [detailFood, setDetailFood] = useState(null);
+  
   const groups = uniqueValues(foods.map((item) => item.foodGroup || item.category).filter(Boolean));
   const mealTitles = uniqueValues(meals.map((meal) => meal.title));
+  
   const filteredFoods = foods.filter((item) => {
     const text = stripAccents(`${item.name} ${item.foodGroup} ${item.category}`).toLowerCase();
     const matchesQuery = !query.trim() || text.includes(stripAccents(query).toLowerCase().trim());
     const matchesGroup = group === "all" || (item.foodGroup || item.category) === group;
     const matchesMeal = mealFilter === "all" || item.mealTitle === mealFilter || item.mealTitles?.includes(mealFilter);
     const matchesValidity = validity === "all" || (validity === "eligible" ? item.menuEligible !== false : item.qualityFlags);
+    
     const calories = Number(item.calories || 0);
     const matchesKcal =
       kcalRange === "all" ||
       (kcalRange === "low" && calories < 250) ||
       (kcalRange === "medium" && calories >= 250 && calories <= 450) ||
       (kcalRange === "high" && calories > 450);
-    return matchesQuery && matchesGroup && matchesMeal && matchesValidity && matchesKcal;
+      
+    // Force showing only eligible foods as a baseline if not explicitly filtered for flagged foods.
+    const isBaselineEligible = item.menuEligible !== false;
+    
+    return matchesQuery && matchesGroup && matchesMeal && matchesValidity && matchesKcal && (validity !== "all" || isBaselineEligible);
   });
-  const categoryCounts = foods.reduce((acc, item) => {
+  
+  const categoryCounts = filteredFoods.reduce((acc, item) => {
     const category = item.foodGroup || item.category || "Khác";
     acc[category] = (acc[category] || 0) + 1;
     return acc;
   }, {});
 
   return (
-    <div className="space-y-5">
-      <section className="glass-panel p-5 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-6">
+      {/* 1. Header trang */}
+      <section className="glass-panel p-6 shadow-sm border border-slate-200/60 rounded-3xl">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Thực phẩm</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">Kho món ăn từ dữ liệu backend</h2>
-            <p className="mt-2 text-sm font700 text-slate-500">
-              UI chỉ dùng món backend trả về, ưu tiên dish_name_vi, khẩu phần clean và image_url từ dataset.
+            <div className="inline-flex items-center gap-2 mb-2">
+              <span className="flex h-6 flex-shrink-0 items-center justify-center rounded-md bg-orange-100 px-2.5 text-[11px] font-bold uppercase tracking-wider text-orange-800">
+                THƯ VIỆN
+              </span>
+            </div>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight hidden">Thư viện món ăn</h2>
+            <p className="mt-1.5 text-sm font-semibold text-slate-500 max-w-2xl leading-relaxed">
+              Khám phá món ăn phù hợp với hồ sơ dinh dưỡng và mục tiêu tăng cân của bạn.
             </p>
           </div>
-          <span className="w-fit rounded-full bg-emerald-50 px-4 py-2 text-sm font900 text-emerald-800">
-            {foods.length} món
-          </span>
+          <div className="flex align-bottom">
+            <span className="inline-flex items-center justify-center h-10 px-5 rounded-xl bg-emerald-50 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200">
+              {filteredFoods.length} món phù hợp
+            </span>
+          </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-8 flex flex-wrap gap-2">
           {Object.entries(categoryCounts).map(([category, count]) => (
-            <span key={category} className="rounded-full bg-white/85 px-3 py-1.5 text-xs font900 text-slate-600 ring-1 ring-slate-100">
+            <span key={category} className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-200 shadow-sm border border-slate-50">
               {category}: {count}
             </span>
           ))}
         </div>
       </section>
 
-      <FilterBar>
-        <input
-          className="h-11 min-w-[220px] flex-1 rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 outline-none focus:border-emerald-500"
-          placeholder="Tìm theo tên món hoặc nhóm thực phẩm"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <FilterSelect label="Nhóm" value={group} onChange={setGroup} options={[["all", "Tất cả nhóm"], ...groups.map((item) => [item, item])]} />
-        <FilterSelect
-          label="Kcal"
-          value={kcalRange}
-          onChange={setKcalRange}
-          options={[
-            ["all", "Tất cả kcal"],
-            ["low", "< 250 kcal"],
-            ["medium", "250-450 kcal"],
-            ["high", "> 450 kcal"],
-          ]}
-        />
-        <FilterSelect label="Bữa" value={mealFilter} onChange={setMealFilter} options={[["all", "Tất cả bữa"], ...mealTitles.map((item) => [item, item])]} />
-        <FilterSelect
-          label="Hợp lệ"
-          value={validity}
-          onChange={setValidity}
-          options={[
-            ["eligible", "Hợp lệ"],
-            ["flagged", "Có cờ chất lượng"],
-            ["all", "Tất cả"],
-          ]}
-        />
-      </FilterBar>
+      <section className="bg-white rounded-3xl shadow-sm border border-slate-200 p-3 sm:p-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
+          <div className="lg:col-span-2">
+            <label className="block text-[11px] font-extrabold uppercase tracking-widest text-slate-400 mb-2">Tìm món ăn</label>
+            <div className="relative">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-bold outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                placeholder="Gõ tên món..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+          </div>
+          <FilterSelectX label="Nhóm món" value={group} onChange={setGroup} options={[["all", "Tất cả nhóm"], ...groups.map((item) => [item, item])]} />
+          <FilterSelectX
+            label="Mức kcal"
+            value={kcalRange}
+            onChange={setKcalRange}
+            options={[
+              ["all", "Tất cả kcal"],
+              ["low", "< 250 kcal"],
+              ["medium", "250-450 kcal"],
+              ["high", "> 450 kcal"],
+            ]}
+          />
+          <FilterSelectX
+            label="Phù hợp thực đơn"
+            value={validity}
+            onChange={setValidity}
+            options={[
+              ["eligible", "Đang khuyên dùng"],
+              ["all", "Tất cả thư viện"],
+            ]}
+          />
+        </div>
+      </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {filteredFoods.map((item) => (
-          <FoodCard
+          <FoodLibraryCard
             key={`${item.mealTitle || "catalog"}-${item.id}`}
             item={item}
             disliked={isFoodDisliked(item, profileSettings)}
@@ -1263,9 +1291,119 @@ function FoodsPage({ foods, meals, profileSettings, onOpenAddToMeal, onOpenDisli
           />
         ))}
       </section>
-      {!filteredFoods.length ? <EmptyState title="Không có món phù hợp bộ lọc" text="Thử bỏ bớt filter hoặc tạo lại thực đơn để backend trả thêm món." /> : null}
+      
+      {!filteredFoods.length ? (
+        <EmptyChartState 
+          title="Không tìm thấy món ăn phù hợp" 
+          desc="Thử điều chỉnh lại bộ lọc hoặc từ khóa tìm kiếm để khám phá nhiều món ăn ngon hơn." 
+          actionLabel="Xóa các bộ lọc"
+          onAction={() => {
+            setQuery("");
+            setGroup("all");
+            setKcalRange("all");
+            setValidity("eligible");
+          }}
+        />
+      ) : null}
+      
       <FoodDetailModal food={detailFood} onClose={() => setDetailFood(null)} />
     </div>
+  );
+}
+
+function FilterSelectX({ label, value, onChange, options }) {
+  return (
+    <div>
+      <label className="block text-[11px] font-extrabold uppercase tracking-widest text-slate-400 mb-2">{label}</label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm font-bold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+        >
+          {options.map(([val, label]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </select>
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function FoodLibraryCard({ item, disliked, onDetail, onAdd, onDislike }) {
+  return (
+    <article className="rounded-3xl bg-white p-5 shadow-sm border border-slate-200 hover:shadow-md transition-all flex flex-col justify-between">
+      <div className="flex gap-4">
+        <div className="h-28 w-28 shrink-0 overflow-hidden rounded-2xl bg-slate-100 shadow-inner">
+          <img
+            src={item.image}
+            alt={item.imageAlt || item.name}
+            className="h-full w-full object-cover"
+            onError={(event) => {
+              const image = event.currentTarget;
+              if (image.dataset.usedFallback === "true") return;
+              image.dataset.usedFallback = "true";
+              image.src = item.fallbackImage || defaultFoodImage;
+            }}
+          />
+        </div>
+        <div className="min-w-0 flex flex-col justify-center">
+          <div className="inline-flex mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+              {item.mealTitle || "Đề xuất"}
+            </span>
+          </div>
+          <h3 className="truncate text-base font-black text-slate-900">{item.name}</h3>
+          <p className="mt-0.5 truncate text-sm font-semibold text-slate-500">{item.foodGroup || item.category || "Chưa phân loại"}</p>
+          <div className="mt-2 text-[13px] font-bold text-slate-700 bg-slate-50 w-fit px-2 py-1 rounded truncate max-w-full inline-flex items-center gap-1.5">
+            <span className="text-orange-500">🔥 {item.calories} kcal</span>
+            <span className="text-slate-300">|</span>
+            <span className="truncate">{item.servingDisplay ? `${item.servingDisplay}` : item.servingGrams ? `~${item.servingGrams}g` : "1 phần"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs font-bold">
+        <div className="rounded-xl bg-sky-50/50 border border-sky-100 py-2.5 flex flex-col">
+          <span className="text-slate-400 text-[10px] uppercase mb-0.5">Protein</span>
+          <span className="text-sky-700">{item.protein}g</span>
+        </div>
+        <div className="rounded-xl bg-orange-50/50 border border-orange-100 py-2.5 flex flex-col">
+          <span className="text-slate-400 text-[10px] uppercase mb-0.5">Fat</span>
+          <span className="text-orange-700">{item.fat}g</span>
+        </div>
+        <div className="rounded-xl bg-emerald-50/50 border border-emerald-100 py-2.5 flex flex-col">
+          <span className="text-slate-400 text-[10px] uppercase mb-0.5">Carbs</span>
+          <span className="text-emerald-700">{item.carbs}g</span>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-[1fr_1fr_40px] gap-2">
+        <button type="button" className="h-10 rounded-xl bg-slate-50 text-slate-600 text-sm font-bold hover:bg-slate-100 transition-all border border-slate-200" onClick={onDetail}>
+          Chi tiết
+        </button>
+        <button type="button" className="h-10 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-all shadow-sm" onClick={onAdd}>
+          Nhật ký
+        </button>
+        <button 
+          title={disliked ? "Đã nằm trong danh sách Không thích" : "Đánh dấu Không thích món này"}
+          type="button" 
+          className={`h-10 w-10 flex items-center justify-center rounded-xl text-lg transition-all border ${disliked ? "bg-orange-50 text-orange-600 border-orange-200" : "bg-white text-slate-300 hover:text-orange-500 border-slate-200 hover:bg-slate-50"}`} 
+          onClick={onDislike}
+        >
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            {disliked ? (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.84 3h.32A2 2 0 0111 4.79v3.053l2.844-.949A2 2 0 0116.5 8.718V11m-6 3v5a2 2 0 002 2h3.454a2 2 0 001.96-1.558l.75-3.75A2 2 0 0017.703 14H10z" />
+            )}
+          </svg>
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -1277,105 +1415,223 @@ function ChartsPage({ weeklyCalories, macroData, summary, meals, validation }) {
   const compliance = buildComplianceRows(validation);
   const hasHistory = visibleCalories.length > 1;
   const tabs = [
-    ["calories", "Calories"],
-    ["macro", "Macro"],
-    ["weight", "Cân nặng"],
-    ["compliance", "Tuân thủ thực đơn"],
-    ["groups", "Nhóm thực phẩm"],
+    { id: "calories", label: "Calories", icon: "🔥" },
+    { id: "macro", label: "Macro", icon: "🥑" },
+    { id: "weight", label: "Cân nặng", icon: "⚖️" },
+    { id: "compliance", label: "Tuân thủ thực đơn", icon: "✅" },
+    { id: "groups", label: "Nhóm thực phẩm", icon: "🥗" },
   ];
 
+  const avgCalories = visibleCalories.length
+    ? Math.round(visibleCalories.reduce((sum, item) => sum + item.calories, 0) / visibleCalories.length)
+    : summary.eatenCalories || 0;
+    
+  const compliancePercent = summary.targetCalories ? Math.min(100, Math.round((summary.eatenCalories / summary.targetCalories) * 100)) : 0;
+
   return (
-    <div className="space-y-5">
-      <section className="glass-panel p-5 sm:p-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-6">
+      {/* 1. Header trang */}
+      <section className="glass-panel p-6 shadow-sm border border-slate-200/60 rounded-3xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Biểu đồ dinh dưỡng</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">Theo dõi dữ liệu thực đơn và lịch sử</h2>
+            <div className="inline-flex items-center gap-2 mb-2">
+              <span className="flex h-6 items-center rounded-md bg-emerald-100 px-2.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800">
+                NutriGain Dashboard
+              </span>
+            </div>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Biểu đồ dinh dưỡng</h2>
+            <p className="mt-1.5 text-sm font-semibold text-slate-500">
+              Theo dõi xu hướng calories, macro, cân nặng và mức tuân thủ thực đơn.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {["7", "14", "30"].map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`h-10 rounded-2xl px-4 text-sm font900 ${range === item ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-100"}`}
-                onClick={() => setRange(item)}
-              >
-                {item} ngày
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
-          {tabs.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`shrink-0 rounded-2xl px-4 py-2 text-sm font900 ${activeTab === id ? "bg-emerald-600 text-white" : "bg-white text-slate-700 ring-1 ring-slate-100"}`}
-              onClick={() => setActiveTab(id)}
-            >
-              {label}
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200">
+              {["7", "14", "30"].map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`h-9 px-4 text-sm font-bold rounded-lg transition-all ${
+                    range === item 
+                      ? "bg-white text-emerald-600 shadow-sm ring-1 ring-black/5" 
+                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
+                  }`}
+                  onClick={() => setRange(item)}
+                >
+                  {item} ngày
+                </button>
+              ))}
+            </div>
+            <button className="h-11 px-5 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center gap-2">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="text-slate-400">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              Chỉnh hồ sơ
             </button>
-          ))}
+            <button className="h-11 px-5 rounded-xl bg-emerald-600 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 transition-all flex items-center gap-2">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Xuất báo cáo
+            </button>
+          </div>
         </div>
       </section>
 
-      {activeTab === "calories" ? (
-        hasHistory ? (
-          <CaloriesChart data={visibleCalories} />
-        ) : (
-          <EmptyState title="Chưa đủ dữ liệu lịch sử calories" text="Hiện chỉ có dữ liệu thực đơn hôm nay. Khi có lịch sử nhiều ngày, biểu đồ 7/14/30 ngày sẽ hiển thị tại đây." />
-        )
-      ) : null}
-
-      {activeTab === "macro" ? (
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1fr)]">
-          <MacroChart data={macroData} />
-          <div className="glass-panel p-5">
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Nhận xét tự động</p>
-            <h3 className="mt-2 text-xl font-black text-slate-950">Macro hôm nay</h3>
-            <p className="mt-4 text-sm font800 leading-7 text-slate-600">{buildMacroComment(macroData)}</p>
-            <div className="mt-4 grid gap-3">
-              <InfoRow label="Protein" value={`${macroData.protein}g`} />
-              <InfoRow label="Fat" value={`${macroData.fat}g`} />
-              <InfoRow label="Carbs" value={`${macroData.carbs}g`} />
+      {/* 2. KPI Cards */}
+      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+        {[
+          { label: "Calories Kì Vọng/Ngày", value: `${avgCalories} kcal`, desc: "Mức trung bình", icon: "🔥", color: "text-orange-500", bg: "bg-orange-50" },
+          { label: "Protein Mục Tiêu", value: `${macroData.protein}g`, desc: "Hôm nay", icon: "🥩", color: "text-rose-500", bg: "bg-rose-50" },
+          { label: "Mức Tuân Thủ", value: `${compliancePercent}%`, desc: "Mục tiêu calo", icon: "🎯", color: "text-emerald-500", bg: "bg-emerald-50" },
+          { label: "Ngày Ghi Nhận", value: `${weeklyCalories.length}`, desc: "Tổng cộng", icon: "📅", color: "text-blue-500", bg: "bg-blue-50" },
+          { label: "Xu Hướng", value: summary.bmiStatus || "N/A", desc: "Dựa trên BMI", icon: "📈", color: "text-indigo-500", bg: "bg-indigo-50" }
+        ].map((kpi, idx) => (
+          <div key={idx} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-4">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${kpi.bg}`}>
+                {kpi.icon}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-slate-500 uppercase tracking-widest">{kpi.label}</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{kpi.value}</h3>
+              <p className="text-xs font-semibold text-slate-400 mt-2">{kpi.desc}</p>
             </div>
           </div>
-        </section>
-      ) : null}
+        ))}
+      </section>
 
-      {activeTab === "weight" ? (
-        <EmptyState title="Chưa có lịch sử cân nặng" text={`BMI hiện tại ${summary.bmi}. Cập nhật cân nặng định kỳ ở trang Tài khoản để dashboard vẽ xu hướng.`} />
-      ) : null}
+      {/* 3. Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none snap-x">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`shrink-0 snap-start flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition-all shadow-sm ${
+              activeTab === tab.id 
+                ? "bg-emerald-600 text-white border border-emerald-600" 
+                : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:text-slate-900"
+            }`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span>{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {activeTab === "compliance" ? (
-        <section className="grid gap-4 md:grid-cols-3">
-          {compliance.map((item) => (
-            <ProgressMetric key={item.label} label={item.label} value={item.value} target={item.target} unit={item.unit} />
-          ))}
-        </section>
-      ) : null}
-
-      {activeTab === "groups" ? (
-        <section className="glass-panel p-5 sm:p-6">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Nhóm thực phẩm</p>
-          <h2 className="mt-2 text-xl font-black text-slate-950">Tần suất nhóm món trong thực đơn</h2>
-          <div className="mt-5 grid gap-3">
-            {groupCounts.map((item) => (
-              <div key={item.label} className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-                <div className="flex items-center justify-between gap-3">
-                  <strong className="text-sm font900 text-slate-950">{item.label}</strong>
-                  <span className="text-sm font900 text-emerald-700">{item.count} món</span>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${item.percent}%` }} />
-                </div>
+      {/* 4 & 5. Main Chart Card & Empty State */}
+      <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 relative overflow-hidden">
+        {activeTab === "calories" ? (
+          hasHistory ? (
+            <div className="p-6">
+              <div className="mb-6">
+                <h3 className="text-lg font-black text-slate-900">Biểu đồ Calories</h3>
+                <p className="text-sm font-medium text-slate-500 mt-1">Xu hướng nạp năng lượng trong khoảng {range} ngày gần đây.</p>
               </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
+              <CaloriesChart data={visibleCalories} />
+            </div>
+          ) : (
+            <EmptyChartState 
+              title="Chưa đủ dữ liệu lịch sử Calories" 
+              desc="Hệ thống cần ít nhất 2 ngày ghi nhận để vẽ xu hướng. Bạn hãy tạo lịch sử bằng cách sử dụng ứng dụng mỗi ngày."
+              actionLabel="Ghi nhận ngay"
+            />
+          )
+        ) : null}
 
+        {activeTab === "macro" ? (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(320px,0.3fr)] p-6">
+            <div className="flex flex-col">
+              <div className="mb-6">
+                <h3 className="text-lg font-black text-slate-900">Tỷ lệ Macronutrients</h3>
+                <p className="text-sm font-medium text-slate-500 mt-1">Phân bổ Protein, Fat, Carbs trong bữa ăn hôm nay.</p>
+              </div>
+              <div className="flex-1 flex justify-center items-center min-h-[300px]">
+                <MacroChart data={macroData} />
+              </div>
+            </div>
+            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 flex flex-col justify-center">
+              <div className="inline-flex mb-4">
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 uppercase rounded-md tracking-wider">AI Insight</span>
+              </div>
+              <h3 className="text-lg font-black text-slate-900">Phân tích nhanh</h3>
+              <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-600 border-b border-slate-200 pb-5">{buildMacroComment(macroData)}</p>
+              <div className="mt-5 grid gap-4">
+                <InfoRow label="🥩 Protein" value={`${macroData.protein}g`} />
+                <InfoRow label="🥑 Fat" value={`${macroData.fat}g`} />
+                <InfoRow label="🍚 Carbs" value={`${macroData.carbs}g`} />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "weight" ? (
+          <EmptyChartState 
+            title="Chưa có lịch sử Cân Nặng" 
+            desc={`Chỉ số BMI hiện tại của bạn là ${summary.bmi}. Cập nhật cân nặng định kỳ ở trang Tài khoản để ứng dụng theo dõi tiến trình tăng/giảm cân của bạn.`}
+            actionLabel="Cập nhật hồ sơ"
+          />
+        ) : null}
+
+        {activeTab === "compliance" ? (
+          <div className="p-6">
+            <div className="mb-6 border-b border-slate-100 pb-5">
+              <h3 className="text-lg font-black text-slate-900">Chi tiết mức tuân thủ</h3>
+              <p className="text-sm font-medium text-slate-500 mt-1">So sánh thực tế đạt được so với mục tiêu đề ra.</p>
+            </div>
+            <div className="grid gap-5 md:grid-cols-3">
+              {compliance.map((item) => (
+                <ProgressMetric key={item.label} label={item.label} value={item.value} target={item.target} unit={item.unit} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "groups" ? (
+          <div className="p-6">
+            <div className="mb-6">
+              <h3 className="text-lg font-black text-slate-900">Tần suất nhóm món ăn</h3>
+              <p className="text-sm font-medium text-slate-500 mt-1">Sự đa dạng của các nhóm thực phẩm trong thực đơn hiện tại.</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {groupCounts.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 hover:shadow-sm transition-all hover:bg-white">
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <strong className="text-sm font-extrabold text-slate-800">{item.label}</strong>
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md">{item.count} món</span>
+                  </div>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-1000" style={{ width: `${item.percent}%` }} />
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-400 text-right mt-2 uppercase">{item.percent}% tổng số</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* 6. Khu vực biểu đồ BMR & TDEE */}
       <EnergyChart bmr={summary.bmr} tdee={summary.tdee} />
+    </div>
+  );
+}
+
+function EmptyChartState({ title, desc, actionLabel }) {
+  return (
+    <div className="flex flex-col items-center justify-center p-12 text-center py-20">
+      <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-6 shadow-sm">
+        <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="text-slate-300">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h2.667c.7 0 1.349.447 1.583 1.107l1.056 2.955a1.678 1.678 0 003.165 0l2.056-5.748a1.678 1.678 0 013.165 0l1.056 2.955c.234.66.883 1.107 1.583 1.107H21" />
+        </svg>
+      </div>
+      <h3 className="text-xl font-black text-slate-800 mb-2">{title}</h3>
+      <p className="max-w-md text-sm font-semibold text-slate-500 leading-relaxed mb-8">{desc}</p>
+      <button className="h-10 px-5 rounded-xl bg-emerald-50 text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition-all">
+        {actionLabel}
+      </button>
     </div>
   );
 }
@@ -1703,42 +1959,240 @@ function FoodDetailModal({ food, onClose }) {
 }
 
 function AccountSettingsPage({ email, profile, eligibility, errors, onChange, onRegenerate, isSubmitting }) {
+  const [activeTab, setActiveTab] = useState("profile");
+
+  const tabs = [
+    { id: 'profile', label: 'Hồ sơ cá nhân', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+    { id: 'nutrition', label: 'Mục tiêu dinh dưỡng', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+    { id: 'security', label: 'Bảo mật', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
+    { id: 'preferences', label: 'Tuỳ chỉnh', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' }
+  ];
+
+  const handleMockSave = () => {
+    alert("Tính năng đang phát triển. API chưa hỗ trợ lưu trữ thay đổi này.");
+  };
+
   return (
     <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
       <div className="space-y-5">
         <AccountPanel email={email} />
-        <EligibilityCard eligibility={eligibility} />
+        <div className="glass-panel p-2">
+          <nav className="flex flex-col gap-1">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font900 transition-colors ${
+                  activeTab === tab.id ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <svg className="w-5 h-5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d={tab.icon} />
+                </svg>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </div>
-      <section className="glass-panel p-5 sm:p-6">
-        <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hồ sơ cá nhân</p>
-        <h2 className="mt-2 text-2xl font-black text-slate-950">Chỉnh thông tin gợi ý thực đơn</h2>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <ProfileField label="Tuổi" name="age" type="number" min="1" max="120" value={profile.age} error={errors.age} onChange={onChange} />
-          <ProfileSelect label="Giới tính" name="sex" value={profile.sex} error={errors.sex} onChange={onChange} options={[{ value: "", label: "Không chọn" }, { value: "male", label: "Nam" }, { value: "female", label: "Nữ" }]} />
-          <ProfileField label="Chiều cao (cm)" name="height" type="number" min="100" max="230" value={profile.height} error={errors.height} onChange={onChange} />
-          <ProfileField label="Cân nặng hiện tại (kg)" name="weight" type="number" min="20" max="250" value={profile.weight} error={errors.weight} onChange={onChange} />
-          <ProfileField label="Cân nặng mục tiêu (kg)" name="target_weight" type="number" min="20" max="250" value={profile.target_weight || ""} error={errors.target_weight} onChange={onChange} />
-          <ProfileSelect label="Tốc độ tăng cân" name="gain_speed" value={profile.gain_speed} error={errors.gain_speed} onChange={onChange} options={[{ value: "slow", label: "Nhẹ, ổn định" }, { value: "medium", label: "Vừa phải" }, { value: "fast", label: "Mạnh hơn" }]} />
-          <ProfileSelect label="Mức độ vận động" name="activity" value={profile.activity} error={errors.activity} onChange={onChange} options={[{ value: "default", label: "Mặc định" }, { value: "sedentary", label: "Ít vận động" }, { value: "light", label: "Nhẹ" }, { value: "moderate", label: "Vừa phải" }, { value: "active", label: "Năng động" }, { value: "very_active", label: "Rất năng động" }]} />
-          <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng / eat clean" }, { value: "vegetarian", label: "Chay" }, { value: "low_carb", label: "Low-carb" }]} />
-          <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
-          <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
-          <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} />
-          <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} />
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className="h-12 rounded-2xl bg-slate-950 px-5 text-sm font900 text-white disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onRegenerate}
-            disabled={isSubmitting || !eligibility.eligible}
-          >
-            {isSubmitting ? "Đang cập nhật..." : "Tạo lại theo hồ sơ mới"}
-          </button>
-          <span className="text-sm font800 text-slate-500">BMI tự động: {eligibility.bmi ?? "Không đủ dữ liệu"}</span>
-        </div>
-      </section>
+
+      <div className="space-y-5">
+        {activeTab === 'profile' && (
+          <section className="glass-panel p-5 sm:p-6 animate-fade-in">
+            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hồ sơ cá nhân</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">Chỉnh thông tin gợi ý thực đơn</h2>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <ProfileField label="Tuổi" name="age" type="number" min="1" max="120" value={profile.age} error={errors.age} onChange={onChange} />
+              <ProfileSelect label="Giới tính" name="sex" value={profile.sex} error={errors.sex} onChange={onChange} options={[{ value: "", label: "Không chọn" }, { value: "male", label: "Nam" }, { value: "female", label: "Nữ" }]} />
+              <ProfileField label="Chiều cao (cm)" name="height" type="number" min="100" max="230" value={profile.height} error={errors.height} onChange={onChange} />
+              <ProfileField label="Cân nặng hiện tại (kg)" name="weight" type="number" min="20" max="250" value={profile.weight} error={errors.weight} onChange={onChange} />
+              <ProfileField label="Cân nặng mục tiêu (kg)" name="target_weight" type="number" min="20" max="250" value={profile.target_weight || ""} error={errors.target_weight} onChange={onChange} />
+              <ProfileSelect label="Tốc độ tăng cân" name="gain_speed" value={profile.gain_speed} error={errors.gain_speed} onChange={onChange} options={[{ value: "slow", label: "Nhẹ, ổn định" }, { value: "medium", label: "Vừa phải" }, { value: "fast", label: "Mạnh hơn" }]} />
+              <ProfileSelect label="Mức độ vận động" name="activity" value={profile.activity} error={errors.activity} onChange={onChange} options={[{ value: "default", label: "Mặc định" }, { value: "sedentary", label: "Ít vận động" }, { value: "light", label: "Nhẹ" }, { value: "moderate", label: "Vừa phải" }, { value: "active", label: "Năng động" }, { value: "very_active", label: "Rất năng động" }]} />
+              <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng / eat clean" }, { value: "vegetarian", label: "Chay" }, { value: "low_carb", label: "Low-carb" }]} />
+              <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
+              <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
+              <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} />
+              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} />
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
+              <button
+                type="button"
+                className="h-12 rounded-2xl bg-emerald-600 px-6 text-sm font900 text-white disabled:cursor-not-allowed disabled:opacity-60 hover:bg-emerald-700 transition"
+                onClick={onRegenerate}
+                disabled={isSubmitting || !eligibility.eligible}
+              >
+                {isSubmitting ? "Đang cập nhật..." : "Cập nhật và tạo lại thực đơn"}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'nutrition' && (
+          <div className="animate-fade-in space-y-5">
+             <EligibilityCard eligibility={eligibility} />
+          </div>
+        )}
+
+        {activeTab === 'security' && (
+          <section className="glass-panel p-5 sm:p-6 animate-fade-in">
+            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Bảo mật</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">Thay đổi mật khẩu</h2>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <ProfileField label="Mật khẩu hiện tại" name="currentPassword" type="password" />
+              <div className="hidden sm:block"></div>
+              <ProfileField label="Mật khẩu mới" name="newPassword" type="password" />
+              <ProfileField label="Xác nhận mật khẩu mới" name="confirmPassword" type="password" />
+            </div>
+            <div className="mt-5 border-t border-slate-100 pt-5">
+              <button
+                type="button"
+                onClick={handleMockSave}
+                className="h-12 rounded-2xl bg-slate-950 px-6 text-sm font900 text-white hover:bg-slate-800 transition"
+              >
+                Lưu mật khẩu
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'preferences' && (
+          <section className="glass-panel p-5 sm:p-6 animate-fade-in">
+            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Tuỳ chỉnh</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">Giao diện và thông báo</h2>
+            <div className="mt-7 space-y-6">
+              
+              <div>
+                <h3 className="text-sm font900 text-slate-900 mb-3">Chủ đề (Theme)</h3>
+                <div className="flex gap-3">
+                  <button className="flex-1 rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-4 text-center font800 text-emerald-700">Sáng (Light)</button>
+                  <button onClick={handleMockSave} className="flex-1 rounded-2xl border-2 border-transparent bg-slate-50 p-4 text-center font800 text-slate-500 hover:bg-slate-100 transition">Tối (Dark)</button>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <h3 className="text-sm font900 text-slate-900 mb-3 mt-4">Thông báo Email</h3>
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between gap-3 rounded-2xl bg-white/85 p-4 text-sm font900 text-slate-800 ring-1 ring-slate-100">
+                    Báo cáo dinh dưỡng hàng tuần
+                    <input type="checkbox" defaultChecked className="h-5 w-5 rounded border-slate-300 text-emerald-600" onChange={handleMockSave} />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-2xl bg-white/85 p-4 text-sm font900 text-slate-800 ring-1 ring-slate-100">
+                    Nhắc nhở cập nhật cân nặng
+                    <input type="checkbox" defaultChecked className="h-5 w-5 rounded border-slate-300 text-emerald-600" onChange={handleMockSave} />
+                  </label>
+                </div>
+              </div>
+
+            </div>
+          </section>
+        )}
+      </div>
     </section>
+  );
+}
+
+function SettingsMetricCard({ icon: Icon, label, value, subtext, colorClass }) {
+  return (
+    <div className="glass-panel p-5 flex flex-col justify-between h-full hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between">
+        <p className="text-sm font800 text-slate-500">{label}</p>
+        <div className={`p-2.5 rounded-xl ${colorClass}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+      <div className="mt-4">
+        <h3 className="text-3xl font-black text-slate-900">{value}</h3>
+        <p className="text-xs font800 text-slate-400 mt-1">{subtext}</p>
+      </div>
+    </div>
+  );
+}
+
+function ValidationRuleItem({ id, label, description, checked, onChange, required = false }) {
+  return (
+    <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white border border-slate-100 hover:border-emerald-100 transition-colors shadow-sm">
+      <div className="flex items-start gap-4">
+        <div className="mt-0.5">
+          <div className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font900 text-slate-900">{label}</h4>
+            {required && <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-700 text-[10px] font900 uppercase tracking-widest">Bắt buộc</span>}
+          </div>
+          <p className="text-xs font800 text-slate-500 mt-1">{description}</p>
+        </div>
+      </div>
+      
+      <button 
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(id)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${checked ? 'bg-emerald-500' : 'bg-slate-200'}`}
+      >
+        <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${checked ? 'translate-x-5' : 'translate-x-0'}`}></span>
+      </button>
+    </div>
+  );
+}
+
+function ReportSummaryCard({ datasetStats, progress, summary, validation }) {
+  const isOverTarget = progress >= 100;
+  return (
+    <div className="glass-panel p-6 sticky top-28">
+      <div className="flex items-center gap-2 mb-6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-emerald-600"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>
+        <h2 className="text-lg font-black text-slate-900">Báo cáo & Tổng quan</h2>
+      </div>
+
+      <div className="space-y-5">
+        
+        <div>
+          <div className="flex justify-between text-sm mb-1.5">
+            <span className="font900 text-slate-700">Tiến độ Calories</span>
+            <span className={`font-black ${isOverTarget ? 'text-orange-600' : 'text-emerald-600'}`}>{progress}%</span>
+          </div>
+          <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div 
+              className={`h-full rounded-full transition-all duration-500 ${isOverTarget ? 'bg-orange-500' : 'bg-emerald-500'}`}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            ></div>
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+          <div className="flex justify-between">
+            <span className="text-sm font800 text-slate-500">Cập nhật dataset</span>
+            <span className="text-sm font900 text-slate-900">{datasetStats.updatedAt || "Không rõ"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm font800 text-slate-500">BMR / TDEE</span>
+            <span className="text-sm font900 text-slate-900">{summary.bmr} / {summary.tdee} kcal</span>
+          </div>
+          <div className="flex justify-between border-t border-slate-200 pt-2.5">
+            <span className="text-sm font800 text-slate-500">Tổng Calories thực đơn</span>
+            <span className="text-sm font900 text-emerald-700">{validation.totalCalories} kcal</span>
+          </div>
+        </div>
+
+        <div className="pt-2 gap-3 flex flex-col">
+          <button type="button" className="flex items-center justify-center gap-2 h-12 rounded-xl bg-emerald-600 px-4 text-sm font900 text-white shadow-sm hover:bg-emerald-700 transition">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            Xuất file CSV
+          </button>
+          <button type="button" className="flex items-center justify-center gap-2 h-12 rounded-xl bg-slate-100 px-4 text-sm font900 text-slate-400 cursor-not-allowed" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M10 13v6"/><path d="M10 13h2.5"/><path d="M10 16h1.5"/><path d="M16 13v6"/><path d="M16 13h2.5"/><path d="M16 19h2.5"/></svg>
+            Xuất PDF (Chưa hỗ trợ)
+          </button>
+        </div>
+
+        <p className="text-center text-xs font800 text-slate-400 mt-2">Dữ liệu được cập nhật theo kết quả tính toán gần nhất</p>
+      </div>
+    </div>
   );
 }
 
@@ -1750,52 +2204,140 @@ function SystemSettingsPage({ datasetStats, progress, summary, validation }) {
     placeholder: true,
   });
 
+  const [saving, setSaving] = useState(false);
+
   function toggleRule(key) {
     setRules((current) => ({ ...current, [key]: !current[key] }));
   }
 
+  const handleSave = () => {
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      alert("Cài đặt đã được lưu thành công.");
+    }, 800);
+  };
+
+  const handleRestore = () => {
+    setRules({ bmi: true, macro: true, duplicateGroup: true, placeholder: true });
+  };
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-black text-slate-950">Cài đặt hệ thống</h1>
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font900 text-slate-600">Admin</span>
+        </div>
+        <p className="mt-1 text-sm font800 text-slate-500">Quản lý rule kiểm định, dữ liệu món ăn và xuất báo cáo hệ thống.</p>
+      </div>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <InfoTile label="Tổng số món dataset" value={formatStat(datasetStats.total)} />
-        <InfoTile label="Menu eligible" value={formatStat(datasetStats.eligible)} />
-        <InfoTile label="Bị loại" value={formatStat(datasetStats.excluded)} />
-        <InfoTile label="Món đang hiển thị" value={datasetStats.visible} />
+        <SettingsMetricCard 
+          icon={(props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><polyline points="14 2 14 8 20 8"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></svg>}
+          label="Tổng món Dataset" 
+          value={formatStat(datasetStats.total)} 
+          subtext="Số lượng món gốc từ CSV"
+          colorClass="bg-blue-50 text-blue-600"
+        />
+        <SettingsMetricCard 
+          icon={(props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}
+          label="Menu Eligible" 
+          value={formatStat(datasetStats.eligible)} 
+          subtext="Món được phép đưa vào thực đơn"
+          colorClass="bg-emerald-50 text-emerald-600"
+        />
+        <SettingsMetricCard 
+          icon={(props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>}
+          label="Món bị loại" 
+          value={formatStat(datasetStats.excluded)} 
+          subtext="Vi phạm macro hoặc rule"
+          colorClass="bg-orange-50 text-orange-600"
+        />
+        <SettingsMetricCard 
+          icon={(props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+          label="Món đang hiển thị" 
+          value={datasetStats.visible} 
+          subtext="Hiện diện trong kế hoạch ăn"
+          colorClass="bg-indigo-50 text-indigo-600"
+        />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="glass-panel p-5 sm:p-6">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Rule gợi ý</p>
-          <h2 className="mt-2 text-xl font-black text-slate-950">Cài đặt kiểm định thực đơn</h2>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {[
-              ["bmi", "Kiểm tra BMI < 18.5"],
-              ["macro", "Kiểm tra macro bất thường"],
-              ["duplicateGroup", "Kiểm tra trùng nhóm món"],
-              ["placeholder", "Dùng placeholder khi thiếu ảnh"],
-            ].map(([key, label]) => (
-              <label key={key} className="flex items-center justify-between gap-3 rounded-2xl bg-white/85 p-4 text-sm font900 text-slate-800 ring-1 ring-slate-100">
-                {label}
-                <input type="checkbox" className="h-5 w-5 rounded border-slate-300 text-emerald-600" checked={rules[key]} onChange={() => toggleRule(key)} />
-              </label>
-            ))}
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] items-start">
+        
+        {/* Left Column: Validation Rules */}
+        <div className="glass-panel p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-xs font900 uppercase tracking-wider text-emerald-700">Rules</p>
+              <h2 className="mt-1 text-xl font-black text-slate-900">Cài đặt kiểm định thuật toán</h2>
+            </div>
+            <div className="p-2 bg-slate-50 rounded-xl">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-slate-400"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><path d="M17 16v-6a2 2 0 0 0-2-2h-2"/></svg>
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <ValidationRuleItem 
+              id="bmi" 
+              label="Kiểm tra BMI < 18.5" 
+              description="Từ chối sinh thực đơn đối với người có BMI bình thường hoặc béo phì." 
+              checked={rules.bmi} 
+              onChange={toggleRule} 
+              required 
+            />
+            <ValidationRuleItem 
+              id="macro" 
+              label="Kiểm tra macro bất thường" 
+              description="Loại bỏ các món ăn có chỉ số Đạm/Béo/Tinh bột vi phạm logic hoặc không cân đối." 
+              checked={rules.macro} 
+              onChange={toggleRule} 
+            />
+            <ValidationRuleItem 
+              id="duplicateGroup" 
+              label="Kiểm tra trùng nhóm món" 
+              description="Ngăn chặn việc xuất hiện nhiều món cùng nhóm (VD: 2 món xào, 2 món canh) trong 1 bữa." 
+              checked={rules.duplicateGroup} 
+              onChange={toggleRule} 
+              required
+            />
+            <ValidationRuleItem 
+              id="placeholder" 
+              label="Dùng placeholder khi thiếu ảnh" 
+              description="Tự động thay thế bằng ảnh minh họa đối với các món ăn chưa có ảnh thật trong dataset." 
+              checked={rules.placeholder} 
+              onChange={toggleRule} 
+            />
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3 pt-6 border-t border-slate-100">
+            <button 
+              type="button" 
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 h-11 rounded-xl bg-slate-900 px-6 text-sm font900 text-white hover:bg-slate-800 transition"
+            >
+              {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </button>
+            <button 
+              type="button" 
+              onClick={handleRestore}
+              className="h-11 rounded-xl bg-white border border-slate-200 px-5 text-sm font900 text-slate-600 hover:bg-slate-50 transition"
+            >
+              Khôi phục mặc định
+            </button>
           </div>
         </div>
 
-        <div className="glass-panel p-5">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Xuất báo cáo</p>
-          <h2 className="mt-2 text-xl font-black text-slate-950">Báo cáo đồ án</h2>
-          <div className="mt-5 space-y-3">
-            <InfoRow label="Cập nhật dataset" value={datasetStats.updatedAt || "Không đủ dữ liệu"} />
-            <InfoRow label="Tiến độ kcal" value={`${progress}%`} />
-            <InfoRow label="BMR/TDEE" value={`${summary.bmr}/${summary.tdee} kcal`} />
-            <InfoRow label="Tổng kcal" value={`${validation.totalCalories} kcal`} />
-          </div>
-          <div className="mt-5 grid gap-2">
-            <button type="button" className="h-11 rounded-2xl bg-emerald-600 px-4 text-sm font900 text-white">CSV</button>
-            <button type="button" className="h-11 rounded-2xl bg-slate-100 px-4 text-sm font900 text-slate-500" disabled>PDF chưa cấu hình</button>
-          </div>
-        </div>
+        {/* Right Column: Report Summary */}
+        <ReportSummaryCard 
+          datasetStats={datasetStats} 
+          progress={progress} 
+          summary={summary} 
+          validation={validation} 
+        />
+        
       </section>
     </div>
   );
@@ -2494,90 +3036,357 @@ function IconFilter({ className }) {
   );
 }
 
+const HelpIcons = {
+  Search: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>,
+  ChevronDown: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m6 9 6 6 6-6"/></svg>,
+  ChevronUp: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m18 15-6-6-6 6"/></svg>,
+  MessageSquare: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>,
+  BookOpen: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
+  LifeBuoy: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="m4.9 4.9 4.2 4.2"/><path d="m14.9 14.9 4.2 4.2"/><path d="m14.9 9.1 4.2-4.2"/><path d="m4.9 19.1 4.2-4.2"/></svg>,
+  Activity: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+  AlertCircle: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  Lightbulb: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>,
+  HelpCircle: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  CheckCircle: (props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg>
+};
+
 function EnhancedHelpPanel({ foods }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [expandedFaq, setExpandedFaq] = useState("faq-0");
+  
   const [report, setReport] = useState({ item: "", type: "wrong_image", description: "" });
   const [submitted, setSubmitted] = useState(false);
-  const faq = [
-    ["Hệ thống dành cho ai?", "NutriGain chỉ phục vụ người thiếu cân hoặc BMI dưới 18.5 cần tăng cân lành mạnh."],
-    ["Vì sao cần BMI < 18.5?", "Đây là ràng buộc phạm vi đề tài: hệ thống không sinh thực đơn tăng cân cho người bình thường, thừa cân hoặc béo phì."],
-    ["BMR/TDEE là gì?", "BMR là năng lượng nền, TDEE là tổng năng lượng tiêu hao ước tính theo hoạt động."],
-    ["Vì sao không gọi API ảnh?", "Ảnh món ăn lấy từ image_url có sẵn trong food_dataset_fixed.csv để kết quả ổn định và dễ kiểm định."],
-    ["Cách đổi món?", "Dùng nút Đổi món ở Kế hoạch bữa ăn để yêu cầu backend tạo lại thực đơn phù hợp."],
-    ["Cách cập nhật cân nặng?", "Vào Tài khoản, chỉnh cân nặng hiện tại rồi tạo lại thực đơn."],
+
+  const categories = [
+    { id: "all", label: "Tất cả" },
+    { id: "system", label: "Hệ thống" },
+    { id: "profile", label: "Hồ sơ & BMI" },
+    { id: "menu", label: "Thực đơn" },
+    { id: "data", label: "Dữ liệu & Ảnh" },
+    { id: "account", label: "Tài khoản" },
   ];
+
+  const faqs = [
+    { id: 'faq-0', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Hệ thống dành cho ai?', answer: 'NutriGain chỉ phục vụ người thiếu cân hoặc BMI dưới 18.5 có nhu cầu tăng cân lành mạnh.' },
+    { id: 'faq-1', category: 'profile', group: 'Hồ sơ & BMI', title: 'Vì sao cần BMI < 18.5?', answer: 'Đây là ràng buộc phạm vi hệ thống. Chúng tôi thiết kế thuật toán dành riêng cho người thiếu cân, không áp dụng cho người bình thường, thừa cân hoặc béo phì.' },
+    { id: 'faq-2', category: 'profile', group: 'Hồ sơ & BMI', title: 'BMR/TDEE là gì?', answer: 'BMR là năng lượng nền (năng lượng cơ thể cần để duy trì sự sống). TDEE là tổng năng lượng tiêu hao ước tính theo mức độ vận động hàng ngày của bạn.' },
+    { id: 'faq-3', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Vì sao hệ thống không sinh thực đơn cho người BMI bình thường?', answer: 'Thuật toán tăng cân yêu cầu thặng dư calo cụ thể, nếu áp dụng cho người bình thường sẽ gây nguy cơ thừa cân béo phì. Hệ thống sẽ khóa tính năng sinh thực đơn nếu BMI ≥ 18.5.' },
+    { id: 'faq-4', category: 'menu', group: 'Thực đơn & món ăn', title: 'Cách đổi món trong kế hoạch bữa ăn?', answer: 'Bạn nhấn nút "Đổi món" ở góc thẻ món ăn trong Kế hoạch. Hệ thống sẽ đề xuất một nhóm món khác có giá trị dinh dưỡng tương đương.' },
+    { id: 'faq-5', category: 'account', group: 'Tài khoản', title: 'Cách cập nhật cân nặng và tạo lại thực đơn?', answer: 'Vào phần "Tài khoản", cập nhật cân nặng hiện tại và nhấn "Cập nhật và tạo lại thực đơn". Lượng calories bắt buộc sẽ được tính toán lại theo cân nặng mới.' },
+    { id: 'faq-6', category: 'data', group: 'Ảnh và dữ liệu', title: 'Vì sao ảnh món ăn có thể là ảnh minh họa?', answer: 'Hệ thống tối ưu hiệu suất và tốc độ load bằng cách dùng bộ dataset tĩnh. Một số món ăn chưa có ảnh thật sẽ được thay thế bằng placeholder hoặc ảnh minh họa chung.' },
+    { id: 'faq-7', category: 'menu', group: 'Thực đơn & món ăn', title: 'Nếu thực đơn chưa hiện thì phải làm gì?', answer: 'Đảm bảo bạn đã nhập đầy đủ Chiều cao, Cân nặng và hệ thống xác nhận bạn đủ điều kiện (BMI < 18.5). Sau đó nhấn Tạo thực đơn.' },
+    { id: 'faq-8', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Khi nào dữ liệu biểu đồ được hiển thị?', answer: 'Biểu đồ sẽ xuất hiện sau khi bạn có ít nhất một thao tác đánh dấu "Đã ăn" hoặc có dòng dữ liệu báo cáo dinh dưỡng trong ngày được ghi nhận.' },
+    { id: 'faq-9', category: 'menu', group: 'Thực đơn & món ăn', title: 'Làm sao đánh dấu “Đã ăn”?', answer: 'Vào mục "Kế hoạch món ăn" hoặc Dashboard, click vào thẻ món ăn hoặc nút tick để xác nhận bạn đã tiêu thụ món đó. Hệ thống sẽ cộng dồn calories trong ngày.' }
+  ];
+
+  const filteredFaqs = faqs.filter(faq => {
+    const matchesSearch = faq.title.toLowerCase().includes(searchQuery.toLowerCase()) || faq.answer.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = activeCategory === "all" || faq.category === activeCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const groupedFaqs = filteredFaqs.reduce((acc, faq) => {
+    if (!acc[faq.group]) acc[faq.group] = [];
+    acc[faq.group].push(faq);
+    return acc;
+  }, {});
 
   function submitReport(event) {
     event.preventDefault();
     if (!report.item.trim() || !report.description.trim()) return;
     setSubmitted(true);
+    setTimeout(() => setSubmitted(false), 5000);
   }
 
-  return (
-    <div id="help-panel" className="space-y-5">
-      <section className="glass-panel scroll-mt-28 p-5">
-        <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hỗ trợ</p>
-        <h2 className="mt-2 text-xl font-black text-slate-950">FAQ và hướng dẫn nhanh</h2>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {faq.map(([title, text]) => (
-            <NoticeRow key={title} tone="green" title={title} text={text} />
-          ))}
-        </div>
-      </section>
+  const handleScrollTo = (id) => {
+    const el = document.getElementById(id);
+    if(el) el.scrollIntoView({ behavior: 'smooth' });
+  };
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1fr)]">
-        <div className="glass-panel p-5">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hướng dẫn</p>
-          <div className="mt-5 grid gap-3">
-            {[
-              "Nhập hồ sơ đủ chiều cao và cân nặng.",
-              "Hệ thống kiểm tra BMI trước khi tạo thực đơn.",
-              "Xem Kế hoạch bữa ăn để kiểm tra nhóm món và lý do gợi ý.",
-              "Dùng Nhật ký ăn uống để đánh dấu món đã ăn và chỉnh khẩu phần.",
-              "Báo lỗi món nếu ảnh, macro hoặc tên món chưa đúng.",
-            ].map((item, index) => (
-              <div key={item} className="rounded-2xl bg-white/85 p-4 text-sm font800 text-slate-700 ring-1 ring-slate-100">
-                <strong className="mr-2 text-emerald-700">{index + 1}.</strong>{item}
-              </div>
+  return (
+    <div id="help-panel" className="space-y-6">
+      
+      {/* Top Header Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-black text-slate-950">Hỗ trợ</h1>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font900 text-emerald-800">Support Center</span>
+          </div>
+          <p className="mt-1 text-sm font800 text-slate-500">Tìm câu trả lời nhanh, xem hướng dẫn sử dụng và gửi phản hồi cho hệ thống.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => handleScrollTo('quick-guide')} className="flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font900 text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 transition">
+            <HelpIcons.BookOpen className="h-4 w-4 text-emerald-600" /> Xem hướng dẫn
+          </button>
+          <button onClick={() => handleScrollTo('feedback-form')} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font900 text-white shadow-sm hover:bg-emerald-700 transition">
+            <HelpIcons.MessageSquare className="h-4 w-4" /> Gửi phản hồi
+          </button>
+        </div>
+      </div>
+
+      {/* Hero Support Card */}
+      <section className="glass-panel relative overflow-hidden bg-gradient-to-br from-emerald-600 to-teal-800 p-8 sm:p-10 shadow-lg text-center">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay"></div>
+        <div className="relative z-10 mx-auto max-w-2xl">
+          <h2 className="text-2xl sm:text-3xl font-black text-white">Chúng tôi có thể giúp gì cho bạn?</h2>
+          
+          <div className="mt-6 relative">
+            <HelpIcons.Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Tìm câu hỏi, ví dụ: BMI là gì, cách đổi món, cập nhật cân nặng..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-14 w-full rounded-full border-0 bg-white pl-12 pr-4 text-base font800 text-slate-900 shadow-lg outline-none ring-4 ring-emerald-500/20 placeholder:text-slate-400 focus:ring-emerald-500/40 transition-all"
+            />
+          </div>
+
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            {["Hồ sơ dinh dưỡng", "Tạo thực đơn", "Đổi món", "Nhật ký ăn uống", "Biểu đồ", "Tài khoản", "Thông báo"].map(chip => (
+              <button key={chip} onClick={() => setSearchQuery(chip)} className="rounded-full bg-white/10 px-4 py-1.5 text-sm font800 text-white hover:bg-white/20 transition whitespace-nowrap">
+                {chip}
+              </button>
             ))}
           </div>
+
+          <div className="mt-8 flex justify-center gap-6 text-emerald-50">
+             <div className="flex items-center gap-2"><HelpIcons.HelpCircle className="h-5 w-5" /><span className="text-sm font900">10+ FAQ</span></div>
+             <div className="flex items-center gap-2"><HelpIcons.BookOpen className="h-5 w-5" /><span className="text-sm font900">Hướng dẫn 5 bước</span></div>
+             <div className="flex items-center gap-2"><HelpIcons.LifeBuoy className="h-5 w-5" /><span className="text-sm font900">Phản hồi 24/7</span></div>
+          </div>
+        </div>
+      </section>
+
+      {/* Main Content 2 Columns */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.8fr)] items-start">
+        
+        {/* Left Column: Knowledge */}
+        <div className="space-y-6">
+          
+          {/* FAQ Section */}
+          <section className="glass-panel p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-6">
+              <HelpIcons.HelpCircle className="h-5 w-5 text-emerald-600" />
+              <h2 className="text-xl font-black text-slate-900">Câu hỏi thường gặp</h2>
+            </div>
+            
+            {Object.keys(groupedFaqs).length === 0 ? (
+              <div className="text-center py-10">
+                <HelpIcons.Search className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                <p className="text-base font900 text-slate-600">Không tìm thấy nội dung phù hợp.</p>
+                <p className="text-sm font800 text-slate-500 mt-1">Hãy thử từ khóa khác hoặc gửi phản hồi phía dưới.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {Object.entries(groupedFaqs).map(([groupName, groupItems]) => (
+                  <div key={groupName}>
+                    <h3 className="text-xs font900 uppercase tracking-wider text-emerald-700 mb-3">{groupName}</h3>
+                    <div className="space-y-2">
+                       {groupItems.map(faq => {
+                          const isExpanded = expandedFaq === faq.id;
+                          return (
+                            <div key={faq.id} className={`rounded-2xl border transition-colors ${isExpanded ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-100 bg-white hover:border-emerald-100'}`}>
+                              <button 
+                                onClick={() => setExpandedFaq(isExpanded ? null : faq.id)}
+                                className="w-full flex items-center justify-between p-4 text-left focus:outline-none"
+                              >
+                                <span className="font900 text-sm text-slate-800 pr-4">{faq.title}</span>
+                                <span className={`flex-shrink-0 text-emerald-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                  <HelpIcons.ChevronDown className="h-4 w-4" />
+                                </span>
+                              </button>
+                              {isExpanded && (
+                                <div className="px-4 pb-4 animate-fade-in text-sm font800 text-slate-600 leading-relaxed">
+                                  {faq.answer}
+                                </div>
+                              )}
+                            </div>
+                          )
+                       })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Quick Guide Section */}
+          <section id="quick-guide" className="glass-panel p-6 shadow-sm">
+             <div className="flex items-center gap-2 mb-6">
+              <HelpIcons.BookOpen className="h-5 w-5 text-emerald-600" />
+              <h2 className="text-xl font-black text-slate-900">Hướng dẫn nhanh</h2>
+            </div>
+            
+            <div className="relative space-y-4 before:absolute before:inset-0 before:ml-[1.4rem] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-200 before:to-transparent">
+              {[
+                { title: "Nhập hồ sơ", desc: "Cập nhật chiều cao, cân nặng, tuổi và mức độ vận động." },
+                { title: "Tính toán chỉ số", desc: "Hệ thống tự động tính ra BMI, BMR, TDEE và lượng calories cần thiết." },
+                { title: "Tạo thực đơn", desc: "Dựa vào thông tin của bạn để sinh thực đơn tăng cân thích hợp." },
+                { title: "Kế hoạch & Nhật ký", desc: "Theo dõi, đổi món nếu cần và đánh dấu 'Đã ăn' hàng ngày." },
+                { title: "Cập nhật định kỳ", desc: "Thay đổi cân nặng hàng tuần để tiếp tục lộ trình tăng cân hoàn hảo." }
+              ].map((step, idx) => (
+                <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-full border-4 border-white bg-emerald-100 text-emerald-600 font-black shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                    {idx + 1}
+                  </div>
+                  <div className="w-[calc(100%-4rem)] md:w-[calc(50%-3rem)] rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 group-hover:ring-emerald-200 transition">
+                    <h3 className="font900 text-slate-900 text-sm">{step.title}</h3>
+                    <p className="font800 text-slate-500 text-xs mt-1 leading-relaxed">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Quick Tips */}
+          <section className="grid sm:grid-cols-2 gap-4">
+             <div className="glass-panel p-5 bg-gradient-to-br from-amber-50 to-orange-50 border-orange-100">
+                <div className="flex items-center gap-2 mb-2 text-orange-600">
+                  <HelpIcons.Lightbulb className="h-5 w-5" />
+                  <h3 className="font900 text-sm">Mẹo: Cập nhật cân nặng</h3>
+                </div>
+                <p className="text-xs font800 text-orange-800/80 leading-relaxed">Luôn nhớ cập nhật cân nặng của bạn định kỳ (ví dụ mỗi chủ nhật) để hệ thống điều chỉnh calories chính xác nhất.</p>
+             </div>
+             <div className="glass-panel p-5 bg-gradient-to-br from-blue-50 to-sky-50 border-blue-100">
+                <div className="flex items-center gap-2 mb-2 text-blue-600">
+                  <HelpIcons.Activity className="h-5 w-5" />
+                  <h3 className="font900 text-sm">Mẹo: Nhật ký chính xác</h3>
+                </div>
+                <p className="text-xs font800 text-blue-800/80 leading-relaxed">Đánh dấu những món bạn đã ăn thực tế. Bạn có thể sửa khẩu phần nếu có thay đổi để biểu đồ luôn sát với thực tế nhất.</p>
+             </div>
+          </section>
+
         </div>
 
-        <form className="glass-panel p-5" onSubmit={submitReport}>
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Báo lỗi món ăn</p>
-          <h3 className="mt-2 text-xl font-black text-slate-950">Gửi phản hồi kiểm định</h3>
-          <div className="mt-5 space-y-3">
-            <input
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 outline-none focus:border-emerald-500"
-              list="food-report-options"
-              placeholder="Tên món"
-              value={report.item}
-              onChange={(event) => setReport((current) => ({ ...current, item: event.target.value }))}
-            />
-            <datalist id="food-report-options">
-              {foods.slice(0, 80).map((food) => (
-                <option key={food.id} value={food.name} />
-              ))}
-            </datalist>
-            <select
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 outline-none focus:border-emerald-500"
-              value={report.type}
-              onChange={(event) => setReport((current) => ({ ...current, type: event.target.value }))}
-            >
-              <option value="wrong_image">Ảnh sai</option>
-              <option value="abnormal_macro">Macro sai</option>
-              <option value="invalid_name">Tên món sai</option>
-            </select>
-            <textarea
-              className="min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font800 outline-none focus:border-emerald-500"
-              placeholder="Mô tả lỗi"
-              value={report.description}
-              onChange={(event) => setReport((current) => ({ ...current, description: event.target.value }))}
-            />
-            <button type="submit" className="h-12 w-full rounded-2xl bg-emerald-600 px-4 text-sm font900 text-white">Gửi báo lỗi</button>
-            {submitted ? <p className="text-sm font900 text-emerald-700">Đã ghi nhận phản hồi cục bộ cho đồ án.</p> : null}
+        {/* Right Column: Support Utilities */}
+        <div className="space-y-6">
+          
+          {/* Categories Filter */}
+          <div className="glass-panel p-5 shadow-sm">
+             <p className="text-xs font900 uppercase tracking-wider text-emerald-700 mb-4">Danh mục hỗ trợ</p>
+             <div className="flex flex-col gap-1.5">
+               {categories.map(cat => (
+                 <button
+                    key={cat.id}
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font900 transition-colors ${activeCategory === cat.id ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                 >
+                   {cat.label}
+                   {activeCategory === cat.id && <HelpIcons.CheckCircle className="h-4 w-4 opacity-70" />}
+                 </button>
+               ))}
+             </div>
           </div>
-        </form>
-      </section>
+
+          {/* Feedback Form */}
+          <div id="feedback-form" className="glass-panel p-5 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+             <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Phản hồi / Báo lỗi</p>
+             <h3 className="mt-2 text-lg font-black text-slate-950">Gặp vấn đề? Hãy cho chúng tôi biết.</h3>
+             
+             <form className="mt-5 space-y-4 relative z-10" onSubmit={submitReport}>
+                <div>
+                  <label className="block text-xs font900 text-slate-700 mb-1.5">Loại vấn đề</label>
+                  <select
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font800 text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
+                    value={report.type}
+                    onChange={(event) => setReport((current) => ({ ...current, type: event.target.value }))}
+                  >
+                    <option value="wrong_image">Ảnh món ăn sai</option>
+                    <option value="abnormal_macro">Dữ liệu Macro sai</option>
+                    <option value="not_working">Lỗi không sinh được thực đơn</option>
+                    <option value="ui_glitch">Giao diện lỗi/Hỏng</option>
+                    <option value="other">Vấn đề khác</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-xs font900 text-slate-700 mb-1.5">Vị trí / Tên món (nếu có)</label>
+                  <input
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font800 text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
+                    list="food-report-options"
+                    placeholder="VD: Phở bò, hoặc trang Tài khoản"
+                    value={report.item}
+                    onChange={(event) => setReport((current) => ({ ...current, item: event.target.value }))}
+                  />
+                  <datalist id="food-report-options">
+                    {foods?.slice(0, 80).map((food) => (
+                      <option key={food.id} value={food.name} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block text-xs font900 text-slate-700 mb-1.5">Mô tả chi tiết</label>
+                  <textarea
+                    className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font800 text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition resize-none"
+                    placeholder="Vui lòng cung cấp chi tiết..."
+                    value={report.description}
+                    onChange={(event) => setReport((current) => ({ ...current, description: event.target.value }))}
+                  />
+                </div>
+
+                <button type="submit" className="flex w-full items-center justify-center gap-2 h-11 rounded-xl bg-slate-950 px-4 text-sm font900 text-white hover:bg-slate-800 transition">
+                  <HelpIcons.MessageSquare className="h-4 w-4" /> Gửi phản hồi
+                </button>
+
+                {submitted && (
+                  <div className="rounded-xl bg-emerald-50 p-3 border border-emerald-100 animate-fade-in flex items-start gap-2">
+                    <HelpIcons.CheckCircle className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                    <p className="text-xs font900 text-emerald-800 leading-tight">Đã ghi nhận phản hồi cục bộ. Cảm ơn bạn!</p>
+                  </div>
+                )}
+             </form>
+          </div>
+
+          {/* Quick Contacts */}
+          <div className="grid gap-3">
+             <button onClick={() => handleScrollTo('quick-guide')} className="flex items-center p-4 glass-panel hover:bg-slate-50 transition group shadow-sm text-left">
+                <div className="flex bg-emerald-50 text-emerald-600 p-2.5 rounded-xl mr-3 group-hover:scale-110 transition-transform">
+                  <HelpIcons.BookOpen className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font900 text-slate-900">Xem nhanh hướng dẫn</h4>
+                  <p className="text-xs font800 text-slate-500">Các bước chuẩn để bắt đầu</p>
+                </div>
+             </button>
+             <button onClick={() => { setActiveCategory("profile"); handleScrollTo("help-panel"); }} className="flex items-center p-4 glass-panel hover:bg-slate-50 transition group shadow-sm text-left">
+                <div className="flex bg-orange-50 text-orange-600 p-2.5 rounded-xl mr-3 group-hover:scale-110 transition-transform">
+                  <HelpIcons.AlertCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font900 text-slate-900">Kiểm tra Hồ sơ & BMI</h4>
+                  <p className="text-xs font800 text-slate-500">Sửa lỗi không nhận thực đơn</p>
+                </div>
+             </button>
+          </div>
+
+          {/* System Status Mock */}
+          <div className="glass-panel p-5 shadow-sm">
+             <div className="flex items-center gap-2 mb-4">
+                <HelpIcons.Activity className="h-5 w-5 text-slate-900" />
+                <h3 className="text-sm font900 text-slate-900">Tình trạng hệ thống</h3>
+             </div>
+             <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font800 text-slate-600">Dữ liệu món ăn</span>
+                  <span className="flex items-center gap-1.5 text-xs font900 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Sẵn sàng</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font800 text-slate-600">Thuật toán sinh menu</span>
+                  <span className="flex items-center gap-1.5 text-xs font900 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Hoạt động</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font800 text-slate-600">Đồng bộ Nhật ký</span>
+                  <span className="flex items-center gap-1.5 text-xs font900 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Hoạt động</span>
+                </div>
+             </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }

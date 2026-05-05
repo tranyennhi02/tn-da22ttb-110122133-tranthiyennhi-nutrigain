@@ -5,9 +5,7 @@ const menuItems = [
   { id: "journal", label: "Nhật ký ăn uống", icon: JournalIcon },
   { id: "charts", label: "Biểu đồ", icon: ChartIcon },
   { id: "meal-plan", label: "Kế hoạch bữa ăn", icon: MealIcon },
-  { id: "foods", label: "Thực phẩm", icon: FoodIcon },
   { id: "account", label: "Tài khoản", icon: UserIcon },
-  { id: "system", label: "Cài đặt hệ thống", icon: SettingsIcon },
   { id: "notifications", label: "Thông báo", icon: BellIcon },
   { id: "help", label: "Hỗ trợ", icon: HelpIcon },
 ];
