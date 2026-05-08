@@ -65,8 +65,15 @@ def ensure_database_schema(engine: Engine) -> None:
     _add_column_if_missing(engine, "meal_plan_items", "meal_id", "meal_id INTEGER NULL")
     _add_column_if_missing(engine, "meal_plan_items", "serving_grams", "serving_grams FLOAT NULL")
     _add_column_if_missing(engine, "food_log_items", "meal_plan_item_id", "meal_plan_item_id INTEGER NULL")
+    _add_column_if_missing(engine, "user_profiles", "favorite_foods", "favorite_foods TEXT NULL")
     _add_column_if_missing(engine, "user_profiles", "disliked_foods", "disliked_foods TEXT NULL")
     _add_column_if_missing(engine, "user_profiles", "disliked_food_groups", "disliked_food_groups TEXT NULL")
+    _add_column_if_missing(engine, "user_profiles", "target_weight_kg", "target_weight_kg FLOAT NULL")
+    _add_column_if_missing(engine, "user_profiles", "weight_gain_speed", "weight_gain_speed VARCHAR(50) NULL")
+    _add_column_if_missing(engine, "user_profiles", "diet_type", "diet_type VARCHAR(50) NULL")
+    _add_column_if_missing(engine, "user_profiles", "budget_level", "budget_level VARCHAR(50) NULL")
+    _add_column_if_missing(engine, "user_profiles", "items_per_meal", "items_per_meal INTEGER NULL")
+    _add_column_if_missing(engine, "user_profiles", "gender", "gender VARCHAR(20) NULL")
 
     with engine.begin() as connection:
         connection.execute(

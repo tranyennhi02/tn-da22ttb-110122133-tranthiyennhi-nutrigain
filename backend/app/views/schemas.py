@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+from pydantic import BaseModel, Field, field_validator
 
 
 class UserCreate(BaseModel):
@@ -26,10 +27,40 @@ class UserProfileInput(BaseModel):
     height_cm: float | None = Field(default=None, gt=0)
     age: int | None = Field(default=None, ge=1, le=120)
     sex: str | None = None
+    gender: str | None = None
     activity_level: str = "moderate"
     surplus_kcal: float | None = Field(default=None, ge=0)
+    favorite_foods: str | None = None
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
+    target_weight_kg: float | None = Field(default=None, gt=0)
+    weight_gain_speed: str | None = None
+    diet_type: str | None = None
+    budget_level: str | None = None
+    items_per_meal: int | None = Field(default=None, ge=1, le=10)
+
+    @field_validator("favorite_foods", mode="before")
+    @classmethod
+    def normalize_favorite_foods(cls, value: Any):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        if isinstance(value, list):
+            items = [str(item).strip() for item in value if str(item).strip()]
+            return ", ".join(items) if items else None
+        return str(value).strip() or None
+
+    @field_validator("disliked_foods", "disliked_food_groups", mode="before")
+    @classmethod
+    def normalize_profile_food_list(cls, value: Any):
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.replace(";", ",").split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
 
 
 class UserProfileView(BaseModel):
@@ -37,10 +68,17 @@ class UserProfileView(BaseModel):
     height_cm: float | None = None
     age: int | None = None
     sex: str | None = None
+    gender: str | None = None
     activity_level: str = "moderate"
     surplus_kcal: float | None = None
+    favorite_foods: str | None = None
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
+    target_weight_kg: float | None = None
+    weight_gain_speed: str | None = None
+    diet_type: str | None = None
+    budget_level: str | None = None
+    items_per_meal: int | None = None
     updated_at: str | None = None
 
 
@@ -185,6 +223,7 @@ class RecommendationInput(BaseModel):
     weight_gain_speed: str | None = None
     gain_speed: str | None = None
     meal_complexity: str = "balanced"
+    items_per_meal: int | None = Field(default=None, ge=1, le=10)
     diet_style: str = "balanced"
     diet_type: str | None = None
     budget_level: str = "standard"
@@ -200,15 +239,76 @@ class RecommendationInput(BaseModel):
     preferred_categories: list[str] = Field(default_factory=list)
     excluded_categories: list[str] = Field(default_factory=list)
     allergens: list[str] = Field(default_factory=list)
-    favorites: list[str] = Field(default_factory=list)
+    favorite_foods: list[str] = Field(default_factory=list)
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
     energy_tolerance_kcal: float | None = Field(default=80.0, ge=0)
     use_personalization: bool = False
+    random_seed: int | None = None
+    exclude_food_ids: list[str] = Field(default_factory=list)
+    exclude_meal_plan_id: int | None = None
     min_protein_ratio: float = Field(default=0.90, ge=0.0, le=1.0)
     min_fat_ratio: float = Field(default=0.90, ge=0.0, le=1.0)
     macro_backtracking_attempts: int = Field(default=30, ge=0, le=200)
     save_user_data: bool = False
+
+    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", mode="before")
+    @classmethod
+    def normalize_food_list(cls, value: Any):
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.replace(";", ",").split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+
+class MealPlanRegenerateInput(BaseModel):
+    userId: str | None = None
+    date: str | None = None
+    previousMealPlanId: int | str | None = None
+    targetKcal: float | None = Field(default=None, gt=0)
+    excludePreviousItems: bool = True
+
+    weight: float | None = Field(default=None, ge=20, le=250)
+    height: float | None = Field(default=None, ge=100, le=230)
+    activity: str | None = None
+    age: int | None = Field(default=None, ge=1, le=120)
+    sex: str | None = None
+    goal_type: str | None = None
+    weight_gain_speed: str | None = None
+    gain_speed: str | None = None
+    meal_complexity: str | None = None
+    items_per_meal: int | None = Field(default=None, ge=1, le=10)
+    diet_style: str | None = None
+    diet_type: str | None = None
+    budget_level: str | None = None
+    surplus_kcal: float | None = Field(default=None, ge=0)
+    target_weight: float | None = Field(default=None, ge=20, le=250)
+    protein_target: float | None = Field(default=None, ge=0)
+    fat_target: float | None = Field(default=None, ge=0)
+    carb_target: float | None = Field(default=None, ge=0)
+    top_n: int = Field(default=10, ge=1, le=50)
+    preferred_categories: list[str] = Field(default_factory=list)
+    excluded_categories: list[str] = Field(default_factory=list)
+    allergens: list[str] = Field(default_factory=list)
+    favorite_foods: list[str] = Field(default_factory=list)
+    disliked_foods: list[str] = Field(default_factory=list)
+    disliked_food_groups: list[str] = Field(default_factory=list)
+    randomSeed: int | None = None
+    random_seed: int | None = None
+
+    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", mode="before")
+    @classmethod
+    def normalize_food_list(cls, value: Any):
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.replace(";", ",").split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
 
 
 class NutritionTargetView(BaseModel):
@@ -283,6 +383,7 @@ class TodayMealPlanResponse(BaseModel):
     meal_plan: dict | None = None
     meals: list[dict] = Field(default_factory=list)
     food_log: dict | None = None
+    validation: dict | None = None
 
 
 class EligibilityCheckView(BaseModel):
@@ -326,16 +427,76 @@ class FixedMenuMealView(BaseModel):
     items: list[FixedMenuItemView] = Field(default_factory=list)
 
 
+class ProfileSummarySchema(BaseModel):
+    age: int | None = None
+    gender: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    bmi: float | None = None
+    bmi_status: str | None = None
+    medical_warning: bool | None = None
+    target_weight_missing: bool | None = None
+    suggested_stage_1_weight: float | None = None
+    suggested_stage_2_weight: float | None = None
+
+class NutritionTargetSchema(BaseModel):
+    bmr: float | None = None
+    tdee: float | None = None
+    surplus: float | None = None
+    ramp_up_week: int | None = None
+    calorie_target: float | None = None
+    protein_g: float | None = None
+    fat_g: float | None = None
+    carbs_g: float | None = None
+    calculation_source: str | None = None
+
+class MealPlanMealSchema(BaseModel):
+    meal_type: str
+    target_kcal: float | None = None
+    actual_kcal: int | None = None
+    items: list[FoodItemView] = Field(default_factory=list)
+
+class MealPlanSchema(BaseModel):
+    id: int | None = None
+    date: str | None = None
+    status: str | None = None
+    total_kcal: int | None = None
+    total_protein_g: float | None = None
+    total_fat_g: float | None = None
+    total_carbs_g: float | None = None
+    meals: list[MealPlanMealSchema] = Field(default_factory=list)
+
+class ValidationSchema(BaseModel):
+    status: str | None = None
+    is_valid: bool
+    isValid: bool | None = None
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    targetKcal: float | None = None
+    totalKcal: float | None = None
+    kcalDiff: float | None = None
+    kcalDiffPct: float | None = None
+    target_kcal: float | None = None
+    total_kcal: float | None = None
+    kcal_diff: float | None = None
+    kcal_diff_pct: float | None = None
+
 class RecommendationOutput(BaseModel):
-    eligibility_check: EligibilityCheckView
-    overall_assessment: OverallAssessmentView
+    profile_summary: ProfileSummarySchema | None = None
+    nutrition_target: NutritionTargetSchema | None = None
+    meal_plan: MealPlanSchema | None = None
+    validation: ValidationSchema | None = None
+    target: NutritionTargetView | None = None
+    
+    # Old fields for compatibility
+    eligibility_check: EligibilityCheckView | None = None
+    overall_assessment: OverallAssessmentView | None = None
     detected_issues: list[DetectedIssueView] = Field(default_factory=list)
     fixed_menu: list[FixedMenuMealView] = Field(default_factory=list)
     validation_rules_to_add: list[str] = Field(default_factory=list)
-    target: NutritionTargetView
-    top_recommendations: list[FoodItemView]
-    meal_plan: dict[str, list[FoodItemView]]
-    evaluation: EvaluationView
+    top_recommendations: list[FoodItemView] = Field(default_factory=list)
+    evaluation: EvaluationView | None = None
 
 
 class RecommendationHistoryItem(BaseModel):

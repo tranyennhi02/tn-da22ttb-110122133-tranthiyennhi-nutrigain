@@ -28,6 +28,7 @@ from app.views.schemas import (
     FoodUpdate,
     FoodView,
     MealPlanItemCheckInInput,
+    MealPlanRegenerateInput,
     RecommendationHistoryDetail,
     RecommendationHistoryResponse,
     RecommendationInput,
@@ -151,6 +152,15 @@ def create_recommendation(
     current_user: User = Depends(get_current_user),
 ) -> RecommendationOutput:
     return controller.create_recommendation(payload, db, current_user)
+
+
+@router.post("/meal-plans/regenerate", response_model=RecommendationOutput, tags=["meal-plans"])
+def regenerate_meal_plan(
+    payload: MealPlanRegenerateInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RecommendationOutput:
+    return controller.regenerate_meal_plan(payload, db, current_user)
 
 
 @router.get("/meal-plans/today", response_model=TodayMealPlanResponse, tags=["meal-plans"])

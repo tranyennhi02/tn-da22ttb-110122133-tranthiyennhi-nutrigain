@@ -1,3 +1,5 @@
+import { parseFoodList } from "../utils/foodList.js";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 function authHeaders() {
@@ -14,25 +16,75 @@ function authHeaders() {
 }
 
 async function parseResponse(response, fallbackMessage) {
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const payload = JSON.parse(text);
-      const detail = payload?.detail;
-      const message =
-        detail?.eligibility_check?.reason ||
-        detail?.overall_assessment?.summary ||
-        detail?.message ||
-        (typeof detail === "string" ? detail : "");
-      throw new Error(message || fallbackMessage);
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error(text || fallbackMessage);
-      }
-      throw error;
-    }
+  const text = await response.text();
+
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
   }
-  return response.json();
+
+  if (!response.ok) {
+    let detail =
+      data?.detail ||
+      data?.message ||
+      data?.error ||
+      (typeof data === "string" ? data : null) ||
+      fallbackMessage ||
+      `Request failed with status ${response.status}`;
+
+    if (Array.isArray(detail)) {
+      const hasFoodListTypeError = detail.some((item) => {
+        const loc = Array.isArray(item?.loc) ? item.loc.join(".") : "";
+        return item?.type === "list_type" && /(favorite_foods|disliked_foods)/.test(loc);
+      });
+      detail = hasFoodListTypeError
+        ? "favorite_foods phải là danh sách. Hệ thống đã tự chuyển input rỗng thành danh sách trống, vui lòng thử lại."
+        : detail
+          .map((item) => item?.msg || JSON.stringify(item))
+          .join("; ");
+    } else if (typeof detail === "object" && detail !== null) {
+      if (detail.eligibility_check?.reason) {
+        detail = detail.eligibility_check.reason;
+      } else if (detail.overall_assessment?.summary) {
+        detail = detail.overall_assessment.summary;
+      } else if (detail.message) {
+        detail = detail.message;
+      } else if (detail.reason) {
+        detail = detail.reason;
+      } else {
+        try {
+          detail = JSON.stringify(detail);
+        } catch {
+          detail = String(detail);
+        }
+      }
+    }
+
+    console.error("API error detail:", {
+      status: response.status,
+      url: response.url,
+      data,
+    });
+
+    throw new Error(detail);
+  }
+
+  return data;
+}
+
+function normalizeRegeneratePayload(payload = {}) {
+  const dislikedFoods = [
+    ...parseFoodList(payload.disliked_foods),
+    ...parseFoodList(payload.unfavorite_foods),
+  ];
+  return {
+    ...payload,
+    favorite_foods: parseFoodList(payload.favorite_foods),
+    disliked_foods: Array.from(new Set(dislikedFoods)),
+    disliked_food_groups: parseFoodList(payload.disliked_food_groups),
+  };
 }
 
 export async function postRecommendation(payload) {
@@ -46,6 +98,26 @@ export async function postRecommendation(payload) {
   });
 
   return parseResponse(response, "Recommendation request failed");
+}
+
+export async function fetchTodayMealPlan() {
+  const response = await fetch(`${API_BASE_URL}/api/v1/meal-plans/today`, {
+    headers: authHeaders(),
+  });
+  return parseResponse(response, "Cannot load today's meal plan");
+}
+
+export async function postRegenerateMealPlan(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/meal-plans/regenerate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(normalizeRegeneratePayload(payload)),
+  });
+
+  return parseResponse(response, "Cannot regenerate meal plan");
 }
 
 export async function fetchHistory(limit = 10, period = "week") {

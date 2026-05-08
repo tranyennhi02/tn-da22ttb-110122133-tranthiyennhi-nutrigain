@@ -2,8 +2,8 @@ const defaultFoodImage = "/images/placeholders/food-default.svg";
 
 export default function MealCard({ item, favorite, rating, onFavorite, onRate }) {
   return (
-    <article className="group overflow-hidden rounded-3xl border border-white bg-white shadow-xl shadow-slate-900/7 transition duration-300 hover:-translate-y-1 hover:shadow-2xl">
-      <div className="relative aspect-[16/10] overflow-hidden bg-emerald-50">
+    <article className="group overflow-hidden rounded-3xl border border-brand-border bg-brand-surface shadow-xl shadow-brand-navy/7 transition duration-300 hover:-translate-y-1 hover:shadow-2xl">
+      <div className="relative aspect-[16/10] overflow-hidden bg-brand-cream">
         <img
           src={item.image}
           alt={item.imageAlt || item.name}
@@ -16,7 +16,7 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
           }}
         />
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/70 to-transparent" />
-        <div className="absolute left-4 top-4 rounded-full bg-white/92 px-3 py-1.5 text-xs font900 uppercase tracking-[0.1em] text-emerald-800 backdrop-blur">
+        <div className="absolute left-4 top-4 rounded-full bg-brand-surface/92 px-3 py-1.5 text-xs font900 uppercase tracking-[0.1em] text-brand-text-main backdrop-blur">
           {item.type}
         </div>
         {item.imageBadge ? (
@@ -24,7 +24,7 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
             {item.imageBadge}
           </div>
         ) : null}
-        <div className="absolute bottom-4 right-4 rounded-2xl bg-accent px-3 py-2 text-sm font-black text-white shadow-lg shadow-orange-900/20">
+        <div className="absolute bottom-4 right-4 rounded-2xl bg-brand-orange px-3 py-2 text-sm font-black text-white shadow-lg shadow-brand-orange/20">
           {item.calories} kcal
         </div>
         {item.servingDisplay || item.servingGrams ? (
@@ -36,11 +36,11 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
 
       <div className="space-y-4 p-4">
         <div>
-          <h4 className="text-lg font-black leading-snug text-slate-950">{item.name}</h4>
-          <p className="mt-1 text-sm font800 leading-6 text-slate-600">
+          <h4 className="text-lg font-black leading-snug text-brand-text-main">{item.name}</h4>
+          <p className="mt-1 text-sm font800 leading-6 text-brand-text-sub">
             {item.category || item.type}{item.subCategory ? ` · ${item.subCategory}` : ""}
           </p>
-          <p className="mt-1 text-sm font700 text-slate-500">
+          <p className="mt-1 text-sm font700 text-brand-text-sub">
             {item.calories} kcal{item.servingDisplay ? ` · ${item.servingDisplay}` : item.servingGrams ? ` · ~${item.servingGrams}g` : ""}
           </p>
         </div>
@@ -64,7 +64,7 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
             Yêu thích
           </button>
 
-          <label className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-3 text-sm font900 text-emerald-800">
+          <label className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-brand-mint px-3 text-sm font900 text-brand-primary">
             Đánh giá
             <select
               className="bg-transparent text-sm font900 outline-none"
@@ -87,8 +87,8 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
 function MacroPill({ label, value, tone }) {
   const classes = {
     sky: "bg-sky-50 text-sky-700",
-    orange: "bg-orange-50 text-orange-700",
-    green: "bg-emerald-50 text-emerald-700",
+    orange: "bg-brand-cream text-brand-orange",
+    green: "bg-brand-mint text-brand-primary",
   };
 
   return (

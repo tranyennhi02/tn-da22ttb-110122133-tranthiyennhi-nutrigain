@@ -169,10 +169,17 @@ class UserService:
             "height_cm": profile.height_cm,
             "age": profile.age,
             "sex": profile.sex,
+            "gender": profile.gender or profile.sex,
             "activity_level": profile.activity_level,
             "surplus_kcal": profile.surplus_kcal,
+            "favorite_foods": profile.favorite_foods or "",
             "disliked_foods": _parse_profile_list(profile.disliked_foods),
             "disliked_food_groups": _parse_profile_list(profile.disliked_food_groups),
+            "target_weight_kg": profile.target_weight_kg,
+            "weight_gain_speed": profile.weight_gain_speed,
+            "diet_type": profile.diet_type,
+            "budget_level": profile.budget_level,
+            "items_per_meal": profile.items_per_meal,
             "updated_at": profile.updated_at.isoformat(timespec="seconds"),
         }
 
@@ -206,10 +213,16 @@ class UserService:
 
     def update_profile(self, db: Session, user: User, payload: UserProfileInput) -> dict:
         values = _dump_model(payload, exclude_unset=True)
+        if "gender" in values and values["gender"] is not None:
+            values["sex"] = values["gender"]
+        elif "sex" in values and values["sex"] is not None:
+            values["gender"] = values["sex"]
         if "disliked_foods" in values:
             values["disliked_foods"] = _serialize_profile_list(values["disliked_foods"])
         if "disliked_food_groups" in values:
             values["disliked_food_groups"] = _serialize_profile_list(values["disliked_food_groups"])
+        if "favorite_foods" in values and values["favorite_foods"] is not None:
+            values["favorite_foods"] = str(values["favorite_foods"]).strip() or None
         profile = UserRepository(db).upsert_profile(user.id, values)
         return self.profile_to_payload(profile) or {}
 

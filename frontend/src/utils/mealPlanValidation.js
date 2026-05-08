@@ -2,23 +2,33 @@ import { normalizeFoodCategory, stripAccents } from "./foodCategory";
 
 function flattenMealPlan(mealPlan) {
   if (!mealPlan) return [];
+  if (Array.isArray(mealPlan.meals)) {
+    return mealPlan.meals.flatMap((meal) =>
+      (Array.isArray(meal.items) ? meal.items : []).map((item) => ({ ...item, mealTitle: meal.meal_type || meal.title || meal.meal })),
+    );
+  }
   if (Array.isArray(mealPlan)) {
     return mealPlan.flatMap((meal) =>
-      (meal.items || []).map((item) => ({ ...item, mealTitle: meal.title || meal.meal })),
+      (Array.isArray(meal.items) ? meal.items : []).map((item) => ({ ...item, mealTitle: meal.title || meal.meal })),
     );
   }
 
-  return Object.entries(mealPlan).flatMap(([mealKey, items]) =>
-    (items || []).map((item) => ({ ...item, mealTitle: mealKey })),
-  );
+  return Object.entries(mealPlan)
+    .filter(([key, items]) => Array.isArray(items))
+    .flatMap(([mealKey, items]) =>
+      (items || []).map((item) => ({ ...item, mealTitle: mealKey })),
+    );
 }
 
 function getMealEntries(mealPlan) {
   if (!mealPlan) return [];
-  if (Array.isArray(mealPlan)) {
-    return mealPlan.map((meal) => [meal.title || meal.meal, meal.items || []]);
+  if (Array.isArray(mealPlan.meals)) {
+    return mealPlan.meals.map((meal) => [meal.meal_type || meal.title || meal.meal, Array.isArray(meal.items) ? meal.items : []]);
   }
-  return Object.entries(mealPlan);
+  if (Array.isArray(mealPlan)) {
+    return mealPlan.map((meal) => [meal.title || meal.meal, Array.isArray(meal.items) ? meal.items : []]);
+  }
+  return Object.entries(mealPlan).filter(([key, items]) => Array.isArray(items));
 }
 
 function round(value) {
@@ -92,7 +102,8 @@ function macroWarnings(food) {
 export function validateMealPlan(mealPlan, userProfile, target) {
   const foods = flattenMealPlan(mealPlan).map(normalizeFoodCategory);
   const messages = [];
-  const totalCalories = round(foods.reduce((sum, item) => sum + Number(item.calories || 0), 0));
+  const explicitTotalCalories = mealPlan?.total_kcal ?? mealPlan?.totalKcal ?? mealPlan?.total_calories;
+  const totalCalories = round(explicitTotalCalories ?? foods.reduce((sum, item) => sum + Number(item.calories || 0), 0));
   const totalProtein = round(foods.reduce((sum, item) => sum + Number(item.protein || 0), 0));
   const totalFat = round(foods.reduce((sum, item) => sum + Number(item.fat || 0), 0));
   const totalCarbs = round(foods.reduce((sum, item) => sum + Number(item.carbs || 0), 0));
@@ -101,12 +112,22 @@ export function validateMealPlan(mealPlan, userProfile, target) {
   let level = "success";
   let isValid = true;
 
-  const minimumCalories = Number(target.minCalories || 0);
+  const targetKcal = Number(target?.target_kcal ?? target?.targetKcal ?? target?.targetCalories ?? target?.calories ?? 0);
+  const minKcal = targetKcal * 0.95;
+  const maxKcal = targetKcal * 1.05;
+  const kcalDiff = totalCalories - targetKcal;
+  const kcalDiffAbs = Math.abs(kcalDiff);
+  const kcalDiffPct = targetKcal > 0 ? (kcalDiffAbs / targetKcal) * 100 : 100;
+  const isKcalValid = targetKcal > 0 && totalCalories >= minKcal && totalCalories <= maxKcal;
+  const direction = kcalDiff > 0 ? "cao hơn" : "thấp hơn";
+  const detailedReason = isKcalValid
+    ? null
+    : `Thực đơn hiện tại đạt ${Math.round(totalCalories)} kcal, ${direction} mục tiêu ${Math.round(targetKcal)} kcal khoảng ${Math.round(kcalDiffAbs)} kcal, tương đương ${kcalDiffPct.toFixed(2)}%. Vui lòng tạo lại để có thực đơn phù hợp hơn.`;
 
-  if (goal === "gain" && totalCalories < minimumCalories) {
+  if (goal === "gain" && !isKcalValid) {
     isValid = false;
     level = "error";
-    messages.push("Thực đơn chưa phù hợp mục tiêu tăng cân. Tổng năng lượng hiện thấp hơn mục tiêu.");
+    messages.push(detailedReason || `Tổng kcal (${Math.round(totalCalories)}) lệch ${kcalDiffPct.toFixed(2)}% so với target (${Math.round(targetKcal)})`);
   }
 
   if (totalCalories < 1200) {
@@ -169,10 +190,30 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     messages.push("Thực đơn phù hợp với mục tiêu hôm nay.");
   }
 
+  const proteinRatio = target.proteinTarget > 0 ? totalProtein / target.proteinTarget : 1;
+  const fatRatio = target.fatTarget > 0 ? totalFat / target.fatTarget : 1;
+  const carbRatio = target.carbTarget > 0 ? totalCarbs / target.carbTarget : 1;
+  let status = "valid";
+  if (!foods.length || totalCalories <= 0) {
+    status = "invalid";
+  } else if (kcalDiffPct <= 10 && proteinRatio >= 0.9 && proteinRatio <= 1.1 && fatRatio >= 0.8 && fatRatio <= 1.2 && carbRatio >= 0.8 && carbRatio <= 1.2) {
+    status = "valid";
+  } else if (kcalDiffPct <= 10 && proteinRatio <= 1.3 && fatRatio >= 0.7 && carbRatio <= 1.3) {
+    status = "minor_adjustment";
+  } else {
+    status = "major_adjustment";
+  }
+
   return {
     isValid,
+    status,
     level,
     messages,
+    reason: detailedReason,
+    targetKcal,
+    totalKcal: totalCalories,
+    kcalDiff,
+    kcalDiffPct,
     totalCalories,
     totalProtein,
     totalFat,

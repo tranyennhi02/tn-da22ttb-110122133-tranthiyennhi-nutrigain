@@ -1,5 +1,5 @@
 import pandas as pd
-import mysql.connector
+import pymysql
 from pathlib import Path
 
 CSV_PATH = Path("data/food_dataset_ready_for_mysql.csv")
@@ -71,7 +71,7 @@ def main():
     df["menu_eligible"] = df["menu_eligible"].fillna(0).astype(int)
     df["image_verified"] = df["image_verified"].fillna(0).astype(int)
 
-    conn = mysql.connector.connect(**DB_CONFIG)
+    conn = pymysql.connect(**DB_CONFIG)
     cursor = conn.cursor()
 
     try:

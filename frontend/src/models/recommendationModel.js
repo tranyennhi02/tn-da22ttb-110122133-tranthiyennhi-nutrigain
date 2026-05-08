@@ -1,3 +1,5 @@
+import { parseFoodList } from "../utils/foodList.js";
+
 export const defaultFormState = {
   weight: "",
   height: "",
@@ -5,6 +7,7 @@ export const defaultFormState = {
   goal_type: "gain",
   gain_speed: "slow",
   meal_complexity: "balanced",
+  items_per_meal: 4,
   diet_style: "balanced",
   budget_level: "standard",
   age: "",
@@ -18,21 +21,16 @@ export const defaultFormState = {
   save_user_data: false,
 };
 
-function parseCategoryText(value) {
-  if (!value || typeof value !== "string") {
-    return [];
-  }
-  return value
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter((item) => item.length > 0);
-}
-
 export function normalizePayload(formState) {
   const gainSpeed = formState.gain_speed || "slow";
-  const dislikedFoods = Array.isArray(formState.disliked_foods) ? formState.disliked_foods : [];
-  const dislikedFoodGroups = Array.isArray(formState.disliked_food_groups) ? formState.disliked_food_groups : [];
-  const typedUnfavorites = parseCategoryText(formState.unfavorite_foods);
+  const dislikedFoods = parseFoodList(formState.disliked_foods);
+  const dislikedFoodGroups = parseFoodList(formState.disliked_food_groups);
+  const typedUnfavorites = parseFoodList(formState.unfavorite_foods);
+  const itemsPerMeal = formState.meal_complexity === "simple"
+    ? 3
+    : formState.meal_complexity === "full"
+      ? 5
+      : (formState.items_per_meal ?? 4);
   const surplusBySpeed = {
     slow: 300,
     medium: 400,
@@ -49,6 +47,7 @@ export function normalizePayload(formState) {
     weight_gain_speed: gainSpeed,
     gain_speed: gainSpeed,
     meal_complexity: formState.meal_complexity || "balanced",
+    items_per_meal: itemsPerMeal,
     diet_style: formState.diet_style || "balanced",
     budget_level: formState.budget_level || "standard",
     surplus_kcal: surplusBySpeed[gainSpeed] ?? 300,
@@ -56,7 +55,7 @@ export function normalizePayload(formState) {
     top_n: Number(formState.top_n),
     preferred_categories: [],
     excluded_categories: [],
-    favorites: parseCategoryText(formState.favorite_foods),
+    favorite_foods: parseFoodList(formState.favorite_foods),
     allergens: typedUnfavorites,
     disliked_foods: Array.from(new Set([...dislikedFoods, ...typedUnfavorites])),
     disliked_food_groups: Array.from(new Set(dislikedFoodGroups)),

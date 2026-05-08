@@ -5,9 +5,11 @@
 @tailwind utilities;
 
 :root {
-  --nutri-green: #0f766e;
-  --nutri-navy: #082f49;
-  --accent: #ff9f43;
+  --nutri-green: #10B981;
+  --nutri-navy: #0B2A4A;
+  --accent: #FB923C;
+  --primary: #10B981;
+  --primary-dark: #047857;
 }
 
 * {
@@ -23,9 +25,9 @@ body {
   font-family: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #0f172a;
   background:
-    radial-gradient(circle at 8% 0%, rgba(16, 185, 129, 0.18), transparent 28%),
-    radial-gradient(circle at 94% 10%, rgba(14, 165, 233, 0.16), transparent 30%),
-    linear-gradient(135deg, #f7fbf8 0%, #eef7f4 48%, #f7fafc 100%);
+    radial-gradient(circle at 8% 0%, rgba(16, 185, 129, 0.14), transparent 28%),
+    radial-gradient(circle at 94% 10%, rgba(251, 146, 60, 0.09), transparent 30%),
+    linear-gradient(135deg, #ECFDF5 0%, #f0fdf4 48%, #f8fafc 100%);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
@@ -41,9 +43,9 @@ button {
 
 .bg-dashboard {
   background:
-    radial-gradient(circle at 6% 12%, rgba(16, 185, 129, 0.16), transparent 28%),
-    radial-gradient(circle at 92% 3%, rgba(255, 159, 67, 0.14), transparent 26%),
-    linear-gradient(135deg, #f8fcfb 0%, #eef8f5 45%, #f4f7fb 100%);
+    radial-gradient(circle at 6% 12%, rgba(16, 185, 129, 0.14), transparent 28%),
+    radial-gradient(circle at 92% 3%, rgba(251, 146, 60, 0.09), transparent 26%),
+    linear-gradient(135deg, #ECFDF5 0%, #f0fdf4 45%, #f8fafc 100%);
 }
 
 .glass-panel {
@@ -56,7 +58,7 @@ button {
 
 .hero-panel {
   background:
-    linear-gradient(135deg, rgba(7, 36, 51, 0.94), rgba(12, 81, 73, 0.86)),
+    linear-gradient(135deg, rgba(11, 42, 74, 0.96), rgba(4, 120, 87, 0.90)),
     url("/images/hero-food.png");
   background-size: cover;
   background-position: center;
@@ -64,7 +66,7 @@ button {
 
 .profile-setup-hero {
   background:
-    linear-gradient(135deg, rgba(2, 21, 11, 0.92), rgba(15, 82, 52, 0.82), rgba(15, 23, 42, 0.76)),
+    linear-gradient(135deg, rgba(11, 42, 74, 0.95), rgba(4, 120, 87, 0.88), rgba(15, 23, 42, 0.82)),
     url("/images/hero-food.png");
   background-size: cover;
   background-position: center;
@@ -78,7 +80,7 @@ button {
 .sidebar-scroll {
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(15, 118, 110, 0.35) transparent;
+  scrollbar-color: rgba(16, 185, 129, 0.35) transparent;
 }
 
 .sidebar-scroll::-webkit-scrollbar,
@@ -88,7 +90,7 @@ aside::-webkit-scrollbar {
 
 .sidebar-scroll::-webkit-scrollbar-thumb,
 aside::-webkit-scrollbar-thumb {
-  background: rgba(15, 118, 110, 0.28);
+  background: rgba(16, 185, 129, 0.28);
   border-radius: 999px;
 }
 

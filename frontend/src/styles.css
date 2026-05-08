@@ -4,31 +4,31 @@
 
 :root {
 
-  --bg: #eef3f7;
+  --bg: #ECFDF5;
 
-  --card: #ffffff;
+  --card: #FFFFFF;
 
-  --ink: #11243a;
+  --ink: #0F172A;
 
-  --muted: #58728f;
+  --muted: #64748B;
 
-  --line: #cfdded;
+  --line: #E2E8F0;
 
-  --primary: #0d7ef2;
+  --primary: #10B981;
 
-  --primary-dark: #0b63c0;
+  --primary-dark: #047857;
 
-  --primary-soft: #e9f3ff;
+  --primary-soft: #d1fae5;
 
-  --accent: #00b894;
+  --accent: #FB923C;
 
-  --accent-soft: #dff8f1;
+  --accent-soft: #FFF7ED;
 
-  --macro-protein: #0d7ef2;
+  --macro-protein: #3B82F6;
 
-  --macro-fat: #ff8a26;
+  --macro-fat: #FB923C;
 
-  --macro-carbs: #16b98f;
+  --macro-carbs: #10B981;
 
 }
 
@@ -52,11 +52,11 @@ body {
 
   background:
 
-    radial-gradient(circle at 8% 0%, rgba(13, 126, 242, 0.22), transparent 28%),
+    radial-gradient(circle at 8% 0%, rgba(16, 185, 129, 0.16), transparent 28%),
 
-    radial-gradient(circle at 93% 12%, rgba(0, 184, 148, 0.2), transparent 26%),
+    radial-gradient(circle at 93% 12%, rgba(251, 146, 60, 0.12), transparent 26%),
 
-    linear-gradient(180deg, #f5f9fd 0%, #edf3f9 100%);
+    linear-gradient(180deg, #ECFDF5 0%, #f0fdf4 100%);
 
   background-attachment: fixed;
 
@@ -298,7 +298,7 @@ h1, h2, h3, h4 {
 
 .wizard-sidebar-block {
 
-  background: linear-gradient(145deg, #0d7ef2 0%, #0b63c0 100%);
+  background: linear-gradient(145deg, #0B2A4A 0%, #0a3d5f 100%);
 
   padding: 40px 32px;
 
@@ -306,7 +306,7 @@ h1, h2, h3, h4 {
 
   border-radius: 20px;
 
-  box-shadow: 0 16px 40px rgba(13, 126, 242, 0.2);
+  box-shadow: 0 16px 40px rgba(11, 42, 74, 0.25);
 
   width: 100%;
 
@@ -954,7 +954,7 @@ h1, h2, h3, h4 {
 
   transition: all 0.2s ease;
 
-  box-shadow: 0 10px 24px rgba(13, 126, 242, 0.25);
+  box-shadow: 0 10px 24px rgba(16, 185, 129, 0.25);
 
 }
 
@@ -964,7 +964,7 @@ h1, h2, h3, h4 {
 
   transform: translateY(-2px);
 
-  box-shadow: 0 14px 30px rgba(13, 126, 242, 0.35);
+  box-shadow: 0 14px 30px rgba(16, 185, 129, 0.35);
 
 }
 

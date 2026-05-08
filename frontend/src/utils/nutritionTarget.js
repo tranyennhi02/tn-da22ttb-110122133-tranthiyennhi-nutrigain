@@ -74,7 +74,7 @@ export function calculateNutritionTarget(user) {
     proteinTarget: Math.round(proteinTarget),
     fatTarget: Math.round(fatTarget),
     carbTarget: Math.round(carbTarget),
-    minCalories: Math.round(targetCalories * 0.85),
-    maxCalories: Math.round(targetCalories * 1.15),
+    minCalories: Math.round(targetCalories * 0.95),
+    maxCalories: Math.round(targetCalories * 1.05),
   };
 }

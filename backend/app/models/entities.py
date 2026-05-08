@@ -44,8 +44,15 @@ class UserProfileEntity(Base):
     sex: Mapped[str | None] = mapped_column(String(20), nullable=True)
     activity_level: Mapped[str] = mapped_column(String(50), default="moderate", nullable=False)
     surplus_kcal: Mapped[float | None] = mapped_column(Float, nullable=True)
+    favorite_foods: Mapped[str | None] = mapped_column(Text, nullable=True)
     disliked_foods: Mapped[str | None] = mapped_column(Text, nullable=True)
     disliked_food_groups: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_gain_speed: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    diet_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    budget_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    items_per_meal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
@@ -180,7 +187,7 @@ class MealPlan(Base):
     total_fat: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total_carbs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="generated", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="draft", nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

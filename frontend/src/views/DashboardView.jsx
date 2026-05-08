@@ -1,11 +1,44 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, Component } from "react";
 
-import { saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("React Error Boundary caught an error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center bg-rose-50 text-rose-800 rounded-2xl m-4">
+          <h2 className="text-xl font-bold mb-2">Đã xảy ra lỗi hiển thị</h2>
+          <p className="text-sm opacity-80">{this.state.error?.toString()}</p>
+          <button 
+            className="mt-4 px-4 py-2 bg-rose-600 text-white rounded-full font-bold"
+            onClick={() => window.location.reload()}
+          >
+            Tải lại trang
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+import { loadTodayMealPlan, regenerateMealPlan, saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
+import { fetchCurrentUser } from "../services/apiService";
+import { mapUserProfileToFormState } from "../App";
 import AccountPanel from "../components/AccountPanel";
 import CaloriesChart from "../components/CaloriesChart";
 import EnergyChart from "../components/EnergyChart";
 import Header from "../components/Header";
 import MacroChart from "../components/MacroChart";
+import NutriGainLogo from "../components/NutriGainLogo";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
 import { defaultFormState } from "../models/recommendationModel";
@@ -56,9 +89,17 @@ const defaultFoodImage = "/images/placeholders/food-default.svg";
 const dislikedFoodsStorageKey = "nutrigain_disliked_foods";
 const dislikedFoodGroupsStorageKey = "nutrigain_disliked_food_groups";
 
-export default function DashboardView({ userEmail, onLogout }) {
+export default function DashboardViewWrapper(props) {
+  return (
+    <ErrorBoundary>
+      <DashboardView {...props} />
+    </ErrorBoundary>
+  );
+}
+
+function DashboardView({ userEmail, onLogout, initialFormState, initialResult, initialSection, onRequireProfile, onEditProfile }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState(initialSection || "overview");
 
   useEffect(() => {
     if (activeSection === "system" || activeSection === "settings") {
@@ -67,10 +108,11 @@ export default function DashboardView({ userEmail, onLogout }) {
   }, [activeSection]);
   const [formState, setFormState] = useState(() => ({
     ...defaultFormState,
-    disliked_foods: loadStoredList(dislikedFoodsStorageKey),
-    disliked_food_groups: loadStoredList(dislikedFoodGroupsStorageKey),
+    ...(initialFormState || {}),
+    disliked_foods: (initialFormState?.disliked_foods?.length ? initialFormState.disliked_foods : loadStoredList(dislikedFoodsStorageKey)),
+    disliked_food_groups: (initialFormState?.disliked_food_groups?.length ? initialFormState.disliked_food_groups : loadStoredList(dislikedFoodGroupsStorageKey)),
   }));
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(() => initialResult || null);
   const [formErrors, setFormErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -79,9 +121,16 @@ export default function DashboardView({ userEmail, onLogout }) {
   const [mealLog, setMealLog] = useState({ entries: {}, manualItems: [] });
   const [addToMealRequest, setAddToMealRequest] = useState(null);
   const [dislikeRequest, setDislikeRequest] = useState(null);
+  const [didLoadToday, setDidLoadToday] = useState(false);
+
+  useEffect(() => {
+    if (!initialResult) return;
+    setResult(initialResult);
+    setActiveSection(initialSection || "meal-plan");
+  }, [initialResult, initialSection]);
 
   const hasRecommendation = Boolean(result);
-  const meals = useMemo(() => buildMeals(result, formState.diet_style, formState), [result, formState]);
+  const meals = useMemo(() => buildMeals(result?.meal_plan, formState.diet_style, formState), [result, formState]);
   const consumedNutrition = useMemo(() => calculateConsumedNutrition(meals, mealLog), [meals, mealLog]);
   const summary = useMemo(() => buildSummary(result, consumedNutrition), [result, consumedNutrition]);
   const weeklyCalories = useMemo(() => buildWeeklyCalories(result, summary), [result, summary]);
@@ -91,9 +140,73 @@ export default function DashboardView({ userEmail, onLogout }) {
     () => buildEffectiveTarget(result, nutritionTarget),
     [result, nutritionTarget],
   );
+  useEffect(() => {
+    if (didLoadToday || initialResult || result) return;
+    let cancelled = false;
+    async function hydrateTodayPlan() {
+      setDidLoadToday(true);
+      try {
+        const today = await loadTodayMealPlan();
+        if (!cancelled && today?.has_plan && today?.meal_plan?.status === "valid") {
+          setResult(adaptTodayMealPlanResponse(today, nutritionTarget));
+        }
+      } catch {
+        // Dashboard can still create a fresh plan; loading today's plan is a convenience.
+      }
+    }
+    hydrateTodayPlan();
+    return () => {
+      cancelled = true;
+    };
+  }, [didLoadToday, initialResult, nutritionTarget, result]);
   const mealPlanValidation = useMemo(
-    () => validateMealPlan(result?.meal_plan || {}, formState, effectiveTarget),
-    [result, formState, effectiveTarget],
+    () => {
+      if (result?.validation) {
+        const backendValidation = result.validation;
+        const backendStatus = backendValidation.status || null;
+        const isValid = backendStatus ? backendStatus === "valid" : (backendValidation.is_valid ?? backendValidation.isValid ?? false);
+        const totalCalories = round(backendValidation.totalKcal ?? backendValidation.total_kcal ?? result.meal_plan?.total_kcal ?? result.meal_plan?.total_calories ?? 0);
+        const targetKcal = round(backendValidation.targetKcal ?? backendValidation.target_kcal ?? effectiveTarget.targetCalories);
+        const kcalDiff = Number(backendValidation.kcalDiff ?? backendValidation.kcal_diff ?? totalCalories - targetKcal);
+        const kcalDiffPct = Number(backendValidation.kcalDiffPct ?? backendValidation.kcal_diff_pct ?? (targetKcal > 0 ? (Math.abs(kcalDiff) / targetKcal) * 100 : 100));
+        const reason =
+          backendValidation.message ||
+          backendValidation.reason ||
+          buildKcalDeviationMessage(totalCalories, targetKcal);
+        const backendMessages = backendValidation.errors?.length > 0
+          ? backendValidation.errors
+          : backendValidation.warnings?.length > 0
+            ? ["Thực đơn gần đạt mục tiêu nhưng cần kiểm tra cảnh báo.", ...backendValidation.warnings]
+            : ["Thực đơn phù hợp với mục tiêu hôm nay."];
+        return {
+          isValid,
+          status: backendStatus || deriveEvaluationStatus({
+            totalCalories,
+            targetKcal,
+            totalProtein: result.meal_plan?.total_protein_g || 0,
+            totalFat: result.meal_plan?.total_fat_g || 0,
+            totalCarbs: result.meal_plan?.total_carbs_g || 0,
+            targetProtein: effectiveTarget.proteinTarget,
+            targetFat: effectiveTarget.fatTarget,
+            targetCarbs: effectiveTarget.carbTarget,
+            meals,
+          }),
+          level: isValid ? (backendValidation.warnings?.length ? "warning" : "success") : "warning",
+          messages: isValid ? backendMessages : [reason, ...backendMessages.filter((message) => message && message !== reason)],
+          reason,
+          targetKcal,
+          totalKcal: totalCalories,
+          kcalDiff,
+          kcalDiffPct,
+          totalCalories,
+          totalProtein: result.meal_plan?.total_protein_g || 0,
+          totalFat: result.meal_plan?.total_fat_g || 0,
+          totalCarbs: result.meal_plan?.total_carbs_g || 0,
+        };
+      }
+      return validateMealPlan(result?.meal_plan || {}, formState, effectiveTarget);
+    },
+    [result, formState, effectiveTarget, meals],
   );
   const macroData = useMemo(
     () => ({
@@ -127,6 +240,8 @@ export default function DashboardView({ userEmail, onLogout }) {
     setSubmitError("");
 
     if (Object.keys(nextErrors).length > 0) {
+      setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo thực đơn.");
+      onRequireProfile?.();
       return;
     }
 
@@ -134,6 +249,7 @@ export default function DashboardView({ userEmail, onLogout }) {
     try {
       const data = await submitRecommendation(formState);
       setResult(data);
+      setActiveSection("meal-plan");
       setFavoriteMeals(new Set());
       setRatings({});
       setMealLog({ entries: {}, manualItems: [] });
@@ -145,15 +261,77 @@ export default function DashboardView({ userEmail, onLogout }) {
     }
   }
 
+  async function requestRegenerateRecommendation() {
+    const nextErrors = validateProfile(formState);
+    setFormErrors(nextErrors);
+    setSubmitError("");
+
+    if (Object.keys(nextErrors).length > 0) {
+      setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo lại thực đơn.");
+      onRequireProfile?.();
+      return;
+    }
+
+    const previousMealPlanId = result?.meal_plan?.id || result?.meal_plan?.meal_plan_id || null;
+    setIsSubmitting(true);
+    // Lưu lại trạng thái cũ
+    const previousResult = result;
+    
+    try {
+      // 1. Lưu hồ sơ lên backend bằng PUT /api/v1/users/me/profile
+      await saveUserProfile(formState);
+
+      // 2. Tạo lại thực đơn bằng POST /api/v1/meal-plans/regenerate
+      const data = await regenerateMealPlan(formState, {
+        previousMealPlanId,
+        targetKcal: effectiveTarget.targetCalories,
+        excludePreviousItems: true,
+        randomSeed: Date.now(),
+      });
+
+      // 3. Reload thông tin user mới nhất
+      try {
+        const currentUser = await fetchCurrentUser();
+        const profile = currentUser?.profile;
+        if (profile) {
+          setFormState((current) => ({
+            ...current,
+            ...mapUserProfileToFormState(profile),
+          }));
+        }
+      } catch (profileErr) {
+        console.error("Failed to reload user profile:", profileErr);
+      }
+
+      // Nếu thành công thì mới reset các state liên quan
+      setFavoriteMeals(new Set());
+      setRatings({});
+      setMealLog({ entries: {}, manualItems: [] });
+      setResult(data);
+      setActiveSection("meal-plan");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      // Giữ lại trạng thái cũ nếu có lỗi
+      setResult(previousResult);
+      setSubmitError(err.message || "Không thể tạo lại thực đơn. Vui lòng thử lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleProfileSubmit(event) {
     event.preventDefault();
     await requestRecommendation();
   }
 
   function handleEditProfile() {
-    setResult(null);
-    setSubmitError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // If parent provided an onEditProfile handler (App.jsx), delegate to it
+    if (typeof onEditProfile === "function") {
+      onEditProfile();
+      return;
+    }
+    // Fallback: open account section
+    setActiveSection("account");
   }
 
   function handleSidebarNavigate(sectionId) {
@@ -185,7 +363,7 @@ export default function DashboardView({ userEmail, onLogout }) {
     }
 
     const currentItems = result.meal_plan[mealKey] || [];
-    const expectedCount = expectedItemsPerMeal(formState.meal_complexity);
+    const expectedCount = expectedItemsPerMeal(formState.meal_complexity ?? formState.items_per_meal);
     if (currentItems.length >= expectedCount && options.replaceIndex == null && !options.allowExtra) {
       setAddToMealRequest({ food, mealKey });
       return { status: "needs_choice" };
@@ -267,20 +445,17 @@ export default function DashboardView({ userEmail, onLogout }) {
 
       <div className="lg:pl-72">
         <Header
-          title={hasRecommendation ? pageTitles[activeSection] || pageTitles.overview : "Thiết lập hồ sơ dinh dưỡng"}
+          title={pageTitles[activeSection] || pageTitles.overview}
           onToggleMenu={() => setDrawerOpen(true)}
           onEditProfile={handleEditProfile}
           onExport={handleExportReport}
         />
 
-        {!hasRecommendation ? (
-          <ProfileSetup
-            formState={formState}
-            errors={formErrors}
-            submitError={submitError}
+        {!hasRecommendation && ["overview", "meal-plan", "charts", "journal"].includes(activeSection) ? (
+          <NoMealPlanState
             isSubmitting={isSubmitting}
-            onChange={handleProfileChange}
-            onSubmit={handleProfileSubmit}
+            submitError={submitError}
+            onGenerate={requestRecommendation}
           />
         ) : (
           <DashboardContent
@@ -303,11 +478,12 @@ export default function DashboardView({ userEmail, onLogout }) {
             ratings={ratings}
             mealLog={mealLog}
             consumedNutrition={consumedNutrition}
+            submitError={submitError}
             onFavorite={toggleFavorite}
             onRate={rateMeal}
             onMealLogChange={setMealLog}
             onProfileChange={handleProfileChange}
-            onRegenerate={requestRecommendation}
+            onRegenerate={requestRegenerateRecommendation}
             onOpenAddToMeal={(food) => setAddToMealRequest({ food, mealKey: null })}
             onOpenDislikeFood={(food) => setDislikeRequest(food)}
             isSubmitting={isSubmitting}
@@ -318,7 +494,7 @@ export default function DashboardView({ userEmail, onLogout }) {
       <AddToMealModal
         request={addToMealRequest}
         meals={meals}
-        expectedCount={expectedItemsPerMeal(formState.meal_complexity)}
+        expectedCount={expectedItemsPerMeal(formState.meal_complexity ?? formState.items_per_meal)}
         onAdd={handleAddToMeal}
         onClose={() => setAddToMealRequest(null)}
       />
@@ -328,6 +504,43 @@ export default function DashboardView({ userEmail, onLogout }) {
         onClose={() => setDislikeRequest(null)}
       />
     </div>
+  );
+}
+
+function NoMealPlanState({ isSubmitting, submitError, onGenerate }) {
+  return (
+    <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
+      <div className="w-full max-w-lg text-center">
+        <div className="flex justify-center">
+          <NutriGainLogo size="lg" />
+        </div>
+        <h2 className="mt-6 text-2xl font-extrabold text-[#0F172A]">Tạo thực đơn hôm nay</h2>
+        <p className="mt-3 text-base text-[#64748B]">
+          Hồ sơ của bạn đã sẵn sàng. Bấm bên dưới để NutriGain tạo thực đơn tăng cân cá nhân hóa cho hôm nay.
+        </p>
+        {submitError && (
+          <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+            {submitError}
+          </div>
+        )}
+        <button
+          type="button"
+          disabled={isSubmitting}
+          onClick={onGenerate}
+          className="mt-8 h-14 w-full rounded-2xl bg-[#10B981] text-base font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSubmitting ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              Đang tạo thực đơn...
+            </span>
+          ) : "Tạo thực đơn ngay"}
+        </button>
+        <p className="mt-4 text-xs text-[#64748B]">
+          Bạn có thể chỉnh lại hồ sơ bất kỳ lúc nào trong mục <strong>Tài khoản</strong>.
+        </p>
+      </div>
+    </main>
   );
 }
 
@@ -346,9 +559,9 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
           noValidate
         >
           <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Thiết lập hồ sơ</p>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">Thiết lập hồ sơ dinh dưỡng</h2>
-            <p className="mt-2 text-sm font700 leading-6 text-slate-500">
+            <p className="text-xs font900 uppercase tracking-[0.18em] text-brand-primary">Thiết lập hồ sơ</p>
+            <h2 className="mt-2 text-3xl font-black text-brand-text-main">Thiết lập hồ sơ dinh dưỡng</h2>
+            <p className="mt-2 text-sm font700 leading-6 text-brand-text-sub">
               Điền thông tin cơ thể và mục tiêu để NutriGain dự báo BMI, calories và macro cá nhân hóa.
             </p>
           </div>
@@ -357,10 +570,10 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
             <section className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font900 uppercase tracking-[0.16em] text-emerald-700">01 · Thông tin cơ thể</p>
-                  <h3 className="mt-1 text-lg font-black text-slate-950">Thông tin cơ thể</h3>
+                  <p className="text-xs font900 uppercase tracking-[0.16em] text-brand-primary">01 · Thông tin cơ thể</p>
+                  <h3 className="mt-1 text-lg font-black text-brand-text-main">Thông tin cơ thể</h3>
                 </div>
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font900 text-emerald-700">Bắt buộc</span>
+                <span className="rounded-full bg-brand-mint px-3 py-1 text-xs font900 text-brand-primary">Bắt buộc</span>
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <ProfileField
@@ -428,8 +641,8 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
 
             <section className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm">
               <div>
-                <p className="text-xs font900 uppercase tracking-[0.16em] text-emerald-700">02 · Mục tiêu dinh dưỡng</p>
-                <h3 className="mt-1 text-lg font-black text-slate-950">Mục tiêu dinh dưỡng</h3>
+                <p className="text-xs font900 uppercase tracking-[0.16em] text-brand-primary">02 · Mục tiêu dinh dưỡng</p>
+                <h3 className="mt-1 text-lg font-black text-brand-text-main">Mục tiêu dinh dưỡng</h3>
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <ProfileSelect
@@ -498,9 +711,9 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
 
             <section className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm">
               <div>
-                <p className="text-xs font900 uppercase tracking-[0.16em] text-emerald-700">03 · Món yêu thích</p>
-                <h3 className="mt-1 text-lg font-black text-slate-950">Món yêu thích</h3>
-                <p className="mt-2 text-sm font700 text-slate-500">Thêm món hoặc nguyên liệu bạn muốn ưu tiên.</p>
+                <p className="text-xs font900 uppercase tracking-[0.16em] text-brand-primary">03 · Món yêu thích</p>
+                <h3 className="mt-1 text-lg font-black text-brand-text-main">Món yêu thích</h3>
+                <p className="mt-2 text-sm font700 text-brand-text-sub">Thêm món hoặc nguyên liệu bạn muốn ưu tiên.</p>
               </div>
               <div className="mt-4">
                 <TagInput
@@ -517,9 +730,9 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
 
             <section className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm">
               <div>
-                <p className="text-xs font900 uppercase tracking-[0.16em] text-emerald-700">04 · Dị ứng / món không thích</p>
-                <h3 className="mt-1 text-lg font-black text-slate-950">Dị ứng / món không thích</h3>
-                <p className="mt-2 text-sm font700 text-slate-500">Loại bỏ món không phù hợp với bạn.</p>
+                <p className="text-xs font900 uppercase tracking-[0.16em] text-brand-primary">04 · Dị ứng / món không thích</p>
+                <h3 className="mt-1 text-lg font-black text-brand-text-main">Dị ứng / món không thích</h3>
+                <p className="mt-2 text-sm font700 text-brand-text-sub">Loại bỏ món không phù hợp với bạn.</p>
               </div>
               <div className="mt-4">
                 <TagInput
@@ -535,13 +748,13 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
             </section>
           </div>
 
-          <label className="mt-6 flex items-start gap-3 rounded-2xl bg-emerald-50/70 p-4 text-sm font800 text-slate-700">
+          <label className="mt-6 flex items-start gap-3 rounded-2xl bg-brand-mint/70 p-4 text-sm font800 text-brand-text-main">
             <input
               type="checkbox"
               name="save_user_data"
               checked={formState.save_user_data}
               onChange={onChange}
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-primary focus:ring-brand-primary"
             />
             Lưu hồ sơ để lần sau hệ thống cá nhân hóa tốt hơn.
           </label>
@@ -555,23 +768,23 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-6 flex min-h-[52px] w-full items-center justify-center rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-base font900 text-emerald-800 shadow-sm transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-6 flex min-h-[52px] w-full items-center justify-center rounded-3xl border border-brand-primary bg-brand-primary px-5 py-4 text-base font900 text-white shadow-lg shadow-brand-primary/20 transition hover:-translate-y-0.5 hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Đang tạo thực đơn..." : "Tạo thực đơn hôm nay"}
           </button>
         </form>
 
         <aside className="space-y-5">
-          <section className="rounded-[28px] border border-emerald-100/80 bg-white p-6 shadow-xl shadow-emerald-900/10">
+          <section className="rounded-[28px] border border-brand-border bg-brand-surface p-6 shadow-xl shadow-brand-navy/10">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Tóm tắt hồ sơ</p>
-                <h3 className="mt-2 text-2xl font-black text-slate-950">Chỉ số dự kiến hôm nay</h3>
-                <p className="mt-2 text-sm font700 leading-6 text-slate-500">
+                <p className="text-xs font900 uppercase tracking-[0.18em] text-brand-primary">Tóm tắt hồ sơ</p>
+                <h3 className="mt-2 text-2xl font-black text-brand-text-main">Chỉ số dự kiến hôm nay</h3>
+                <p className="mt-2 text-sm font700 leading-6 text-brand-text-sub">
                   Tính theo dữ liệu bạn nhập. Hệ thống sẽ tinh chỉnh thêm sau khi tạo thực đơn.
                 </p>
               </div>
-              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-emerald-50 ring-1 ring-emerald-100">
+              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-brand-mint ring-1 ring-brand-border">
                 <img src="/images/hero-food.png" alt="Minh họa dinh dưỡng" className="h-full w-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-white/70 via-white/10 to-transparent" />
               </div>
@@ -579,20 +792,20 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
 
             <div className="mt-6 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl bg-emerald-50 p-4">
-                  <p className="text-xs font900 uppercase tracking-[0.12em] text-emerald-700">BMI</p>
+                <div className="rounded-2xl bg-brand-mint p-4">
+                  <p className="text-xs font900 uppercase tracking-[0.12em] text-brand-primary">BMI</p>
                   <div className="mt-2 flex items-end gap-2">
-                    <span className="text-3xl font-black text-slate-950">{previewTarget.bmi}</span>
-                    <span className="pb-1 text-xs font900 text-emerald-700">{bmiStatus}</span>
+                    <span className="text-3xl font-black text-brand-text-main">{previewTarget.bmi}</span>
+                    <span className="pb-1 text-xs font900 text-brand-primary">{bmiStatus}</span>
                   </div>
-                  <p className="mt-2 text-xs font800 text-emerald-700">Theo cân nặng & chiều cao</p>
+                  <p className="mt-2 text-xs font800 text-brand-primary">Theo cân nặng & chiều cao</p>
                 </div>
-                <div className="rounded-2xl bg-orange-50 p-4">
-                  <p className="text-xs font900 uppercase tracking-[0.12em] text-orange-700">Kcal mục tiêu</p>
-                  <div className="mt-2 text-3xl font-black text-slate-950">
+                <div className="rounded-2xl bg-brand-cream p-4">
+                  <p className="text-xs font900 uppercase tracking-[0.12em] text-brand-orange">Kcal mục tiêu</p>
+                  <div className="mt-2 text-3xl font-black text-brand-text-main">
                     {previewTarget.targetCalories.toLocaleString("vi-VN")}
                   </div>
-                  <p className="mt-2 text-xs font800 text-orange-700">kcal / ngày</p>
+                  <p className="mt-2 text-xs font800 text-brand-orange">kcal / ngày</p>
                 </div>
               </div>
 
@@ -626,7 +839,7 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
                 type="submit"
                 form="profile-setup-form"
                 disabled={isSubmitting}
-                className="mt-2 flex h-12 w-full items-center justify-center rounded-3xl bg-gradient-to-r from-emerald-500 to-orange-400 px-5 text-base font900 text-white shadow-lg shadow-orange-500/20 transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 flex h-12 w-full items-center justify-center rounded-3xl bg-gradient-to-r from-brand-primary to-brand-orange px-5 text-base font900 text-white shadow-lg shadow-brand-orange/20 transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? "Đang tạo thực đơn..." : "Tạo thực đơn hôm nay"}
               </button>
@@ -661,6 +874,7 @@ function DashboardContent({
   ratings,
   mealLog,
   consumedNutrition,
+  submitError,
   onFavorite,
   onRate,
   onMealLogChange,
@@ -707,6 +921,7 @@ function DashboardContent({
           profileSettings={profileSettings}
           favoriteMeals={favoriteMeals}
           ratings={ratings}
+          submitError={submitError}
           onFavorite={onFavorite}
           onRate={onRate}
           onRegenerate={onRegenerate}
@@ -724,11 +939,10 @@ function DashboardContent({
           summary={summary}
           meals={meals}
           validation={validation}
-          consumedNutrition={consumedNutrition}
         />
       ) : null}
 
-      {activeSection === "account" ? (
+      {activeSection === "account" || activeSection === "profile" ? (
         <AccountSettingsPage
           email={userEmail}
           profile={profileSettings}
@@ -776,59 +990,173 @@ function OverviewPage({
   onRegenerate,
   isSubmitting,
 }) {
+  const [showDetails, setShowDetails] = useState(false);
   const remainingCalories = Math.max(nutritionTarget.targetCalories - consumedNutrition.calories, 0);
-  const actionFood = findEnergySupportFood(meals);
+  const nextMeal = findNextMeal(meals, consumedNutrition);
+  const progressPct = Math.min(Math.round((consumedNutrition.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
+  const circumference = 2 * Math.PI * 54;
+  const strokeOffset = circumference - (progressPct / 100) * circumference;
+
   return (
     <div className="space-y-5">
-      <DailyNutritionSummary
-        validation={validation}
-        consumedNutrition={consumedNutrition}
-        nutritionTarget={nutritionTarget}
-        onRegenerate={onRegenerate}
-        isSubmitting={isSubmitting}
-      />
+      {/* ── Hero: Calorie Ring + Protein ──────────────────────── */}
+      <section className="glass-panel p-6 sm:p-8">
+        <div className="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+          {/* Circular progress */}
+          <div className="flex flex-col items-center">
+            <div className="relative h-36 w-36 sm:h-44 sm:w-44">
+              <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+                <circle cx="60" cy="60" r="54" fill="none" stroke="#E2E8F0" strokeWidth="8" />
+                <circle
+                  cx="60" cy="60" r="54" fill="none"
+                  stroke={progressPct >= 90 ? "#10B981" : "#FB923C"}
+                  strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeOffset}
+                  className="transition-all duration-700"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl sm:text-4xl font-black text-[#0F172A] leading-none">
+                  {consumedNutrition.calories.toLocaleString("vi-VN")}
+                </span>
+                <span className="mt-1 text-sm font-bold text-[#64748B]">/ {nutritionTarget.targetCalories} kcal</span>
+              </div>
+            </div>
+            <p className="mt-3 text-sm font-bold text-[#64748B]">
+              {progressPct >= 95 ? "Đạt mục tiêu! 🎉" : `Còn thiếu ${remainingCalories.toLocaleString("vi-VN")} kcal`}
+            </p>
+          </div>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Kcal mục tiêu" value={summary.targetCalories} unit="kcal" tone="green" />
-        <StatCard label="Kcal đã ăn" value={consumedNutrition.calories} unit="kcal" tone="navy" />
-        <StatCard label="BMI" value={summary.bmi} unit={summary.bmiStatus} tone="mint" />
-        <StatCard label="Hoàn thành" value={calorieProgress} unit="%" tone="orange" />
+          {/* Right side: Protein + status */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Hôm nay</p>
+              <h2 className="mt-1 text-2xl font-black text-[#0F172A]">Tổng quan dinh dưỡng</h2>
+            </div>
+
+            {/* Protein bar */}
+            <div className="rounded-2xl bg-[#F1F5F9] p-4">
+              <div className="flex items-center justify-between text-sm font-bold">
+                <span className="text-[#0F172A]">Protein</span>
+                <span className="text-[#0F172A]">{consumedNutrition.protein}g <span className="text-[#64748B] font-normal">/ {nutritionTarget.proteinTarget}g</span></span>
+              </div>
+              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-[#E2E8F0]">
+                <div
+                  className="h-full rounded-full bg-sky-500 transition-all duration-500"
+                  style={{ width: `${Math.min((consumedNutrition.protein / Math.max(nutritionTarget.proteinTarget, 1)) * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* BMI badge (compact) */}
+            {summary.bmi ? (
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-bold text-[#047857]">
+                  BMI {summary.bmi} · {summary.bmiStatus}
+                </span>
+                {summary.medicalWarning ? (
+                  <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">⚠️ Cần theo dõi</span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Validation status */}
+            <PlanAlert validation={validation} onRegenerate={onRegenerate} isSubmitting={isSubmitting} compact />
+          </div>
+        </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <EligibilityCard eligibility={eligibility} />
-        <ProgressCard profile={eligibility.profile} />
+      {/* ── Next Meal CTA ──────────────────────────────────── */}
+      <section className="glass-panel overflow-hidden">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#ECFDF5] text-2xl">🍽️</div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Bữa tiếp theo</p>
+              <h3 className="mt-1 text-lg font-black text-[#0F172A]">
+                {nextMeal ? nextMeal.title : "Đã hoàn thành các bữa"}
+              </h3>
+              {nextMeal ? (
+                <p className="mt-1 text-sm font-semibold text-[#64748B]">
+                  {nextMeal.items.length} món · {sumItems(nextMeal.items).calories} kcal
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={isSubmitting}
+            className="h-12 shrink-0 rounded-2xl bg-[#10B981] px-6 text-sm font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60"
+          >
+            {isSubmitting ? "Đang tạo..." : "Xem thực đơn hôm nay"}
+          </button>
+        </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">
-        <ActionSuggestionCard remainingCalories={remainingCalories} actionFood={actionFood} validation={validation} />
-        <MiniTrendCard data={weeklyCalories} metricLabel="kcal" />
-      </section>
-
+      {/* ── Warnings (if any) ──────────────────────────────── */}
       {dataWarnings.length ? (
-        <section className="grid gap-3 md:grid-cols-2">
+        <section className="space-y-2">
           {dataWarnings.map((warning) => (
             <WarningCard key={warning} text={warning} />
           ))}
         </section>
       ) : null}
 
-      <section className="glass-panel p-5">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Năng lượng</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <InfoRow label="BMR" value={`${summary.bmr} kcal`} />
-            <InfoRow label="TDEE" value={`${summary.tdee} kcal`} />
-            <InfoRow label="Ngưỡng thấp" value={`${nutritionTarget.minCalories} kcal`} />
-            <InfoRow label="Ngưỡng cao" value={`${nutritionTarget.maxCalories} kcal`} />
+      {/* ── Expandable Details ─────────────────────────────── */}
+      <section className="glass-panel overflow-hidden">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between p-5 text-left"
+          onClick={() => setShowDetails((v) => !v)}
+        >
+          <span className="text-sm font-bold text-[#0F172A]">Xem chi tiết dinh dưỡng</span>
+          <svg viewBox="0 0 24 24" className={`h-5 w-5 text-[#64748B] transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        {showDetails ? (
+          <div className="border-t border-[#E2E8F0] px-5 pb-5 pt-4 animate-fade-in">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <MacroTarget label="Fat" value={consumedNutrition.fat} target={nutritionTarget.fatTarget} tone="orange" />
+              <MacroTarget label="Carbs" value={consumedNutrition.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
+              <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
+                <div className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Hoàn thành</div>
+                <div className="mt-3 text-2xl font-black text-[#0F172A]">{calorieProgress}%</div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <InfoRow label="BMR" value={`${summary.bmr} kcal`} />
+              <InfoRow label="TDEE" value={`${summary.tdee} kcal`} />
+              <InfoRow label="Ngưỡng thấp" value={`${nutritionTarget.minCalories} kcal`} />
+              <InfoRow label="Ngưỡng cao" value={`${nutritionTarget.maxCalories} kcal`} />
+            </div>
           </div>
+        ) : null}
       </section>
     </div>
   );
 }
 
+function findNextMeal(meals, consumed) {
+  const mealOrder = ["Bữa sáng", "Bữa trưa", "Bữa phụ", "Bữa tối"];
+  const hour = new Date().getHours();
+  let startIdx = 0;
+  if (hour >= 11) startIdx = 1;
+  if (hour >= 14) startIdx = 2;
+  if (hour >= 17) startIdx = 3;
+  for (let i = startIdx; i < mealOrder.length; i++) {
+    const meal = meals.find((m) => m.title === mealOrder[i]);
+    if (meal && meal.items.length > 0) return meal;
+  }
+  return meals[0] || null;
+}
+
 function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogChange }) {
   const entries = mealLog?.entries || {};
   const manualItems = mealLog?.manualItems || [];
+  const [showMacro, setShowMacro] = useState(false);
   const [manualDraft, setManualDraft] = useState({
     mealTitle: meals[0]?.title || "",
     name: "",
@@ -839,6 +1167,7 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
   });
   const mealRows = meals.map((meal) => buildJournalMealRow(meal, entries, manualItems));
   const actualTotals = sumJournalRows(mealRows);
+  const kcalPct = Math.min(Math.round((actualTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
 
   function updateEntry(key, patch) {
     onMealLogChange((current) => ({
@@ -884,20 +1213,47 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
       <section className="glass-panel p-5 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Nhật ký ăn uống</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">Theo dõi từng bữa trong ngày</h2>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Nhật ký ăn uống</p>
+            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">Theo dõi từng bữa trong ngày</h2>
           </div>
-          <span className="w-fit rounded-full bg-slate-950 px-4 py-2 text-sm font900 text-white">
-            {round(actualTotals.calories).toLocaleString("vi-VN")} / {validation.totalCalories.toLocaleString("vi-VN")} kcal
-          </span>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-4">
-          <InfoTile label="Kcal gợi ý" value={`${validation.totalCalories.toLocaleString("vi-VN")} kcal`} />
-          <InfoTile label="Kcal đã ăn" value={`${round(actualTotals.calories).toLocaleString("vi-VN")} kcal`} />
-          <InfoTile label="Protein đã ăn" value={`${round(actualTotals.protein)}g / ${nutritionTarget.proteinTarget}g`} />
-          <InfoTile label="Macro thực tế" value={`F ${round(actualTotals.fat)}g · C ${round(actualTotals.carbs)}g`} />
+        {/* 3 compact KPIs */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
+            <div className="flex items-center justify-between text-sm font-bold">
+              <span className="text-[#64748B]">Kcal</span>
+              <span className="text-[#0F172A]">{round(actualTotals.calories).toLocaleString("vi-VN")} / {nutritionTarget.targetCalories.toLocaleString("vi-VN")}</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E2E8F0]">
+              <div className={`h-full rounded-full transition-all duration-500 ${kcalPct >= 90 ? "bg-[#10B981]" : "bg-[#FB923C]"}`} style={{ width: `${kcalPct}%` }} />
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Protein đã ăn</p>
+            <p className="mt-2 text-lg font-black text-[#0F172A]">{round(actualTotals.protein)}g <span className="text-sm font-bold text-[#64748B]">/ {nutritionTarget.proteinTarget}g</span></p>
+          </div>
+          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Hoàn thành</p>
+            <p className={`mt-2 text-lg font-black ${kcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>{kcalPct}%</p>
+          </div>
         </div>
+
+        {/* Expandable macro details */}
+        <button
+          type="button"
+          className="mt-3 flex w-full items-center gap-2 rounded-xl px-1 py-2 text-xs font-bold text-[#64748B] hover:text-[#0F172A] transition"
+          onClick={() => setShowMacro((v) => !v)}
+        >
+          <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform duration-200 ${showMacro ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          Chi tiết macro
+        </button>
+        {showMacro ? (
+          <div className="mt-1 grid gap-3 sm:grid-cols-2 animate-fade-in">
+            <InfoTile label="Fat đã ăn" value={`${round(actualTotals.fat)}g`} />
+            <InfoTile label="Carbs đã ăn" value={`${round(actualTotals.carbs)}g`} />
+          </div>
+        ) : null}
 
         <form className="mt-5 rounded-2xl bg-white/80 p-4 ring-1 ring-slate-100" onSubmit={addManualItem}>
           <div className="grid gap-3 md:grid-cols-[1fr_1.4fr_repeat(4,minmax(86px,0.7fr))_auto]">
@@ -945,10 +1301,12 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
                   </p>
                   <MealStatusPill status={meal.status} />
                 </div>
-                <div className="grid grid-cols-3 gap-2 sm:min-w-[320px]">
-                  <MacroMini label="Protein" value={meal.actual.protein} color="bg-sky-500" />
-                  <MacroMini label="Fat" value={meal.actual.fat} color="bg-orange-400" />
-                  <MacroMini label="Carbs" value={meal.actual.carbs} color="bg-emerald-500" />
+                <div className="text-sm font-bold text-slate-500 bg-slate-50 rounded-xl px-4 py-2 self-start mt-2 lg:mt-0">
+                  <span className="text-sky-700">P {Math.round(meal.actual.protein)}/{Math.round(meal.suggested.protein)}g</span>
+                  <span className="mx-2 text-slate-300">·</span>
+                  <span className="text-orange-700">F {Math.round(meal.actual.fat)}/{Math.round(meal.suggested.fat)}g</span>
+                  <span className="mx-2 text-slate-300">·</span>
+                  <span className="text-emerald-700">C {Math.round(meal.actual.carbs)}/{Math.round(meal.suggested.carbs)}g</span>
                 </div>
               </div>
 
@@ -1022,14 +1380,21 @@ function MealsPage({
   profileSettings,
   favoriteMeals,
   ratings,
+  submitError,
   onFavorite,
   onRate,
   onRegenerate,
   onOpenDislikeFood,
   isSubmitting,
 }) {
-  const [detailFood, setDetailFood] = useState(null);
-  const expectedCount = expectedItemsPerMeal(profileSettings?.meal_complexity);
+  const expectedCount = expectedItemsPerMeal(profileSettings?.meal_complexity ?? profileSettings?.items_per_meal);
+  const displayMeals = meals
+    .map((meal) => ({ ...meal, items: (meal.items || []).slice(0, expectedCount) }))
+    .filter((meal) => meal.items.length > 0);
+  const displayTotals = sumItems(displayMeals.flatMap((meal) => meal.items));
+  const hasMeals = displayMeals.length > 0 && Number(displayTotals.calories || validation.totalCalories || 0) > 0;
+  const totalItems = displayMeals.reduce((sum, meal) => sum + meal.items.length, 0);
+  const totalMeals = displayMeals.length;
 
   return (
     <div className="space-y-5">
@@ -1038,136 +1403,250 @@ function MealsPage({
           {summary.medicalWarning}
         </section>
       ) : null}
-      <section className="glass-panel p-5 sm:p-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Kế hoạch bữa ăn</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">Thực đơn tăng cân lành mạnh hôm nay</h2>
-            <p className="mt-2 text-sm font700 text-slate-500">
-              Mỗi bữa ưu tiên cân bằng tinh bột, đạm, rau/trái cây và món phụ tăng năng lượng khi đủ số món.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <MealPlanHeader
+        totalKcal={displayTotals.calories || validation.totalCalories}
+        totalMeals={totalMeals}
+        totalItems={totalItems}
+        totalProtein={displayTotals.protein || validation.totalProtein}
+        totalFat={displayTotals.fat || validation.totalFat}
+        totalCarbs={displayTotals.carbs || validation.totalCarbs}
+        onRegenerate={onRegenerate}
+        isSubmitting={isSubmitting}
+      />
+
+      {submitError ? (
+        <section className="rounded-2xl border border-red-200 bg-red-50 px-5 py-6 text-center shadow-sm">
+          <h3 className="text-xl font-black text-red-900">Không thể tạo thực đơn</h3>
+          <p className="mt-2 text-sm font-semibold text-red-700 max-w-2xl mx-auto leading-relaxed">
+            {submitError}
+          </p>
+          <div className="mt-5 flex justify-center">
             <button
-              type="button"
-              className="h-11 rounded-2xl bg-slate-950 px-4 text-sm font900 text-white disabled:cursor-not-allowed disabled:opacity-60"
               onClick={onRegenerate}
               disabled={isSubmitting}
+              className="flex h-12 items-center justify-center rounded-2xl bg-red-600 px-6 text-sm font-bold text-white shadow-md hover:bg-red-700 disabled:opacity-60 transition-all"
             >
-              {isSubmitting ? "Đang tạo..." : "Tạo lại thực đơn"}
+              {isSubmitting ? "Đang thử lại..." : "Thử lại"}
             </button>
-            <span className="rounded-2xl bg-emerald-50 px-4 py-2 text-sm font900 text-emerald-800">
-              {validation.totalCalories.toLocaleString("vi-VN")} kcal
-            </span>
           </div>
-        </div>
-      </section>
-
-      <div className="space-y-5">
-        {meals.map((meal) => {
-          const totals = sumItems(meal.items);
-          const balance = analyzeMealBalance(meal.items, expectedCount);
-          return (
-            <section key={meal.title} className="glass-panel overflow-hidden p-0">
-              <div className="flex flex-col gap-3 border-b border-slate-100 bg-white/75 p-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex items-start gap-3">
-                  <span className={`mt-1 h-12 w-2 rounded-full ${accentClass(meal.accent)}`} />
-                  <div>
-                    <h3 className="text-xl font-black text-slate-950">{meal.title}</h3>
-                    <p className="mt-1 text-sm font800 text-slate-500">
-                      {meal.items.length}/{expectedCount} món · {totals.calories} kcal · P {totals.protein}g · F {totals.fat}g · C {totals.carbs}g
-                    </p>
-                    <MealBalanceChips balance={balance} />
-                  </div>
-                </div>
-                {balance.warnings.length ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font800 leading-6 text-amber-900">
-                    {balance.warnings.join(" ")}
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font900 text-emerald-900">
-                    Bữa ăn cân bằng nhóm món.
-                  </div>
-                )}
-              </div>
-
-              <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2 2xl:grid-cols-3">
-                {meal.items.map((item) => (
-                  <article key={item.id} className="overflow-hidden rounded-3xl border border-white bg-white shadow-xl shadow-slate-900/7">
-                    <div className="relative aspect-[16/10] overflow-hidden bg-emerald-50">
-                      <img
-                        src={item.image}
-                        alt={item.imageAlt || item.name}
-                        className="h-full w-full object-cover"
-                        onError={(event) => {
-                          const image = event.currentTarget;
-                          if (image.dataset.usedFallback === "true") return;
-                          image.dataset.usedFallback = "true";
-                          image.src = item.fallbackImage || defaultFoodImage;
-                        }}
-                      />
-                      {item.imageBadge ? (
-                        <span className="absolute left-4 top-4 rounded-full bg-amber-50 px-3 py-1.5 text-xs font900 text-amber-800 ring-1 ring-amber-100">
-                          {item.imageBadge}
-                        </span>
-                      ) : null}
-                      <span className="absolute bottom-4 right-4 rounded-2xl bg-accent px-3 py-2 text-sm font-black text-white">
-                        {item.calories} kcal
-                      </span>
-                    </div>
-                    <div className="space-y-4 p-4">
-                      <div>
-                        <h4 className="text-lg font-black leading-snug text-slate-950">{item.name}</h4>
-                        <p className="mt-1 text-sm font800 text-slate-600">{item.foodGroup || item.category}</p>
-                        <p className="mt-1 text-sm font700 text-slate-500">{item.servingDisplay || `${item.servingGrams}g`}</p>
-                      </div>
-                      <p className="rounded-2xl bg-emerald-50 p-3 text-sm font800 leading-6 text-emerald-900">
-                        {item.reason || buildSuggestionReason(item)}
-                      </p>
-                      <div className="grid grid-cols-3 gap-2 text-center text-xs font900">
-                        <span className="rounded-xl bg-sky-50 px-2 py-2 text-sky-700">P {item.protein}g</span>
-                        <span className="rounded-xl bg-orange-50 px-2 py-2 text-orange-700">F {item.fat}g</span>
-                        <span className="rounded-xl bg-emerald-50 px-2 py-2 text-emerald-700">C {item.carbs}g</span>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <button type="button" className="h-10 rounded-2xl bg-slate-100 px-3 text-sm font900 text-slate-700" onClick={() => setDetailFood(item)}>
-                          Xem chi tiết
-                        </button>
-                        <button type="button" className="h-10 rounded-2xl bg-emerald-50 px-3 text-sm font900 text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60" onClick={onRegenerate} disabled={isSubmitting}>
-                          Đổi món
-                        </button>
-                        <button type="button" className={`h-10 rounded-2xl px-3 text-sm font900 ${favoriteMeals.has(item.id) ? "bg-rose-50 text-rose-600" : "bg-slate-100 text-slate-700"}`} onClick={() => onFavorite(item.id)}>
-                          Yêu thích
-                        </button>
-                        <button type="button" className={`h-10 rounded-2xl px-3 text-sm font900 ${isFoodDisliked(item, profileSettings) ? "bg-orange-50 text-orange-700" : "bg-slate-100 text-slate-700"}`} onClick={() => onOpenDislikeFood(item)}>
-                          Không thích
-                        </button>
-                      </div>
-                      <label className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-white px-3 text-sm font900 text-slate-700 ring-1 ring-slate-100">
-                        Đánh giá
-                        <select
-                          className="bg-transparent text-sm font900 outline-none"
-                          value={ratings[item.id] || ""}
-                          onChange={(event) => onRate(item.id, Number(event.target.value))}
-                          aria-label={`Đánh giá ${item.name}`}
-                        >
-                          <option value="">--</option>
-                          <option value="5">5</option>
-                          <option value="4">4</option>
-                          <option value="3">3</option>
-                        </select>
-                      </label>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+        </section>
+      ) : !hasMeals ? (
+        <section className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center shadow-sm">
+          <h3 className="text-xl font-black text-slate-900">Chưa có thực đơn hôm nay</h3>
+          <p className="mt-2 text-sm font-semibold text-slate-600 max-w-md mx-auto leading-relaxed">
+            Hãy tạo thực đơn để NutriGain gợi ý bữa ăn phù hợp với hồ sơ của bạn.
+          </p>
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={onRegenerate}
+              disabled={isSubmitting}
+              className="flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-6 text-sm font-bold text-white shadow-md hover:bg-emerald-700 disabled:opacity-60 transition-all"
+            >
+              {isSubmitting ? "Đang tạo..." : "Tạo thực đơn hôm nay"}
+            </button>
+          </div>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          {displayMeals.map((meal) => {
+            const totals = sumItems(meal.items);
+            const balance = analyzeMealBalance(meal.items, expectedCount);
+            return (
+              <MealSection
+                key={meal.title}
+                mealName={meal.title}
+                totalKcal={totals.calories}
+                itemCount={meal.items.length}
+                status={deriveMealPlanStatus(balance, totals, expectedCount)}
+                items={meal.items}
+                totals={totals}
+                balance={balance}
+                accent={meal.accent}
+              />
+            );
+          })}
       </div>
-      <FoodDetailModal food={detailFood} onClose={() => setDetailFood(null)} />
+      )}
     </div>
   );
+}
+
+function MealPlanHeader({
+  totalKcal,
+  totalMeals,
+  totalItems,
+  totalProtein,
+  totalFat,
+  totalCarbs,
+  onRegenerate,
+  isSubmitting,
+}) {
+  return (
+    <section className="rounded-[32px] border border-emerald-100 bg-[#F0FDF4] p-5 shadow-sm shadow-emerald-900/5 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-[#0B2A4A] sm:text-3xl">Kế hoạch bữa ăn hôm nay</h2>
+          <p className="mt-2 text-sm font700 text-[#64748B]">
+            Thực đơn được cá nhân hóa theo hồ sơ dinh dưỡng của bạn.
+          </p>
+          <p className="mt-3 text-sm font800 text-[#64748B]">
+            Protein {round(totalProtein)}g · Fat {round(totalFat)}g · Carbs {round(totalCarbs)}g
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="rounded-[24px] bg-white px-5 py-3 shadow-sm ring-1 ring-emerald-100">
+            <p className="text-3xl font-black leading-none text-[#0F172A]">{round(totalKcal).toLocaleString("vi-VN")}</p>
+            <p className="mt-1 text-sm font900 text-[#10B981]">kcal</p>
+          </div>
+          <div className="rounded-[24px] bg-white px-5 py-3 shadow-sm ring-1 ring-emerald-100">
+            <p className="text-lg font-black text-[#0F172A]">{totalMeals} bữa · {totalItems} món</p>
+            <p className="mt-1 text-sm font800 text-[#64748B]">Tóm tắt hôm nay</p>
+          </div>
+          <button
+            type="button"
+            className="h-12 rounded-[20px] bg-[#10B981] px-5 text-sm font900 text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onRegenerate}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Đang tạo..." : "Tạo lại thực đơn"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MealSection({ mealName, totalKcal, itemCount, status, items, totals, balance, accent }) {
+  return (
+    <section className="rounded-[32px] border border-slate-100 bg-white p-4 shadow-sm shadow-slate-900/5 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className={`mt-1 h-12 w-2 rounded-full ${accentClass(accent)}`} />
+          <div>
+            <h3 className="text-xl font-black text-[#0F172A]">{mealName}</h3>
+            <p className="mt-1 text-sm font800 text-[#64748B]">
+              {itemCount} món · {round(totalKcal).toLocaleString("vi-VN")} kcal
+            </p>
+          </div>
+        </div>
+        <span className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font900 ${status.className}`}>
+          {status.label}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {items.map((item) => (
+          <MealFoodCard
+            key={item.id}
+            imageUrl={item.image}
+            imageAlt={item.imageAlt || item.name}
+            fallbackImage={item.fallbackImage || defaultFoodImage}
+            name={item.name}
+            category={item.foodGroup || item.category}
+            servingText={formatServingText(item)}
+            kcal={item.calories}
+          />
+        ))}
+      </div>
+
+      <NutritionDetailsCollapse totals={totals} items={items} balance={balance} status={status} />
+    </section>
+  );
+}
+
+function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, category, servingText, kcal }) {
+  const metaText = [category, servingText].filter(Boolean).join(" · ");
+
+  return (
+    <article className="flex min-h-28 gap-3 rounded-[28px] bg-slate-50 p-2 ring-1 ring-slate-100 transition hover:bg-white hover:shadow-md hover:shadow-slate-900/5 sm:block">
+      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[22px] bg-emerald-50 sm:h-auto sm:w-full sm:aspect-[4/3]">
+        <img
+          src={imageUrl || defaultFoodImage}
+          alt={imageAlt || name}
+          className="h-full w-full object-cover"
+          onError={(event) => {
+            const image = event.currentTarget;
+            if (image.dataset.usedFallback === "true") return;
+            image.dataset.usedFallback = "true";
+            image.src = fallbackImage || defaultFoodImage;
+          }}
+        />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col justify-center px-1 py-1 sm:px-2 sm:py-3">
+        <h4 className="line-clamp-2 text-base font-black leading-snug text-[#0F172A]">{name}</h4>
+        <p className="mt-1 line-clamp-1 text-sm font800 text-[#64748B]">{metaText || "Món ăn"}</p>
+        <p className="mt-2 text-sm font-black text-[#FB923C]">{round(kcal).toLocaleString("vi-VN")} kcal</p>
+      </div>
+    </article>
+  );
+}
+
+function NutritionDetailsCollapse({ totals, items, balance, status }) {
+  const [open, setOpen] = useState(false);
+  const groupSummary = buildMealGroupSummary(items);
+  const detailText = buildMealStatusDetail(status, balance);
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-4">
+      <button
+        type="button"
+        className="h-10 rounded-[18px] bg-emerald-50 px-4 text-sm font900 text-[#047857] transition hover:bg-emerald-100"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        {open ? "Ẩn chi tiết dinh dưỡng" : "Xem chi tiết dinh dưỡng"}
+      </button>
+
+      {open ? (
+        <div className="mt-4 grid gap-4 rounded-[24px] bg-slate-50 p-4 ring-1 ring-slate-100 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <div className="grid grid-cols-3 gap-2">
+            <NutritionMini label="Protein" value={`${round(totals.protein)}g`} tone="bg-sky-500" />
+            <NutritionMini label="Fat" value={`${round(totals.fat)}g`} tone="bg-[#FB923C]" />
+            <NutritionMini label="Carbs" value={`${round(totals.carbs)}g`} tone="bg-[#10B981]" />
+          </div>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">Nhóm món</p>
+              <p className="mt-1 text-sm font800 leading-6 text-[#0F172A]">
+                {groupSummary.map((group) => `${group.label} (${group.count})`).join(" · ") || "Chưa đủ dữ liệu"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">Nhận xét</p>
+              <p className="mt-1 text-sm font800 leading-6 text-[#64748B]">
+                {status.label}: {detailText}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NutritionMini({ label, value, tone }) {
+  return (
+    <div className="rounded-[18px] bg-white p-3 ring-1 ring-slate-100">
+      <span className={`block h-1.5 w-8 rounded-full ${tone}`} />
+      <p className="mt-3 text-lg font-black text-[#0F172A]">{value}</p>
+      <p className="mt-1 text-xs font900 uppercase tracking-[0.12em] text-[#64748B]">{label}</p>
+    </div>
+  );
+}
+
+function buildMealStatusDetail(status, balance) {
+  if (status.label === "Carbs hơi cao") {
+    return "Bữa này hơi nhiều tinh bột. Có thể giảm khẩu phần tinh bột hoặc đổi sang món giàu chất béo tốt.";
+  }
+  if (status.label === "Thiếu chất béo tốt") {
+    return "Bữa này còn thiếu chất béo tốt. Có thể thêm bơ, hạt, trứng hoặc sữa nguyên kem.";
+  }
+  if (status.label === "Cân bằng") {
+    return "Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch hôm nay.";
+  }
+  return balance.warnings.length
+    ? balance.warnings.join(" ")
+    : "Bữa này cần chỉnh nhẹ để phù hợp hơn với kế hoạch hôm nay.";
 }
 
 function FoodsPage({ foods, meals, profileSettings, onOpenAddToMeal, onOpenDislikeFood }) {
@@ -1436,7 +1915,7 @@ function ChartsPage({ weeklyCalories, macroData, summary, meals, validation }) {
           <div>
             <div className="inline-flex items-center gap-2 mb-2">
               <span className="flex h-6 items-center rounded-md bg-emerald-100 px-2.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800">
-                NutriGain Dashboard
+                NutriGain
               </span>
             </div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Biểu đồ dinh dưỡng</h2>
@@ -1462,44 +1941,33 @@ function ChartsPage({ weeklyCalories, macroData, summary, meals, validation }) {
                 </button>
               ))}
             </div>
-            <button className="h-11 px-5 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center gap-2">
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="text-slate-400">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              Chỉnh hồ sơ
-            </button>
-            <button className="h-11 px-5 rounded-xl bg-emerald-600 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 transition-all flex items-center gap-2">
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Xuất báo cáo
-            </button>
           </div>
         </div>
       </section>
 
-      {/* 2. KPI Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        {[
-          { label: "Calories Kì Vọng/Ngày", value: `${avgCalories} kcal`, desc: "Mức trung bình", icon: "🔥", color: "text-orange-500", bg: "bg-orange-50" },
-          { label: "Protein Mục Tiêu", value: `${macroData.protein}g`, desc: "Hôm nay", icon: "🥩", color: "text-rose-500", bg: "bg-rose-50" },
-          { label: "Mức Tuân Thủ", value: `${compliancePercent}%`, desc: "Mục tiêu calo", icon: "🎯", color: "text-emerald-500", bg: "bg-emerald-50" },
-          { label: "Ngày Ghi Nhận", value: `${weeklyCalories.length}`, desc: "Tổng cộng", icon: "📅", color: "text-blue-500", bg: "bg-blue-50" },
-          { label: "Xu Hướng", value: summary.bmiStatus || "N/A", desc: "Dựa trên BMI", icon: "📈", color: "text-indigo-500", bg: "bg-indigo-50" }
-        ].map((kpi, idx) => (
-          <div key={idx} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-4">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${kpi.bg}`}>
-                {kpi.icon}
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-extrabold text-slate-500 uppercase tracking-widest">{kpi.label}</p>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">{kpi.value}</h3>
-              <p className="text-xs font-semibold text-slate-400 mt-2">{kpi.desc}</p>
-            </div>
+      {/* 2. KPI Cards (compact 3) */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center text-base">🔥</div>
+            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Kcal trung bình</span>
           </div>
-        ))}
+          <h3 className="text-2xl font-black text-[#0F172A]">{avgCalories} <span className="text-sm font-bold text-[#64748B]">kcal/ngày</span></h3>
+        </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center text-base">🎯</div>
+            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Mức tuân thủ</span>
+          </div>
+          <h3 className={`text-2xl font-black ${compliancePercent >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>{compliancePercent}%</h3>
+        </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-base">📅</div>
+            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Ngày ghi nhận</span>
+          </div>
+          <h3 className="text-2xl font-black text-[#0F172A]">{weeklyCalories.length} <span className="text-sm font-bold text-[#64748B]">ngày</span></h3>
+        </div>
       </section>
 
       {/* 3. Tabs */}
@@ -1612,9 +2080,6 @@ function ChartsPage({ weeklyCalories, macroData, summary, meals, validation }) {
           </div>
         ) : null}
       </div>
-
-      {/* 6. Khu vực biểu đồ BMR & TDEE */}
-      <EnergyChart bmr={summary.bmr} tdee={summary.tdee} />
     </div>
   );
 }
@@ -1999,8 +2464,8 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
       <div className="space-y-5">
         {activeTab === 'profile' && (
           <section className="glass-panel p-5 sm:p-6 animate-fade-in">
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hồ sơ cá nhân</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">Chỉnh thông tin gợi ý thực đơn</h2>
+            <h2 className="text-2xl font-black text-slate-950">Hồ sơ dinh dưỡng</h2>
+            <p className="mt-2 text-sm font800 leading-6 text-slate-500">Cập nhật thông tin để NutriGain tính BMI, kcal mục tiêu và tạo thực đơn phù hợp.</p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <ProfileField label="Tuổi" name="age" type="number" min="1" max="120" value={profile.age} error={errors.age} onChange={onChange} />
               <ProfileSelect label="Giới tính" name="sex" value={profile.sex} error={errors.sex} onChange={onChange} options={[{ value: "", label: "Không chọn" }, { value: "male", label: "Nam" }, { value: "female", label: "Nữ" }]} />
@@ -2012,15 +2477,15 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
               <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng / eat clean" }, { value: "vegetarian", label: "Chay" }, { value: "low_carb", label: "Low-carb" }]} />
               <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
               <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
-              <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} />
-              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} />
+              <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} helperText="Nhập các món muốn ưu tiên, phân tách bằng dấu phẩy." />
+              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} helperText="Nhập món không thích, dị ứng hoặc cần tránh, phân tách bằng dấu phẩy." />
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
               <button
                 type="button"
                 className="h-12 rounded-2xl bg-emerald-600 px-6 text-sm font900 text-white disabled:cursor-not-allowed disabled:opacity-60 hover:bg-emerald-700 transition"
                 onClick={onRegenerate}
-                disabled={isSubmitting || !eligibility.eligible}
+                disabled={isSubmitting}
               >
                 {isSubmitting ? "Đang cập nhật..." : "Cập nhật và tạo lại thực đơn"}
               </button>
@@ -2380,54 +2845,111 @@ function DailyNutritionSummary({ validation, consumedNutrition, nutritionTarget,
   );
 }
 
+function getMacroStatus(actual, target, label) {
+  if (target <= 0) return { status: "neutral", text: "", color: "bg-slate-100 text-slate-700" };
+  const ratio = actual / target;
+  const diff = Math.abs(actual - target);
+  if (ratio < 0.9) {
+    return { status: "low", text: `Còn thiếu ${diff.toFixed(0)}g`, color: ratio < 0.75 ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800" };
+  } else if (ratio <= 1.1) {
+    if (ratio > 1.0) {
+      return { status: "ok", text: `Vượt nhẹ ${diff.toFixed(0)}g`, color: "bg-orange-100 text-orange-800" };
+    }
+    return { status: "ok", text: "Đạt mục tiêu", color: "bg-emerald-100 text-emerald-800" };
+  } else {
+    return { status: "high", text: `Vượt ${diff.toFixed(0)}g`, color: ratio > 1.25 ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800" };
+  }
+}
+
+function deriveEvaluationStatus({ totalCalories, targetKcal, totalProtein, totalFat, totalCarbs, targetProtein, targetFat, targetCarbs, meals }) {
+  const hasItems = (meals || []).some((meal) => Array.isArray(meal.items) && meal.items.length > 0);
+  if (!hasItems || Number(totalCalories || 0) <= 0) return "invalid";
+  const kcalPct = targetKcal > 0 ? Math.abs(totalCalories - targetKcal) / targetKcal : 1;
+  const p = targetProtein > 0 ? totalProtein / targetProtein : 1;
+  const f = targetFat > 0 ? totalFat / targetFat : 1;
+  const c = targetCarbs > 0 ? totalCarbs / targetCarbs : 1;
+  if (kcalPct <= 0.1 && p >= 0.9 && p <= 1.1 && f >= 0.8 && f <= 1.2 && c >= 0.8 && c <= 1.2) return "valid";
+  if (kcalPct <= 0.1 && p <= 1.3 && f >= 0.7 && c <= 1.3) return "minor_adjustment";
+  return "major_adjustment";
+}
+
 function MacroTarget({ label, value, target, tone }) {
-  const color = {
+  const barColor = {
     sky: "bg-sky-500",
     orange: "bg-orange-400",
     emerald: "bg-emerald-500",
   }[tone];
+  
+  const statusInfo = getMacroStatus(value, target, label);
+  const progressPercent = target > 0 ? Math.min((value / target) * 100, 100) : 0;
 
   return (
-    <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-      <div className={`h-2 w-10 rounded-full ${color}`} />
-      <div className="mt-3 text-2xl font-black text-slate-950">
-        {value}<span className="text-sm font900 text-slate-500"> / {target}g</span>
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200 flex flex-col gap-2">
+      <div className="flex items-center justify-between text-sm font-bold">
+        <span className="uppercase tracking-widest text-slate-500">{label}</span>
+        {statusInfo.text && (
+          <span className={`px-2 py-0.5 rounded-md text-xs ${statusInfo.color}`}>
+            {statusInfo.text}
+          </span>
+        )}
       </div>
-      <div className="mt-1 text-xs font900 uppercase tracking-[0.1em] text-slate-500">{label}</div>
+      <div className="text-xl font-black text-slate-900 mt-1">
+        {Math.round(value)}g <span className="text-sm font-normal text-slate-500">/ mục tiêu {Math.round(target)}g</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${progressPercent}%` }} />
+      </div>
     </div>
   );
 }
 
 function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) {
-  const isError = validation.level === "error";
-  const isWarning = validation.level === "warning";
-  const shellClass = isError
-    ? "border-orange-200 bg-orange-50 text-orange-900"
-    : isWarning
-      ? "border-amber-200 bg-amber-50 text-amber-900"
-      : "border-emerald-200 bg-emerald-50 text-emerald-900";
+  const status = validation.status || (validation.isValid ? "valid" : "major_adjustment");
+  
+  let shellClass = "border-emerald-200 bg-emerald-50 text-emerald-900";
+  let title = "Thực đơn phù hợp với mục tiêu hôm nay.";
+  
+  if (status === "minor_adjustment") {
+    shellClass = "border-amber-200 bg-amber-50 text-amber-900";
+    title = "Thực đơn gần đạt mục tiêu.";
+  } else if (status === "major_adjustment") {
+    shellClass = "border-orange-200 bg-orange-50 text-orange-900";
+    title = "Thực đơn cần điều chỉnh.";
+  } else if (status === "invalid") {
+    shellClass = "border-slate-200 bg-slate-50 text-slate-900";
+    title = "Không thể tạo thực đơn.";
+  }
+
+  const showButton = status === "minor_adjustment" || status === "major_adjustment";
+  const messages = validation.errors || validation.warnings || validation.messages || [];
 
   return (
     <section className={`rounded-2xl border px-5 py-4 ${shellClass}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className="text-base font-black">
-            {validation.isValid ? "Thực đơn phù hợp với mục tiêu hôm nay." : "Thực đơn chưa phù hợp mục tiêu cá nhân hóa."}
-          </h3>
+          <h3 className="text-base font-black">{title}</h3>
           <ul className={`mt-2 space-y-1 text-sm font800 leading-6 ${compact ? "max-h-24 overflow-y-auto pr-1" : ""}`}>
-            {validation.messages.slice(0, compact ? 3 : 6).map((message) => (
+            {messages.slice(0, compact ? 3 : 6).map((message) => (
               <li key={message}>{message}</li>
             ))}
           </ul>
+          {status !== "valid" && !compact ? (
+            <div className="mt-3 grid gap-2 text-xs font900 sm:grid-cols-4">
+              <span>Target: {Math.round(validation.targetKcal || validation.target_kcal || 0).toLocaleString("vi-VN")} kcal</span>
+              <span>Tổng: {Math.round(validation.totalCalories || validation.total_kcal || 0).toLocaleString("vi-VN")} kcal</span>
+              <span>Lệch: {Math.round(validation.kcalDiff || validation.kcal_diff || 0).toLocaleString("vi-VN")} kcal</span>
+              <span>{Number(validation.kcalDiffPct || validation.kcal_diff_pct || 0).toFixed(2)}%</span>
+            </div>
+          ) : null}
         </div>
-        {!validation.isValid ? (
+        {showButton ? (
           <button
             type="button"
-            className="min-h-11 shrink-0 rounded-2xl bg-slate-950 px-4 text-sm font900 text-white transition hover:bg-navy disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 rounded-2xl bg-white px-5 py-2.5 text-sm font-bold shadow-sm ring-1 ring-inset ring-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-all"
             onClick={onRegenerate}
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Đang tạo lại..." : "Tạo lại thực đơn phù hợp hơn"}
+            {isSubmitting ? "Đang xử lý..." : status === "minor_adjustment" ? "Tối ưu lại macro" : "Tạo lại thực đơn phù hợp hơn"}
           </button>
         ) : null}
       </div>
@@ -2454,7 +2976,7 @@ function bmiStatusLabel(bmi) {
   return "Béo phì";
 }
 
-function ProfileField({ label, name, type = "text", value, error, onChange, ...props }) {
+function ProfileField({ label, name, type = "text", value, error, helperText, onChange, ...props }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font900 text-slate-800">{label}</span>
@@ -2469,6 +2991,7 @@ function ProfileField({ label, name, type = "text", value, error, onChange, ...p
         {...props}
       />
       {error ? <span className="mt-2 block text-sm font800 text-red-500">{error}</span> : null}
+      {!error && helperText ? <span className="mt-2 block text-xs font700 leading-5 text-slate-500">{helperText}</span> : null}
     </label>
   );
 }
@@ -2702,13 +3225,6 @@ function EnhancedNotificationPanel({ progress, summary, validation, dataWarnings
         unreadCount={unreadCount}
         onMarkAllRead={markAllRead}
         onToggleFilters={() => setShowFilters((current) => !current)}
-      />
-
-      <NotificationStats
-        total={safeNotifications.length}
-        unread={unreadCount}
-        warning={warningCount}
-        handled={handledCount}
       />
 
       <NotificationFilterBar
@@ -3120,17 +3636,17 @@ function EnhancedHelpPanel({ foods }) {
           <button onClick={() => handleScrollTo('quick-guide')} className="flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font900 text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 transition">
             <HelpIcons.BookOpen className="h-4 w-4 text-emerald-600" /> Xem hướng dẫn
           </button>
-          <button onClick={() => handleScrollTo('feedback-form')} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font900 text-white shadow-sm hover:bg-emerald-700 transition">
+          <button onClick={() => handleScrollTo('feedback-form')} className="flex items-center gap-2 rounded-2xl bg-brand-primary px-4 py-2.5 text-sm font900 text-white shadow-sm hover:bg-brand-primary-dark transition">
             <HelpIcons.MessageSquare className="h-4 w-4" /> Gửi phản hồi
           </button>
         </div>
       </div>
 
       {/* Hero Support Card */}
-      <section className="glass-panel relative overflow-hidden bg-gradient-to-br from-emerald-600 to-teal-800 p-8 sm:p-10 shadow-lg text-center">
+      <section className="glass-panel relative overflow-hidden bg-gradient-to-br from-[#0B2A4A] to-[#047857] p-8 sm:p-10 shadow-lg text-center">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay"></div>
         <div className="relative z-10 mx-auto max-w-2xl">
-          <h2 className="text-2xl sm:text-3xl font-black text-white">Chúng tôi có thể giúp gì cho bạn?</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">Chúng tôi có thể giúp gì cho bạn?</h2>
           
           <div className="mt-6 relative">
             <HelpIcons.Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
@@ -3139,19 +3655,19 @@ function EnhancedHelpPanel({ foods }) {
               placeholder="Tìm câu hỏi, ví dụ: BMI là gì, cách đổi món, cập nhật cân nặng..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-14 w-full rounded-full border-0 bg-white pl-12 pr-4 text-base font800 text-slate-900 shadow-lg outline-none ring-4 ring-emerald-500/20 placeholder:text-slate-400 focus:ring-emerald-500/40 transition-all"
+              className="h-14 w-full rounded-full border-2 border-brand-primary bg-white pl-12 pr-4 text-base font800 text-slate-900 shadow-[0_0_16px_rgba(16,185,129,0.15)] outline-none ring-0 placeholder:text-slate-400 focus:ring-4 focus:ring-emerald-500/30 transition-all"
             />
           </div>
 
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             {["Hồ sơ dinh dưỡng", "Tạo thực đơn", "Đổi món", "Nhật ký ăn uống", "Biểu đồ", "Tài khoản", "Thông báo"].map(chip => (
-              <button key={chip} onClick={() => setSearchQuery(chip)} className="rounded-full bg-white/10 px-4 py-1.5 text-sm font800 text-white hover:bg-white/20 transition whitespace-nowrap">
+              <button key={chip} onClick={() => setSearchQuery(chip)} className="rounded-full bg-white/15 px-4 py-1.5 text-sm font800 text-white hover:bg-white/25 transition whitespace-nowrap">
                 {chip}
               </button>
             ))}
           </div>
 
-          <div className="mt-8 flex justify-center gap-6 text-emerald-50">
+          <div className="mt-8 flex justify-center gap-6 text-white/90">
              <div className="flex items-center gap-2"><HelpIcons.HelpCircle className="h-5 w-5" /><span className="text-sm font900">10+ FAQ</span></div>
              <div className="flex items-center gap-2"><HelpIcons.BookOpen className="h-5 w-5" /><span className="text-sm font900">Hướng dẫn 5 bước</span></div>
              <div className="flex items-center gap-2"><HelpIcons.LifeBuoy className="h-5 w-5" /><span className="text-sm font900">Phản hồi 24/7</span></div>
@@ -3460,11 +3976,17 @@ function NoticeRow({ tone, title, text }) {
   );
 }
 
-function MacroMini({ label, value, color }) {
+function MacroMini({ label, value, suggested, color }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-3 text-center ring-1 ring-slate-100">
       <div className={`mx-auto h-2 w-10 rounded-full ${color}`} />
-      <div className="mt-3 text-2xl font-black text-slate-950">{value}g</div>
+      <div className="mt-3 text-2xl font-black text-slate-950">
+        {value}
+        {suggested !== undefined ? (
+          <span className="text-sm font900 text-slate-500"> / {suggested}</span>
+        ) : null}
+        g
+      </div>
       <div className="mt-1 text-xs font800 uppercase tracking-[0.12em] text-slate-500">
         {label}
       </div>
@@ -3547,8 +4069,16 @@ function buildEligibilityStatus(profile, summary) {
     };
   }
 
-  const bmi = round(weight / ((height / 100) ** 2), 1);
-  const status = bmi < 18.5 ? "underweight" : bmi < 25 ? "normal" : bmi < 30 ? "overweight" : "obese";
+  const bmi = summary.bmi;
+  let status = "normal";
+  if (summary.bmiStatus === "severely_underweight" || summary.bmiStatus === "underweight" || bmi < 18.5) {
+    status = "underweight";
+  } else if (bmi >= 25 && bmi < 30) {
+    status = "overweight";
+  } else if (bmi >= 30) {
+    status = "obese";
+  }
+
   const labels = {
     underweight: "Thiếu cân",
     normal: "Bình thường",
@@ -3558,9 +4088,9 @@ function buildEligibilityStatus(profile, summary) {
   return {
     bmi,
     status,
-    statusLabel: labels[status],
-    eligible: bmi < 18.5,
-    reason: bmi < 18.5 ? "Được phép sinh thực đơn tăng cân lành mạnh." : "Không thuộc phạm vi hệ thống dành riêng cho người thiếu cân.",
+    statusLabel: labels[status] || labels.normal,
+    eligible: status === "underweight",
+    reason: status === "underweight" ? "Được phép sinh thực đơn tăng cân lành mạnh." : "Không thuộc phạm vi hệ thống dành riêng cho người thiếu cân.",
     profile: { weight, height, targetWeight: Number.isFinite(targetWeight) ? targetWeight : null, bmiStatus: summary.bmiStatus },
   };
 }
@@ -3665,6 +4195,8 @@ function roundTotals(totals) {
 }
 
 function expectedItemsPerMeal(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
   return { simple: 3, balanced: 4, full: 5 }[value] || 4;
 }
 
@@ -3690,6 +4222,39 @@ function analyzeMealBalance(items, expectedCount) {
   return { roles, warnings };
 }
 
+function deriveMealPlanStatus(balance, totals, expectedCount) {
+  const calories = Number(totals.calories || 0);
+  const carbCalories = Number(totals.carbs || 0) * 4;
+  const carbRatio = calories > 0 ? carbCalories / calories : 0;
+  const missingEnergy = expectedCount >= 4 && !balance.roles.energy;
+
+  if (carbRatio > 0.6 && totals.carbs >= 75) {
+    return {
+      label: "Carbs hơi cao",
+      className: "bg-orange-50 text-orange-800 ring-1 ring-orange-100",
+    };
+  }
+
+  if (missingEnergy) {
+    return {
+      label: "Thiếu chất béo tốt",
+      className: "bg-amber-50 text-amber-800 ring-1 ring-amber-100",
+    };
+  }
+
+  if (balance.warnings.length) {
+    return {
+      label: "Cần chỉnh",
+      className: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+    };
+  }
+
+  return {
+    label: "Cân bằng",
+    className: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100",
+  };
+}
+
 function getFoodRole(item) {
   const text = stripAccents(`${item.category || ""} ${item.subCategory || ""} ${item.foodGroup || ""} ${item.name || ""}`).toLowerCase();
   if (/(starch|grain|tinh bot|ngu coc|rice|com|bread|banh mi|oat|potato|khoai|noodle|pasta)/.test(text)) return "starch";
@@ -3701,6 +4266,23 @@ function getFoodRole(item) {
 
 function roleLabel(role) {
   return { starch: "tinh bột", protein: "đạm", produce: "rau/trái cây", energy: "món phụ năng lượng" }[role] || role;
+}
+
+function buildMealGroupSummary(items) {
+  const counts = (items || []).reduce((acc, item) => {
+    const label = item.foodGroup || item.category || roleLabel(getFoodRole(item));
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).map(([label, count]) => ({ label, count }));
+}
+
+function formatServingText(item) {
+  const display = String(item.servingDisplay || "").trim();
+  if (display) return display;
+  const grams = Number(item.servingGrams || 0);
+  if (Number.isFinite(grams) && grams > 0) return `${round(grams)}g`;
+  return "";
 }
 
 function buildSuggestionReason(item) {
@@ -3874,6 +4456,21 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
 }
 
 function buildSummary(result, consumedNutrition = { calories: 0 }) {
+  if (!result) return fallbackSummary;
+  if (result.profile_summary && result.nutrition_target) {
+    return {
+      targetCalories: round(result.nutrition_target.calorie_target),
+      eatenCalories: round(consumedNutrition.calories),
+      bmr: round(result.nutrition_target.bmr),
+      tdee: round(result.nutrition_target.tdee),
+      bmi: round(result.profile_summary.bmi, 1),
+      bmiStatus: result.profile_summary.bmi_status || "Đang theo dõi",
+      medicalWarning: result.profile_summary.medical_warning ? "BMI của bạn đang rất thấp. Thực đơn chỉ mang tính hỗ trợ. Bạn nên tham khảo bác sĩ hoặc chuyên gia dinh dưỡng trước khi tăng khẩu phần nhanh." : "",
+      protein: round(result.nutrition_target.protein_g),
+      fat: round(result.nutrition_target.fat_g),
+      carbs: round(result.nutrition_target.carbs_g),
+    };
+  }
   if (!result?.target) return fallbackSummary;
   return {
     targetCalories: round(result.target.calories),
@@ -3889,23 +4486,92 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
   };
 }
 
-function buildEffectiveTarget(result, fallbackTarget) {
-  if (!result?.target) return fallbackTarget;
-  const targetCalories = round(result.target.calories || fallbackTarget.targetCalories);
-  const proteinTarget = round(result.target.protein || fallbackTarget.proteinTarget);
-  const fatTarget = round(result.target.fat || fallbackTarget.fatTarget);
-  const carbTarget = round(result.target.carbs || fallbackTarget.carbTarget);
+function buildKcalDeviationMessage(totalCalories, targetCalories) {
+  const total = Number(totalCalories || 0);
+  const target = Number(targetCalories || 0);
+  if (target <= 0) return "Không đủ dữ liệu target kcal để kiểm tra thực đơn.";
+  const diff = total - target;
+  const diffAbs = Math.abs(diff);
+  const pct = (diffAbs / target) * 100;
+  const direction = diff > 0 ? "cao hơn" : "thấp hơn";
+  return `Thực đơn hiện tại đạt ${Math.round(total)} kcal, ${direction} mục tiêu ${Math.round(target)} kcal khoảng ${Math.round(diffAbs)} kcal, tương đương ${pct.toFixed(2)}%. Vui lòng tạo lại để có thực đơn phù hợp hơn.`;
+}
+
+function adaptTodayMealPlanResponse(today, fallbackTarget) {
+  const targetCalories = Number(today?.meal_plan?.target_kcal ?? today?.meal_plan?.target_calories ?? fallbackTarget.targetCalories);
+  const totalKcal = Number(today?.meal_plan?.total_kcal ?? today?.meal_plan?.total_calories ?? 0);
+  const meals = (today?.meals || []).map((meal) => ({
+    meal_type: meal.meal_type || meal.title,
+    actual_kcal: round(meal.total_calories ?? meal.actual_kcal),
+    items: Array.isArray(meal.items) ? meal.items : [],
+  }));
 
   return {
+    profile_summary: {
+      bmi: fallbackTarget.bmi,
+      bmi_status: bmiStatusLabel(fallbackTarget.bmi),
+      medical_warning: false,
+    },
+    nutrition_target: {
+      bmr: fallbackTarget.bmr,
+      tdee: fallbackTarget.tdee,
+      calorie_target: targetCalories,
+      protein_g: fallbackTarget.proteinTarget,
+      fat_g: fallbackTarget.fatTarget,
+      carbs_g: fallbackTarget.carbTarget,
+    },
+    target: {
+      calories: targetCalories,
+      protein: fallbackTarget.proteinTarget,
+      fat: fallbackTarget.fatTarget,
+      carbs: fallbackTarget.carbTarget,
+      bmr: fallbackTarget.bmr,
+      tdee: fallbackTarget.tdee,
+      bmi: fallbackTarget.bmi,
+      bmi_status: bmiStatusLabel(fallbackTarget.bmi),
+    },
+    meal_plan: {
+      id: today?.meal_plan?.id,
+      date: today?.meal_plan?.date,
+      status: today?.meal_plan?.status || "valid",
+      total_kcal: totalKcal,
+      total_protein_g: Number(today?.meal_plan?.total_protein_g ?? today?.meal_plan?.total_protein ?? 0),
+      total_fat_g: Number(today?.meal_plan?.total_fat_g ?? today?.meal_plan?.total_fat ?? 0),
+      total_carbs_g: Number(today?.meal_plan?.total_carbs_g ?? today?.meal_plan?.total_carbs ?? 0),
+      meals,
+    },
+    validation: today?.validation || {
+      is_valid: targetCalories > 0 && totalKcal >= targetCalories * 0.95 && totalKcal <= targetCalories * 1.05,
+      targetKcal: targetCalories,
+      totalKcal,
+      kcalDiff: totalKcal - targetCalories,
+      kcalDiffPct: targetCalories > 0 ? (Math.abs(totalKcal - targetCalories) / targetCalories) * 100 : 100,
+      errors: [],
+      warnings: [],
+    },
+  };
+}
+
+function buildEffectiveTarget(result, fallbackTarget) {
+  if (!result) return fallbackTarget;
+  
+  const targetCalories = result.nutrition_target?.calorie_target ?? result.target?.calories ?? fallbackTarget.targetCalories;
+  const proteinTarget = result.nutrition_target?.protein_g ?? result.target?.protein ?? fallbackTarget.proteinTarget;
+  const fatTarget = result.nutrition_target?.fat_g ?? result.target?.fat ?? fallbackTarget.fatTarget;
+  const carbTarget = result.nutrition_target?.carbs_g ?? result.target?.carbs ?? fallbackTarget.carbTarget;
+  const bmr = result.nutrition_target?.bmr ?? result.target?.bmr ?? fallbackTarget.bmr;
+  const tdee = result.nutrition_target?.tdee ?? result.target?.tdee ?? fallbackTarget.tdee;
+  
+  return {
     ...fallbackTarget,
-    bmr: round(result.target.bmr || fallbackTarget.bmr),
-    tdee: round(result.target.tdee || fallbackTarget.tdee),
-    targetCalories,
-    proteinTarget,
-    fatTarget,
-    carbTarget,
-    minCalories: round(result.evaluation?.validation?.min_calories || targetCalories * 0.85),
-    maxCalories: round(targetCalories * 1.15),
+    bmr: round(bmr),
+    tdee: round(tdee),
+    targetCalories: round(targetCalories),
+    proteinTarget: round(proteinTarget),
+    fatTarget: round(fatTarget),
+    carbTarget: round(carbTarget),
+    minCalories: round(result.evaluation?.validation?.min_calories || targetCalories * 0.95),
+    maxCalories: round(targetCalories * 1.05),
   };
 }
 
@@ -3928,18 +4594,46 @@ function buildWeeklyCalories(result, summary) {
   ];
 }
 
-function buildMeals(result, dietType = "balanced", profileSettings = {}) {
-  if (!result?.meal_plan) return [];
-  return Object.entries(result.meal_plan).map(([mealKey, items]) => ({
-    title: mealLabels[mealKey] || mealKey,
-    accent: mealAccents[mealKey] || "green",
-    items: filterFoodsByDietType(
-      (items || [])
-      .filter(isUiMenuEligible)
-      .map((item, index) => mapFoodPayload(item, `${mealKey}-${index}`, mealLabels[mealKey] || mealKey)),
-      dietType,
-    ).filter((item) => !isFoodDisliked(item, profileSettings)),
-  }));
+function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
+  if (!mealPlan) return [];
+  
+  if (Array.isArray(mealPlan.meals)) {
+    return mealPlan.meals.filter((meal) => {
+      const key = String(meal.meal_type || "").toLowerCase();
+      return key !== "snack" || profileSettings.enable_snack === true;
+    }).map((meal) => {
+      const items = Array.isArray(meal.items) ? meal.items : [];
+      if (!Array.isArray(meal.items)) console.warn("meal.items không phải là mảng:", meal);
+      return {
+        title: mealLabels[meal.meal_type] || meal.meal_type || "Bữa ăn",
+        accent: mealAccents[meal.meal_type] || "green",
+        items: filterFoodsByDietType(
+          items
+            .filter(isUiMenuEligible)
+            .map((item, index) => mapFoodPayload(item, `${meal.meal_type}-${index}`, mealLabels[meal.meal_type] || meal.meal_type)),
+          dietType,
+        ).filter((item) => !isFoodDisliked(item, profileSettings)),
+      };
+    });
+  }
+
+  return Object.entries(mealPlan)
+    .filter(([key, value]) => Array.isArray(value))
+    .filter(([key]) => key !== "snack" || profileSettings.enable_snack === true)
+    .map(([mealKey, items]) => {
+      const safeItems = Array.isArray(items) ? items : [];
+      if (!Array.isArray(items)) console.warn("items không phải là mảng:", items);
+      return {
+        title: mealLabels[mealKey] || mealKey,
+        accent: mealAccents[mealKey] || "green",
+        items: filterFoodsByDietType(
+          safeItems
+            .filter(isUiMenuEligible)
+            .map((item, index) => mapFoodPayload(item, `${mealKey}-${index}`, mealLabels[mealKey] || mealKey)),
+          dietType,
+        ).filter((item) => !isFoodDisliked(item, profileSettings)),
+      };
+    });
 }
 
 function buildFoodCatalog(result, meals) {
@@ -4018,14 +4712,14 @@ function mapCategoryLabel(category, fallback = "") {
 
 function accentClass(accent) {
   if (accent === "blue") return "bg-sky-500";
-  if (accent === "orange") return "bg-orange-400";
-  return "bg-emerald-500";
+  if (accent === "orange") return "bg-brand-orange";
+  return "bg-brand-primary";
 }
 
 function mapFoodPayload(item, fallbackId, mealTitle = "") {
   const name = item.dish_name_vi || item.name || "Món ăn";
   const cleanCategory = normalizeFoodCategory(
-    item.clean_category || item.category || item.normalized_category || "",
+    item.normalized_food_group || item.clean_category || item.category || item.category_name || item.normalized_category || "",
     name,
   );
   const displayCategory = mapCategoryLabel(cleanCategory, item.food_group || item.foodGroup);
@@ -4033,7 +4727,8 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
   const id = item.food_id || item.id || fallbackId;
   const imageSourceType = item.image_source_type
     || (imageUrl.includes("/images/placeholders/") ? "placeholder" : imageUrl ? "real_food_photo" : "placeholder");
-  const imageBadge = item.image_badge || (imageSourceType === "placeholder" ? "Ảnh minh họa" : null);
+  const incomingImageBadge = String(item.image_badge || "").trim();
+  const imageBadge = stripAccents(incomingImageBadge).toLowerCase() === "anh minh hoa" ? null : incomingImageBadge || null;
   const imageVerified = item.image_verified === true || item.image_verified === "true";
   return {
     id,
@@ -4053,12 +4748,12 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
     imageVerified,
     imageBadge,
     imageMissing: imageSourceType === "placeholder",
-    calories: round(item.kcal ?? item.calories ?? item.kcal_per_serving_clean),
-    protein: round(item.protein ?? item.protein_per_serving_clean),
-    fat: round(item.fat ?? item.fat_per_serving_clean),
-    carbs: round(item.carbs ?? item.carbs_per_serving_clean),
-    servingGrams: round(item.quantity_g ?? item.serving_grams ?? item.recommended_serving_g),
-    servingDisplay: item.serving_display || item.portion_display || "",
+    calories: round(item.calories ?? item.kcal ?? item.kcal_per_serving_clean),
+    protein: round(item.protein ?? item.protein_g ?? item.protein_per_serving_clean),
+    fat: round(item.fat ?? item.fat_g ?? item.fat_per_serving_clean),
+    carbs: round(item.carbs ?? item.carbs_g ?? item.carbs_per_serving_clean),
+    servingGrams: round(item.serving_grams ?? item.quantity_g ?? item.recommended_serving_g),
+    servingDisplay: item.serving_label || item.serving_display || item.portion_display || "",
     foodGroup: displayCategory,
     imageQuery: item.image_query || item.image_search_query_vi || "",
     imageRequirement: item.image_requirement || "",
@@ -4120,7 +4815,7 @@ function toMealPlanPayload(item, status = "suggested") {
     image_alt: item.imageAlt || `Ảnh món ${item.name}`,
     image_source_type: item.imageSourceType || (item.imageMissing ? "placeholder" : "real_food_photo"),
     image_verified: Boolean(item.imageVerified),
-    image_badge: item.imageBadge || (item.imageMissing ? "Ảnh minh họa" : null),
+    image_badge: item.imageBadge || null,
     category: item.technicalCategory || item.subCategory || item.category,
     normalized_category: item.technicalCategory || item.subCategory || item.category,
     food_group: item.foodGroup || item.category,
@@ -4239,12 +4934,6 @@ function validateProfile(formState) {
 
   if (!Number.isFinite(weight) || weight < 20 || weight > 250) errors.weight = "Vui lòng nhập cân nặng hợp lệ (20-250kg)";
   if (!Number.isFinite(height) || height < 100 || height > 230) errors.height = "Vui lòng nhập chiều cao hợp lệ (100-230cm)";
-  if (!errors.weight && !errors.height && Number.isFinite(weight) && Number.isFinite(height)) {
-    const bmi = weight / ((height / 100) ** 2);
-    if (bmi >= 18.5) {
-      errors.weight = `BMI hiện tại ${bmi.toFixed(1)}. Hệ thống chỉ tạo thực đơn cho người thiếu cân (BMI < 18.5).`;
-    }
-  }
   if (age !== null && (!Number.isFinite(age) || age < 1 || age > 120)) errors.age = "Tuổi không hợp lệ";
   if (!formState.activity) errors.activity = "Vui lòng chọn mức độ hoạt động";
   if (!formState.goal_type) errors.goal_type = "Vui lòng chọn mục tiêu";

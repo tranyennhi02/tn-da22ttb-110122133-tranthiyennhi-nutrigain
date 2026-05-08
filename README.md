@@ -45,7 +45,7 @@ Hệ thống sử dụng hồ sơ người dùng như cân nặng, chiều cao, 
 ### 1. Dashboard người dùng hiện đại
 
 - Tổng quan calories, macro và tình trạng hồ sơ.
-- Giao diện React + Tailwind CSS, responsive trên nhiều kích thước màn hình.
+- Giao diện React + Tailwind CSS, responsive trên nhiều kích thước màn hình. Áp dụng phong cách thiết kế hiện đại (Glassmorphism) cho trải nghiệm người dùng cao cấp, đặc biệt tại các màn hình Đăng nhập và Onboarding.
 - Các màn chính:
   - Tổng quan
   - Kế hoạch bữa ăn
@@ -80,10 +80,10 @@ Hệ thống sử dụng hồ sơ người dùng như cân nặng, chiều cao, 
 
 ### 5. Kiểm định an toàn dinh dưỡng
 
-- Chỉ sinh thực đơn tăng cân khi người dùng thuộc nhóm thiếu cân.
+- Chỉ sinh thực đơn tăng cân khi người dùng thuộc nhóm thiếu cân. Tích hợp cảnh báo y tế đối với các trường hợp suy dinh dưỡng nặng (BMI < 16).
 - Loại bỏ món dị ứng bằng hard-filter.
-- Kiểm tra độ lệch calories và macro.
-- Hạn chế trùng nhóm món trong cùng ngày.
+- Kiểm tra độ lệch calories và macro. Áp dụng mức sàn năng lượng nghiêm ngặt (TDEE + 350 kcal) đảm bảo tăng cân an toàn.
+- Hạn chế trùng nhóm món trong cùng ngày và chống lặp món qua các ngày liên tiếp (anti-repetition).
 - Fallback linh hoạt để tránh trả danh sách rỗng.
 
 ---
@@ -180,11 +180,11 @@ NutriGain sử dụng **Content-based Filtering** với các bước chính:
 
 | Rule | Mục đích |
 |---|---|
-| BMI gate | Chỉ sinh thực đơn tăng cân cho người thiếu cân |
+| BMI gate & Medical Warning | Chỉ sinh thực đơn cho người thiếu cân. Hiện cảnh báo y tế và áp dụng sàn năng lượng nghiêm ngặt (TDEE + 350 kcal) cho BMI < 16 |
 | Allergy hard-filter | Loại bỏ món có từ khóa dị ứng |
 | Energy tolerance | Giữ món có kcal gần mục tiêu từng slot |
-| Macro validation | Phát hiện macro bất thường |
-| Duplicate group check | Hạn chế lặp món cùng nhóm |
+| Macro validation | Phát hiện macro bất thường và tối ưu mật độ protein |
+| Duplicate group & item check | Hạn chế lặp món cùng nhóm và chống lặp món giữa các ngày |
 | Backtracking fallback | Nới lỏng điều kiện khi danh sách hợp lệ quá ít |
 | Image fallback | Dùng ảnh minh họa nếu thiếu ảnh thật |
 

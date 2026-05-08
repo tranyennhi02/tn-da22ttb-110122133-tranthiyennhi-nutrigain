@@ -7,12 +7,12 @@ export default function MealSection({ meals, favoriteMeals, ratings, onFavorite,
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">
+          <p className="text-xs font900 uppercase tracking-[0.18em] text-brand-primary">
             Nhật ký ăn uống
           </p>
-          <h2 className="mt-2 text-2xl font-black text-slate-950">Bữa ăn hôm nay</h2>
+          <h2 className="mt-2 text-2xl font-black text-brand-text-main">Bữa ăn hôm nay</h2>
         </div>
-        <div className="rounded-2xl bg-white px-4 py-3 text-sm font900 text-slate-600 shadow-sm ring-1 ring-slate-100">
+        <div className="rounded-2xl bg-brand-surface px-4 py-3 text-sm font900 text-brand-text-sub shadow-sm ring-1 ring-brand-border">
           {totalMeals} món đã gợi ý
         </div>
       </div>
@@ -20,17 +20,17 @@ export default function MealSection({ meals, favoriteMeals, ratings, onFavorite,
       <div className="space-y-5">
         {meals.map((meal) => (
           <section key={meal.title} className="glass-panel overflow-hidden p-0">
-            <div className="flex flex-col gap-3 border-b border-slate-100 bg-white/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 border-b border-brand-border bg-brand-surface/70 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <span className={`h-12 w-2 rounded-full ${accentClass(meal.accent)}`} />
                 <div>
-                  <h3 className="text-xl font-black text-slate-950">{meal.title}</h3>
-                  <p className="mt-1 text-sm font700 text-slate-500">
+                  <h3 className="text-xl font-black text-brand-text-main">{meal.title}</h3>
+                  <p className="mt-1 text-sm font700 text-brand-text-sub">
                     {meal.items.length} món, ảnh đồng đều và macro rõ ràng
                   </p>
                 </div>
               </div>
-              <div className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font900 text-white">
+              <div className="rounded-2xl bg-brand-navy px-4 py-2 text-sm font900 text-white">
                 {meal.items.reduce((sum, item) => sum + item.calories, 0)} kcal
               </div>
             </div>
@@ -56,6 +56,6 @@ export default function MealSection({ meals, favoriteMeals, ratings, onFavorite,
 
 function accentClass(accent) {
   if (accent === "blue") return "bg-sky-500";
-  if (accent === "orange") return "bg-orange-400";
-  return "bg-emerald-500";
+  if (accent === "orange") return "bg-brand-orange";
+  return "bg-brand-primary";
 }

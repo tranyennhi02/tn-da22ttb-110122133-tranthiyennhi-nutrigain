@@ -7,21 +7,21 @@ export default function EnergyChart({ bmr, tdee }) {
   ];
 
   return (
-    <section className="bg-white rounded-[24px] shadow-sm border border-slate-200 p-6 lg:p-8 mt-6 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -mr-20 -mt-20 opacity-60 z-0 pointer-events-none" />
+    <section className="bg-brand-surface rounded-[24px] shadow-sm border border-brand-border p-6 lg:p-8 mt-6 relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-brand-mint rounded-full blur-3xl -mr-20 -mt-20 opacity-60 z-0 pointer-events-none" />
       <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center lg:items-start">
         
         <div className="w-full md:w-1/3 flex flex-col justify-center">
           <div className="inline-flex items-center gap-2 mb-3">
-            <span className="bg-orange-100 text-orange-700 text-[10px] font-bold px-2.5 py-1 uppercase rounded-md tracking-wider flex items-center gap-1">
+            <span className="bg-brand-cream text-brand-orange text-[10px] font-bold px-2.5 py-1 uppercase rounded-md tracking-wider flex items-center gap-1">
               <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               Năng lượng nền
             </span>
           </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">So sánh BMR và TDEE</h2>
-          <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed">
+          <h2 className="text-2xl font-black text-brand-text-main tracking-tight">So sánh BMR và TDEE</h2>
+          <p className="mt-3 text-sm font-semibold text-brand-text-sub leading-relaxed">
             Hiểu rõ lượng calo cơ thể bạn thực sự sử dụng để phục vụ quá trình trao đổi chất (BMR) và các hoạt động trong ngày (TDEE).
           </p>
           
@@ -29,13 +29,13 @@ export default function EnergyChart({ bmr, tdee }) {
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-sm bg-[#10B981]" />
               <div className="text-sm">
-                <span className="font-extrabold text-slate-700">{bmr}</span> <span className="font-medium text-slate-500">kcal (BMR)</span>
+                <span className="font-extrabold text-brand-text-main">{bmr}</span> <span className="font-medium text-brand-text-sub">kcal (BMR)</span>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-sm bg-[#0F766E]" />
               <div className="text-sm">
-                <span className="font-extrabold text-slate-700">{tdee}</span> <span className="font-medium text-slate-500">kcal (TDEE)</span>
+                <span className="font-extrabold text-brand-text-main">{tdee}</span> <span className="font-medium text-brand-text-sub">kcal (TDEE)</span>
               </div>
             </div>
           </div>

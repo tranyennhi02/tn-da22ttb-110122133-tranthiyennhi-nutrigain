@@ -16,12 +16,12 @@ export default function CaloriesChart({ data }) {
     <section className="glass-panel min-h-[360px] p-5 sm:p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">
+          <p className="text-xs font900 uppercase tracking-[0.18em] text-brand-primary">
             Biểu đồ calories
           </p>
-          <h2 className="mt-2 text-xl font-black text-slate-950">Calories theo ngày trong tuần</h2>
+          <h2 className="mt-2 text-xl font-black text-brand-text-main">Calories theo ngày trong tuần</h2>
         </div>
-        <div className="rounded-2xl bg-emerald-50 px-4 py-2 text-sm font900 text-emerald-800">
+        <div className="rounded-2xl bg-brand-mint px-4 py-2 text-sm font900 text-brand-primary">
           Mục tiêu {targetLabel} kcal
         </div>
       </div>
@@ -54,10 +54,10 @@ function CaloriesTooltip({ active, payload, label }) {
   const target = payload.find((item) => item.dataKey === "target")?.value;
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm shadow-2xl shadow-slate-900/10">
-      <div className="font900 text-slate-950">{label}</div>
-      <div className="mt-1 font800 text-emerald-700">{calories} kcal đã ăn</div>
-      <div className="font700 text-slate-500">{target} kcal mục tiêu</div>
+    <div className="rounded-2xl border border-brand-border bg-brand-surface px-4 py-3 text-sm shadow-2xl shadow-brand-navy/10">
+      <div className="font900 text-brand-text-main">{label}</div>
+      <div className="mt-1 font800 text-brand-primary">{calories} kcal đã ăn</div>
+      <div className="font700 text-brand-text-sub">{target} kcal mục tiêu</div>
     </div>
   );
 }

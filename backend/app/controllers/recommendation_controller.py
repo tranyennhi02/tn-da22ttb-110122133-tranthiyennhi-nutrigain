@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.entities import User
 from app.services.recommender_service import RecommenderService
 from app.views.schemas import (
+    MealPlanRegenerateInput,
     RecommendationHistoryDetail,
     RecommendationHistoryResponse,
     RecommendationInput,
@@ -25,6 +26,15 @@ class RecommendationController:
         user: User,
     ) -> RecommendationOutput:
         result = self.service.generate_recommendations(payload, db, user)
+        return RecommendationOutput(**result)
+
+    def regenerate_meal_plan(
+        self,
+        payload: MealPlanRegenerateInput,
+        db: Session,
+        user: User,
+    ) -> RecommendationOutput:
+        result = self.service.regenerate_meal_plan(payload, db, user)
         return RecommendationOutput(**result)
 
     def list_history(

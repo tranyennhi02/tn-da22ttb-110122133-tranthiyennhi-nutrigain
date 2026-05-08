@@ -22,14 +22,14 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-emerald-100/80 bg-emerald-50/88 shadow-2xl shadow-emerald-950/10 backdrop-blur-2xl transition-transform duration-300 lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-brand-border bg-brand-mint shadow-2xl shadow-brand-navy/10 backdrop-blur-2xl transition-transform duration-300 lg:translate-x-0 ${
         isOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
       <div className="flex items-center justify-between px-5 pb-4 pt-5">
         <NutriGainLogo size="sm" />
         <button
-          className="grid h-10 w-10 place-items-center rounded-xl bg-white text-slate-700 shadow-sm lg:hidden"
+          className="grid h-10 w-10 place-items-center rounded-xl bg-white text-brand-text-sub shadow-sm lg:hidden"
           onClick={onClose}
           aria-label="Đóng menu"
         >
@@ -38,7 +38,7 @@ export default function Sidebar({
       </div>
 
       <nav className="sidebar-scroll flex-1 px-3 pb-5">
-        <div className="mb-3 px-4 text-xs font900 uppercase tracking-[0.18em] text-slate-400">
+        <div className="mb-3 px-4 text-xs font900 uppercase tracking-[0.18em] text-brand-text-sub">
           Workspace
         </div>
         <div className="space-y-1">
@@ -51,14 +51,14 @@ export default function Sidebar({
                 type="button"
                 className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font900 transition ${
                   isActive
-                    ? "bg-navy text-white shadow-xl shadow-emerald-900/18"
-                    : "text-slate-600 hover:bg-white hover:text-navy hover:shadow-sm"
+                    ? "bg-brand-navy text-white shadow-xl shadow-brand-navy/20"
+                    : "text-brand-text-sub hover:bg-white hover:text-brand-navy hover:shadow-sm"
                 }`}
                 onClick={() => onNavigate?.(item.id)}
               >
                 <span
                   className={`grid h-9 w-9 place-items-center rounded-xl transition ${
-                    isActive ? "bg-white/14 text-emerald-200" : "bg-white text-emerald-700 shadow-sm"
+                    isActive ? "bg-brand-primary text-white" : "bg-white text-brand-primary shadow-sm"
                   }`}
                 >
                   <Icon />
@@ -70,22 +70,22 @@ export default function Sidebar({
         </div>
       </nav>
 
-      <div className="m-4 rounded-3xl border border-white/80 bg-white/86 p-4 shadow-xl shadow-slate-900/8">
+      <div className="m-4 rounded-3xl border border-white/80 bg-brand-surface p-4 shadow-xl shadow-brand-navy/8">
         <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-sky-500 text-sm font-black text-white shadow-lg shadow-emerald-900/20">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-brand-primary to-brand-primary-dark text-sm font-black text-white shadow-lg shadow-brand-navy/20">
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font900 text-slate-950">{userEmail || "user@nutrigain.vn"}</p>
-            <div className="mt-1 flex items-center gap-2 text-xs font800 text-emerald-700">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" />
+            <p className="truncate text-sm font900 text-brand-text-main">{userEmail || "user@nutrigain.vn"}</p>
+            <div className="mt-1 flex items-center gap-2 text-xs font800 text-brand-primary">
+              <span className="h-2 w-2 rounded-full bg-brand-primary shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" />
               Live Tracking
             </div>
           </div>
         </div>
         <button
           type="button"
-          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font900 text-white transition hover:bg-navy"
+          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-brand-primary px-4 text-sm font900 text-white transition hover:bg-brand-primary-dark"
           onClick={onLogout}
         >
           <LogoutIcon />

@@ -59,9 +59,9 @@ MEAL_STRUCTURE_PRESETS = {
     "full": {"breakfast": 5, "lunch": 5, "dinner": 5},
 }
 DEFAULT_MEAL_CALORIE_RATIOS = {
-    "breakfast": 0.32,
-    "lunch": 0.36,
-    "dinner": 0.32,
+    "breakfast": 0.30,
+    "lunch": 0.35,
+    "dinner": 0.35,
 }
 BLOCKED_NAME_TERMS = (
     "olive garden",
@@ -77,6 +77,25 @@ BLOCKED_NAME_TERMS = (
     "domino's",
     "egg white",
     "lean only",
+    # exotic / wild meats not suitable for everyday nutrition
+    "bear",
+    "gau",
+    "thit gau",
+    "thịt gấu",
+    "wild boar",
+    "venison",
+    "bison",
+    "alligator",
+    "crocodile",
+    "ostrich",
+    "kangaroo",
+    "snake",
+    "frog legs",
+    "ech",
+    "rắn",
+    "ran",
+    "thu rung",
+    "thú rừng",
 )
 GENERIC_MENU_NAMES = {
     "ca",
@@ -189,6 +208,29 @@ SEASONING_NAME_TERMS = (
     "mustard",
     "pickle",
     "pickles",
+    # Vietnamese condiments / sauces that should never be meal-plan items
+    "nuoc tuong",
+    "nước tương",
+    "xi dau",
+    "xì dầu",
+    "nuoc mam",
+    "nước mắm",
+    "tuong ot",
+    "tương ớt",
+    "tuong",
+    "nuoc cham",
+    "nước chấm",
+    "muoi",
+    "gia vi",
+    "gia vị",
+    "hoisin",
+    "oyster sauce",
+    "nuoc sot",
+    "nước sốt",
+    "hot sauce",
+    "ketchup",
+    "mayonnaise",
+    "mayo",
 )
 UNFAMILIAR_NAME_TERMS = (
     "lasagna",
@@ -330,6 +372,8 @@ LOW_PRIORITY_EXTRA_TERMS = (
     "nuoc dua",
     "nuoc trai cay",
     "orange juice",
+    "apple juice",
+    "grape juice",
     "juice",
     "coconut water",
     "jam",
@@ -358,6 +402,83 @@ LOW_PRIORITY_EXTRA_TERMS = (
     "bánh kẹo ngọt",
     "mon ngot nhieu duong",
     "món ngọt nhiều đường",
+    # condiments / sauces explicitly listed as low-priority
+    "nuoc tuong",
+    "nước tương",
+    "xi dau",
+    "nuoc mam",
+    "nước mắm",
+    "nuoc cham",
+    "gia vi",
+    "gia vị",
+)
+# Terms that clearly indicate a drink / juice — these items should NEVER fill
+# staple / protein / vegetable / fruit meal slots.
+DRINK_BEVERAGE_TERMS = (
+    "juice",
+    "nuoc ep",
+    "nước ép",
+    "nuoc cam",
+    "nước cam",
+    "nuoc tao",
+    "nước táo",
+    "nuoc dua",
+    "nước dừa",
+    "nuoc trai cay",
+    "nước trái cây",
+    "orange juice",
+    "apple juice",
+    "grape juice",
+    "beverage",
+    "do uong",
+    "đồ uống",
+    "tang cuong",
+    "tăng cường",
+    "fortified",
+    "energy drink",
+    "sport drink",
+    "soft drink",
+    "nuoc ngot",
+    "nước ngọt",
+    "coconut water",
+    "smoothie",
+    "sinh to",
+    "sinh tố",
+)
+# Fresh whole fruit terms — these are actively preferred over juices.
+FRESH_FRUIT_TERMS = (
+    "chuoi",
+    "chuối",
+    "banana",
+    "tao",
+    "táo",
+    "apple",
+    "qua bo",
+    "quả bơ",
+    "avocado",
+    "cam tuoi",
+    "cam tươi",
+    "orange",
+    "xoai",
+    "xoài",
+    "mango",
+    "du du",
+    "đu đủ",
+    "papaya",
+    "berry",
+    "berries",
+    "dau tay",
+    "dâu tây",
+    "strawberry",
+    "viet quat",
+    "việt quất",
+    "blueberry",
+    "nho",
+    "grape",
+    "kiwi",
+    "dua hau",
+    "dưa hấu",
+    "watermelon",
 )
 VEGETABLE_FRUIT_NAME_TERMS = (
     "broccoli",
@@ -373,6 +494,7 @@ VEGETABLE_FRUIT_NAME_TERMS = (
     "beans",
 )
 FAMILIAR_NAME_TERMS = (
+    # English familiar terms
     "rice",
     "egg",
     "chicken",
@@ -386,15 +508,43 @@ FAMILIAR_NAME_TERMS = (
     "sweet potato",
     "yogurt",
     "bean",
+    "oat",
+    "oatmeal",
+    "salmon",
+    "tuna",
+    "avocado",
+    "broccoli",
+    "spinach",
+    "carrot",
+    # Vietnamese familiar terms
     "com",
     "cơm",
     "trứng",
+    "thịt gà",
+    "thịt heo",
+    "thịt bò",
     "thịt",
+    "sữa chua",
     "sữa",
     "chuối",
+    "khoai lang",
+    "khoai tây",
     "khoai",
+    "đậu hũ",
+    "đậu phụ",
     "đậu",
+    "cá hồi",
+    "cá ngừ",
     "cá",
+    "yến mạch",
+    "ngũ cốc",
+    "rau cải",
+    "rau bina",
+    "rau",
+    "bơ",
+    "đu đủ",
+    "cam",
+    "xoài",
 )
 BREAKFAST_AVOID_TERMS = ("condensed", "evaporated", "cô đặc")
 MEAL_CATEGORY_PRIORITIES = {
@@ -416,28 +566,33 @@ MEAL_REQUIRED_CATEGORIES = {
     "dinner": ["grain", "meat"],
 }
 MEAL_CATEGORY_REPEAT_LIMITS = {
-    "grain": 2,
+    "starch_grain": 2,
+    "starch_tuber": 1,
     "vegetable": 2,
     "fruit": 1,
     "dairy": 1,
-    "meat": 2,
+    "protein_meat": 2,
+    "protein_seafood": 1,
     "plant_protein": 2,
-    "healthy_fat": 1,
+    "egg": 1,
+    "healthy_fat_nuts": 1,
+    "drink_natural": 1,
     "other": 1,
 }
 MAX_DAILY_CATEGORY_REPEAT = {
     "dairy": 2,
-    "grain": 6,
-    "meat": 6,
+    "starch_grain": 6,
+    "starch_tuber": 2,
+    "protein_meat": 6,
+    "protein_seafood": 2,
     "vegetable": 6,
     "fruit": 3,
     "plant_protein": 2,
-    "healthy_fat": 3,
+    "egg": 2,
+    "healthy_fat_nuts": 3,
     "drink_natural": 1,
     "other": 2,
 }
-
-# ── Role-Based Meal Slot Definitions ────────────────────────────────────────
 # Mỗi slot có vai trò cố định. Thứ tự quan trọng:
 #   Grain → Protein → Vegetable → Fat/Extra
 # Điều này đảm bảo bữa ăn luôn đủ 4 nhóm dinh dưỡng.
@@ -464,49 +619,76 @@ MEAL_SLOT_ROLES: dict[str, list[list[str]]] = {
         ["healthy_fat", "dairy", "meat"],    # slot 3: chất béo/canh
     ],
 }
-# Phân bổ calories mỗi slot — slot fat/extra nhận 20% để đảm bảo đủ fat
-MEAL_SLOT_CALORIE_WEIGHTS: dict[str, list[float]] = {
-    "breakfast": [0.40, 0.35, 0.25],        # grain 40% | protein 35% | fat 25%
-    "lunch":     [0.30, 0.35, 0.15, 0.20],  # grain 30% | protein 35% | veg 15% | fat 20%
-    "snack":     [0.55, 0.45],              # fruit/dairy 55% | fat 45%
-    "dinner":    [0.30, 0.35, 0.15, 0.20],  # grain 30% | protein 35% | veg 15% | fat 20%
+STARCH_CATEGORIES = ["starch_grain", "starch_tuber"]
+PROTEIN_CATEGORIES = ["protein_meat", "protein_seafood", "plant_protein", "protein_plant", "egg"]
+VEG_FRUIT_CATEGORIES = ["vegetable", "fruit"]
+EXTRA_CATEGORIES = ["dairy", "healthy_fat_nuts", "plant_protein", "protein_plant", "fruit", "egg"]
+DRINK_CATEGORIES = ["drink_natural"]
+
+MEAL_SLOT_ROLES = {
+    # 5 items (full)
+    "breakfast": [
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        ["vegetable"],
+        ["fruit"] + EXTRA_CATEGORIES,
+        EXTRA_CATEGORIES,
+    ],
+    # 4 items (balanced)
+    "lunch": [
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        VEG_FRUIT_CATEGORIES,
+        EXTRA_CATEGORIES,
+    ],
+    # 4 items
+    "dinner": [
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        VEG_FRUIT_CATEGORIES,
+        EXTRA_CATEGORIES,
+    ],
+    # 2 items
+    "snack": [
+        VEG_FRUIT_CATEGORIES + ["dairy"],
+        EXTRA_CATEGORIES,
+    ],
 }
 
-# ── Category Taxonomy Cache ─────────────────────────────────────────────────
-# Override the legacy slot map with a clean-bulk plate structure:
-# one staple, enough protein, one vegetable, and a fruit/fat side.
-MEAL_SLOT_ROLES = {
+# Override for simple (3 items) if requested by complexity mapping
+MEAL_SLOT_ROLES_SIMPLE = {
     "breakfast": [
-        ["grain"],
-        ["egg", "meat", "plant_protein", "dairy", "other"],
-        ["fruit"],
-        ["healthy_fat", "dairy", "fruit"],
-        ["dairy", "healthy_fat", "grain", "fruit"],
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        VEG_FRUIT_CATEGORIES,
     ],
     "lunch": [
-        ["grain"],
-        ["meat", "egg", "plant_protein", "other"],
-        ["vegetable"],
-        ["healthy_fat", "dairy", "fruit"],
-        ["fruit", "dairy", "healthy_fat", "other"],
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        VEG_FRUIT_CATEGORIES,
     ],
     "dinner": [
-        ["grain"],
-        ["meat", "egg", "plant_protein", "other"],
-        ["vegetable"],
-        ["healthy_fat", "dairy", "fruit"],
-        ["fruit", "dairy", "healthy_fat", "other"],
+        STARCH_CATEGORIES,
+        PROTEIN_CATEGORIES,
+        VEG_FRUIT_CATEGORIES,
+    ],
+    "snack": [
+        VEG_FRUIT_CATEGORIES + ["dairy"],
+        EXTRA_CATEGORIES,
     ],
 }
+
 MEAL_SLOT_CALORIE_WEIGHTS = {
     "breakfast": [0.32, 0.18, 0.22, 0.20, 0.08],
-    "lunch": [0.30, 0.18, 0.12, 0.28, 0.12],
-    "dinner": [0.30, 0.18, 0.14, 0.26, 0.12],
+    "lunch": [0.30, 0.25, 0.25, 0.20],
+    "dinner": [0.30, 0.25, 0.25, 0.20],
+    "snack": [0.55, 0.45],
 }
 MEAL_SLOT_CULINARY_ROLES = {
-    "breakfast": ["staple", "protein", "fruit", "fat", "side"],
-    "lunch": ["staple", "protein", "vegetable", "fat", "fruit"],
-    "dinner": ["staple", "protein", "vegetable", "fat", "fruit"],
+    "breakfast": ["staple", "protein", "vegetable", "fruit_or_extra", "extra"],
+    "lunch": ["staple", "protein", "vegetable_or_fruit", "extra"],
+    "dinner": ["staple", "protein", "vegetable_or_fruit", "extra"],
+    "snack": ["fruit", "extra"],
 }
 
 _CATEGORY_TAXONOMY_CACHE: dict[str, str] = {}
@@ -818,26 +1000,9 @@ class HealthyWeightGainRecommender:
     @staticmethod
     def category_for_recommender(clean_category: object) -> str:
         normalized = str(clean_category or "").strip().lower()
-        return {
-            "dairy": "dairy",
-            "protein_meat": "meat",
-            "protein_seafood": "meat",
-            "protein_plant": "plant_protein",
-            "plant_protein": "plant_protein",
-            "egg": "egg",
-            "starch_grain": "grain",
-            "starch_tuber": "grain",
-            "grain": "grain",
-            "vegetable": "vegetable",
-            "vegetable_herb": "vegetable",
-            "fruit": "fruit",
-            "drink_natural": "drink_natural",
-            "healthy_fat": "healthy_fat",
-            "fats_good": "healthy_fat",
-            "healthy_fat_nuts": "healthy_fat",
-            "sweet_spread": "junk_food",
-            "dessert_sweets": "junk_food",
-        }.get(normalized, normalized or "other")
+        if normalized == "protein_plant":
+            return "plant_protein"
+        return normalized
 
     @staticmethod
     def category_label_vi(clean_category: object) -> str:
@@ -1107,6 +1272,15 @@ class HealthyWeightGainRecommender:
         score = 0.0
         if cls._is_dirty_bulk_name(text) or cls._is_seasoning_row(row) or category == "junk_food":
             score -= 3.0
+        
+        # Penalize weird foods
+        if cls._contains_any(text, ("kem lua mi", "dau nanh to tam", "buttermilk", "pho mai kho")):
+            score -= 2.0
+            
+        # Boost natural common foods
+        if cls._contains_any(text, ("com", "khoai lang", "yen mach", "trung", "dau hu", "sua tuoi", "sua chua", "chuoi", "bo", "tao")):
+            score += 1.2
+
         if cls._is_clean_carb_row(row):
             score += 1.0
         if cls._is_lean_protein_row(row):
@@ -1119,6 +1293,87 @@ class HealthyWeightGainRecommender:
         ):
             score += 0.7
         return score
+
+    def _load_preference_model(self) -> None:
+        self.preference_model = None
+        self.preference_categories = []
+        if self.preference_model_path is None or not self.preference_model_path.exists():
+            return
+        try:
+            artifact = joblib.load(self.preference_model_path)
+        except Exception:
+            return
+
+        model = artifact.get("model") if isinstance(artifact, dict) else None
+        categories = artifact.get("categories") if isinstance(artifact, dict) else None
+        if model is None or not isinstance(categories, list):
+            return
+
+        self.preference_model = model
+        self.preference_categories = [str(category).strip().lower() for category in categories]
+
+    @staticmethod
+    def _activity_level_for_model(activity_level: str) -> str:
+        normalized = str(activity_level).strip().lower()
+        if normalized in DEFAULT_ACTIVITY_FACTORS:
+            return normalized
+        return "moderate"
+
+    def _predict_category_preferences(self, profile: UserProfile) -> dict[str, float]:
+        if self.preference_model is None or not self.preference_categories:
+            return {}
+
+        age_value = float(profile.age) if profile.age is not None else -1.0
+        sex_value = (profile.sex or "unknown").strip().lower()
+        activity_value = self._activity_level_for_model(profile.activity_level)
+
+        feature_df = pd.DataFrame(
+            {
+                "weight_kg": [float(profile.weight_kg)] * len(self.preference_categories),
+                "height_cm": [float(profile.height_cm)] * len(self.preference_categories),
+                "age": [age_value] * len(self.preference_categories),
+                "activity_level": [activity_value] * len(self.preference_categories),
+                "sex": [sex_value] * len(self.preference_categories),
+                "category": self.preference_categories,
+            }
+        )
+
+        try:
+            probabilities = self.preference_model.predict_proba(feature_df)[:, 1]
+        except Exception:
+            return {}
+
+        return {
+            category: float(probability * 2.0 - 1.0)
+            for category, probability in zip(self.preference_categories, probabilities)
+        }
+
+    def _ensure_fitted(self) -> None:
+        if self.merged_df is None or self.feature_matrix is None:
+            raise RuntimeError("Call load_data() before requesting recommendations.")
+
+    @staticmethod
+    def _serialize_categories(categories: Sequence[str] | None) -> str:
+        if not categories:
+            return ""
+        cleaned = [category.strip().lower() for category in categories if category and category.strip()]
+        return ";".join(cleaned)
+
+    @staticmethod
+    def _parse_categories(value: object) -> list[str]:
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return []
+        text = str(value).strip()
+        if not text:
+            return []
+        return [part.strip().lower() for part in text.split(";") if part.strip()]
+
+    @staticmethod
+    def _normalize_category_preferences(preferences: dict[str, float]) -> dict[str, float]:
+        if not preferences:
+            return {}
+        max_abs = max(abs(value) for value in preferences.values()) or 1.0
+        return {category: value / max_abs for category, value in preferences.items()}
 
     def _load_preference_model(self) -> None:
         self.preference_model = None
@@ -1251,31 +1506,70 @@ class HealthyWeightGainRecommender:
         normalized = str(activity_level or "default").strip().lower()
         if normalized in DEFAULT_ACTIVITY_FACTORS:
             return DEFAULT_ACTIVITY_FACTORS[normalized]
+        
+        vietnamese_mapping = {
+            "sedentary": ["ít", "it", "ngồi nhiều", "ngoi nhieu"],
+            "light": ["nhẹ", "nhe", "thỉnh thoảng", "thinh thoang"],
+            "moderate": ["vừa", "vua", "trung bình", "trung binh"],
+            "active": ["nhiều", "nhieu", "năng động", "nang dong"],
+            "very_active": ["rất nhiều", "rat nhieu", "vận động viên"],
+        }
+        for eng_key, vi_terms in vietnamese_mapping.items():
+            if any(term in normalized for term in vi_terms):
+                return DEFAULT_ACTIVITY_FACTORS[eng_key]
+
         try:
             return float(normalized)
-        except ValueError as exc:
-            raise ValueError(
-                "activity_level must be one of: "
-                f"{', '.join(DEFAULT_ACTIVITY_FACTORS)} or a numeric multiplier"
-            ) from exc
+        except ValueError:
+            return DEFAULT_ACTIVITY_FACTORS["default"]
 
     @staticmethod
     def _estimate_surplus(bmi: float, weight_gain_speed: str | None = None) -> float:
+        """Compute caloric surplus for weight-gain goal.
+
+        Fast gain speed yields 500–550 kcal to ensure severely underweight
+        users (BMI < 16) can reach a nutritionally meaningful target.
+        Vietnamese speed terms ("mạnh hơn", "nhanh hơn") are also mapped.
+        """
         speed = str(weight_gain_speed or "").strip().lower()
+        # Normalise common Vietnamese/mixed speed labels
         speed_surplus = {
+            # Slow / nhẹ
             "slow": 300.0,
             "nhe": 300.0,
+            "nhẹ": 300.0,
+            "nhe on dinh": 300.0,
+            "nhẹ, ổn định": 300.0,
+            "nhe on": 300.0,
+            # Medium / vừa
             "medium": 400.0,
             "moderate": 400.0,
             "vua": 400.0,
+            "vừa": 400.0,
+            # Fast / mạnh
             "fast": 500.0,
             "strong": 500.0,
             "nhanh": 500.0,
+            "manh": 500.0,
+            "mạnh": 500.0,
+            # "Mạnh hơn" / "Nhanh hơn" (stronger/faster) → higher surplus
+            "manh hon": 550.0,
+            "mạnh hơn": 550.0,
+            "nhanh hon": 550.0,
+            "nhanh hơn": 550.0,
+            "faster": 550.0,
+            "stronger": 550.0,
+            "aggressive": 550.0,
         }
         if speed in speed_surplus:
             return speed_surplus[speed]
+        # Partial match for Vietnamese compound phrases
+        for key, value in speed_surplus.items():
+            if key and key in speed:
+                return value
+        # BMI-based fallback
         if bmi < 16:
-            return 500.0
+            return 500.0  # severely underweight → minimum aggressive surplus
         if bmi < 17.5:
             return 400.0
         if bmi < 18.5:
@@ -1298,6 +1592,7 @@ class HealthyWeightGainRecommender:
         height_m = profile.height_cm / 100.0
         bmi = profile.weight_kg / (height_m * height_m)
 
+        # Mifflin-St Jeor BMR (same formula already in use, verified)
         if profile.age is not None and profile.sex is not None:
             sex = self._normalize_sex(profile.sex)
             if sex == "male":
@@ -1332,16 +1627,42 @@ class HealthyWeightGainRecommender:
         if goal != "gain" and profile.age is not None and profile.age >= 18:
             target_calories = max(target_calories, 1200.0)
 
-        protein_floor = 1.6 * profile.weight_kg
-        protein_ceiling = 2.2 * profile.weight_kg
-        protein_per_kg = 1.8 if bmi < 17.5 else 1.7
+        # ── Hard floors for severely underweight users ────────────────────────
+        # A user with BMI < 16 pursuing fast/moderate gain MUST receive at least
+        # TDEE + 350 kcal.
+        if goal == "gain" and bmi < 16:
+            is_slow = any(t in str(profile.weight_gain_speed or "").lower() for t in ("slow", "nhe", "nhẹ"))
+            if not is_slow:
+                min_fast_target = maintenance_kcal + 350.0
+                target_calories = max(target_calories, min_fast_target)
+        elif goal == "gain" and bmi < 17.5:
+            min_target = maintenance_kcal + 300.0
+            target_calories = max(target_calories, min_target)
+
+
+        # Protein: 2.0–2.4 g/kg for severely underweight (muscle repair priority)
+        if bmi < 16:
+            protein_per_kg = 2.2
+            protein_floor = 1.8 * profile.weight_kg
+            protein_ceiling = 2.4 * profile.weight_kg
+        elif bmi < 17.5:
+            protein_per_kg = 2.0
+            protein_floor = 1.8 * profile.weight_kg
+            protein_ceiling = 2.4 * profile.weight_kg
+        else:
+            protein_per_kg = 1.8
+            protein_floor = 1.6 * profile.weight_kg
+            protein_ceiling = 2.2 * profile.weight_kg
         target_protein = min(max(protein_floor, protein_per_kg * profile.weight_kg), protein_ceiling)
-        target_fat = max(0.9 * profile.weight_kg, 0.30 * target_calories / 9.0)
+
+        target_fat = max(1.0 * profile.weight_kg, 0.30 * target_calories / 9.0)
         remaining_calories = target_calories - (target_protein * 4) - (target_fat * 9)
         target_carbs = max(remaining_calories / 4, 0.0)
+
+        # BMI status and medical warning
         if bmi < 16:
             bmi_status = "Suy dinh dưỡng độ 3"
-            medical_warning = "BMI đang rất thấp. Nên tham khảo bác sĩ/chuyên gia dinh dưỡng trước khi tăng cân."
+            medical_warning = "BMI rất thấp, nên tham khảo chuyên gia dinh dưỡng hoặc bác sĩ trước khi tăng cân nhanh."
         elif bmi < 17:
             bmi_status = "Suy dinh dưỡng độ 2"
             medical_warning = "BMI đang thấp. Nên theo dõi sức khỏe và tham khảo chuyên gia nếu có triệu chứng bất thường."
@@ -1353,16 +1674,16 @@ class HealthyWeightGainRecommender:
             medical_warning = None
 
         return {
-            "calories": target_calories,
-            "protein": target_protein,
-            "fat": target_fat,
-            "carbs": target_carbs,
-            "bmi": bmi,
-            "bmr": bmr,
-            "tdee": maintenance_kcal,
-            "maintenance_kcal": maintenance_kcal,
-            "surplus_kcal": surplus_kcal,
-            "eligible": bmi < 18.5,
+            "calories": round(target_calories, 1),
+            "protein": round(target_protein, 1),
+            "fat": round(target_fat, 1),
+            "carbs": round(target_carbs, 1),
+            "bmi": round(bmi, 2),
+            "bmr": round(bmr, 1),
+            "tdee": round(maintenance_kcal, 1),
+            "maintenance_kcal": round(maintenance_kcal, 1),
+            "surplus_kcal": round(surplus_kcal, 1),
+            "eligible": bmi < 18.7,
             "bmi_status": bmi_status,
             "medical_warning": medical_warning,
         }
@@ -1529,7 +1850,8 @@ class HealthyWeightGainRecommender:
     def _scale_plan_energy_if_needed(
         plan: dict[str, pd.DataFrame],
         target_calories: float,
-        min_ratio: float = 0.85,
+        min_ratio: float = 0.95,
+        max_ratio: float = 1.05,
     ) -> dict[str, pd.DataFrame]:
         current_calories = sum(
             float(meal_df["calories_raw"].sum())
@@ -1537,10 +1859,11 @@ class HealthyWeightGainRecommender:
             if "calories_raw" in meal_df.columns and not meal_df.empty
         )
         min_calories = float(target_calories) * min_ratio
-        if current_calories <= 0 or current_calories >= min_calories:
+        max_calories = float(target_calories) * max_ratio
+        if current_calories <= 0 or min_calories <= current_calories <= max_calories:
             return plan
 
-        scale = min(min_calories / current_calories, 2.5)
+        scale = min(max(float(target_calories) / current_calories, 0.8), 1.2)
         scaled: dict[str, pd.DataFrame] = {}
         for meal, meal_df in plan.items():
             if meal_df.empty:
@@ -1552,16 +1875,17 @@ class HealthyWeightGainRecommender:
                 serving_grams = float(row.get("serving_grams", 100.0) or 100.0)
                 max_grams = HealthyWeightGainRecommender._max_serving_grams(row)
                 row_scale = scale
-                if serving_grams > 0:
+                if serving_grams > 0 and row_scale >= 1.0:
                     row_scale = min(row_scale, max_grams / serving_grams)
-                row_scale = max(row_scale, 1.0)
+                row_scale = max(row_scale, 1.0) if scale >= 1.0 else min(row_scale, 1.0)
+                row_scale = max(row_scale, 0.8)
                 for nutrient_col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
                     if nutrient_col in next_df.columns:
                         next_df.at[row_idx, nutrient_col] = float(row[nutrient_col]) * row_scale
                 if "serving_multiplier" in next_df.columns:
                     next_df.at[row_idx, "serving_multiplier"] = float(row.get("serving_multiplier", 1.0) or 1.0) * row_scale
                 if "serving_grams" in next_df.columns:
-                    next_df.at[row_idx, "serving_grams"] = min(serving_grams * row_scale, max_grams)
+                    next_df.at[row_idx, "serving_grams"] = min(serving_grams * row_scale, max_grams) if row_scale >= 1.0 else serving_grams * row_scale
             scaled[meal] = next_df
         capped = HealthyWeightGainRecommender._apply_serving_caps_to_plan(scaled)
         return HealthyWeightGainRecommender._normalize_plan_macro_calories(capped)
@@ -1894,10 +2218,47 @@ class HealthyWeightGainRecommender:
         )
         result_df = result_df[~unfamiliar_mask]
 
+        # ── Hard filter: drinks / juices can NEVER fill non-drink slots ────────
+        # Remove all drink/beverage items from the main candidate pool so they
+        # cannot accidentally score their way into grain / protein / vegetable
+        # / fruit slots during meal plan assembly.
+        drink_mask = result_df["name"].astype(str).str.lower().apply(
+            lambda n: any(t in n for t in DRINK_BEVERAGE_TERMS)
+        ) | result_df["category"].astype(str).str.lower().isin({"drink_natural"})
+        result_df = result_df[~drink_mask].copy()
+
+        # ── Fresh fruit boost ────────────────────────────────────────────────
+        # Whole fruit gets a significant scoring advantage over juices/drinks.
+        fresh_fruit_boost = result_df["name"].astype(str).str.lower().apply(
+            lambda n: 0.18 if any(t in n for t in FRESH_FRUIT_TERMS) else 0.0
+        ) * result_df["category"].astype(str).str.lower().isin({"fruit"}).astype(float)
+        result_df["score"] = result_df["score"] + fresh_fruit_boost
+
+        # ── Familiar Vietnamese food boost ───────────────────────────────────
         familiar_boost = result_df["name"].astype(str).str.lower().apply(
             lambda text: 1.0 if any(term in text for term in FAMILIAR_NAME_TERMS) else 0.0
         )
-        result_df["score"] = result_df["score"] + 0.05 * familiar_boost
+        result_df["score"] = result_df["score"] + 0.08 * familiar_boost
+
+        # ── Exotic / hard-to-find food penalty ──────────────────────────────
+        # Items that are rare or culturally unfamiliar to Vietnamese everyday
+        # eating are penalised so accessible alternatives rank higher.
+        _exotic_name_terms = (
+            "fermented salmon", "ca hoi len men",
+            "herring roe", "trung ca trich",
+            "caviar", "surstromming", "gravlax",
+            "dandelion", "rau bo cong anh",
+            "chicory", "endive", "radicchio",
+            "tilsit", "emmental", "raclette", "gruyere",
+            "camembert", "brie", "dry cheese", "pho mai kho",
+            "cottage cheese", "ricotta",
+            "offal", "organ meat", "sweetbread", "foie gras",
+            "noi tang",
+        )
+        exotic_penalty_vec = result_df["name"].astype(str).str.lower().apply(
+            lambda n: 1.0 if any(t in n for t in _exotic_name_terms) else 0.0
+        )
+        result_df["score"] = result_df["score"] - 0.35 * exotic_penalty_vec
 
         carb_density = result_df["carbs_raw"].astype(float) / np.maximum(result_df["calories_raw"].astype(float), 1.0)
         carb_support_mask = result_df["category"].astype(str).str.lower().isin({"grain", "fruit", "vegetable", "dairy", "plant_protein"})
@@ -1972,6 +2333,15 @@ class HealthyWeightGainRecommender:
         working_df = working_df[
             working_df["category"].astype(str).str.lower() != "junk_food"
         ].copy()
+        # ── Hard exclude drinks / juices / beverages from all meal slots ──────
+        # drink_natural items and anything named as a juice/beverage must not
+        # appear in grain / protein / vegetable / fruit slots.
+        drink_name_mask = working_df["name"].astype(str).str.lower().apply(
+            lambda n: any(t in n for t in DRINK_BEVERAGE_TERMS)
+        )
+        drink_cat_mask = working_df["category"].astype(str).str.lower().isin({"drink_natural"})
+        working_df = working_df[~drink_name_mask & ~drink_cat_mask].copy()
+        # ─────────────────────────────────────────────────────────────────────
         if "clean_category" in working_df.columns:
             working_df = working_df[
                 working_df["clean_category"].astype(str).str.lower() != "vegetable_herb"
@@ -2072,6 +2442,11 @@ class HealthyWeightGainRecommender:
                     main_produce_pool = pool[
                         pool["category"].astype(str).str.lower().isin({"fruit", "vegetable"})
                         & (pool.get("clean_category", "").astype(str).str.lower() != "vegetable_herb")
+                        # Explicitly exclude drinks/juices from produce slots
+                        & ~pool["category"].astype(str).str.lower().isin({"drink_natural"})
+                        & ~pool["name"].astype(str).str.lower().apply(
+                            lambda n: any(t in n for t in ("juice", "nuoc ep", "nước ép", "nuoc cam", "nước cam", "nuoc tao", "apple juice"))
+                        )
                     ]
                     if not main_produce_pool.empty:
                         pool = main_produce_pool
