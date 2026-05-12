@@ -97,7 +97,7 @@ function DashboardMockup() {
         <div className="mt-5 space-y-2">
           {[
             { name: "Bữa sáng", items: "Yến mạch + Chuối + Sữa tươi", kcal: 520 },
-            { name: "Bữa trưa", items: "Cơm trắng + Ức gà + Rau cải", kcal: 710 },
+            { name: "Bữa trưa", items: "Cơm trắng + Cá hồi + Rau cải", kcal: 710 },
           ].map((meal) => (
             <div key={meal.name} className="flex items-center justify-between rounded-2xl border border-brand-border bg-brand-soft px-4 py-3">
               <div>

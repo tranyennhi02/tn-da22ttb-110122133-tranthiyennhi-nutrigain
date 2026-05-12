@@ -1,5 +1,18 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const AUTH_STORAGE_KEY = "nutrigain_auth";
+const PROFILE_CACHE_KEYS = [
+  "nutritionProfile",
+  "onboardingData",
+  "userProfile",
+  "currentUser",
+  "dislikedFoods",
+  "favoriteFoods",
+  "mealPlan",
+  "progressSummary",
+  "dashboardData",
+  "nutrigain_disliked_foods",
+  "nutrigain_disliked_food_groups",
+];
 
 async function requestAuth(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -11,8 +24,25 @@ async function requestAuth(path, payload) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Authentication failed");
+    let errorMsg = "";
+    try {
+      const clone = response.clone();
+      const errJson = await clone.json();
+      if (errJson && errJson.detail) {
+        if (typeof errJson.detail === "string") {
+          errorMsg = errJson.detail;
+        } else if (Array.isArray(errJson.detail)) {
+          errorMsg = errJson.detail.map(d => d.msg || JSON.stringify(d)).join(", ");
+        } else {
+          errorMsg = JSON.stringify(errJson.detail);
+        }
+      }
+    } catch {
+      try {
+        errorMsg = await response.text();
+      } catch {}
+    }
+    throw new Error(errorMsg || "Authentication failed");
   }
 
   return response.json();
@@ -57,6 +87,10 @@ export async function register(payload) {
 
 export function logout() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
+  for (const key of PROFILE_CACHE_KEYS) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
 }
 
 export function getSession() {

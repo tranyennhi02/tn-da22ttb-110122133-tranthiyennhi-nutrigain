@@ -15,8 +15,8 @@ const features = [
   },
   {
     emoji: "📊",
-    title: "Theo dõi macro & calories",
-    desc: "Biểu đồ trực quan protein, carbs, fat. Theo dõi tiến độ calo mỗi ngày với dashboard real-time.",
+    title: "Theo dõi tiến độ tăng cân",
+    desc: "Cập nhật cân nặng định kỳ và xem xu hướng tăng, giữ nguyên hoặc giảm theo từng lần ghi nhận.",
     color: "bg-orange-50 border-orange-100",
     iconBg: "bg-orange-100 text-brand-orange",
   },

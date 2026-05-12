@@ -2,7 +2,7 @@ import { useState } from "react";
 import { SectionLabel } from "./FeatureSection";
 
 const faqs = [
-  { q: "NutriGain phù hợp với ai?", a: "NutriGain được thiết kế cho người thiếu cân (BMI < 18.5) muốn tăng cân lành mạnh và xây dựng cơ bắp một cách khoa học." },
+  { q: "NutriGain phù hợp với ai?", a: "NutriGain tập trung cho người thiếu cân có BMI dưới 18.5 theo chuẩn Châu Á. Hệ thống không tạo thực đơn tăng cân cho người BMI bình thường, thừa cân hoặc béo phì." },
   { q: "Hệ thống tính calories thế nào?", a: "Chúng tôi dùng công thức Mifflin-St Jeor để tính BMR, nhân hệ số vận động ra TDEE, sau đó cộng thặng dư calo phù hợp với mục tiêu tăng cân của bạn." },
   { q: "Tôi có thể tùy chỉnh thực đơn không?", a: "Có! Bạn có thể thêm món yêu thích, loại bỏ món không thích hoặc dị ứng, đổi món trong kế hoạch, và hệ thống sẽ tạo lại thực đơn phù hợp." },
   { q: "Dữ liệu của tôi có được bảo mật không?", a: "Dữ liệu cá nhân được lưu trữ bảo mật trên server. Chúng tôi không chia sẻ thông tin của bạn với bên thứ ba." },

@@ -11,5 +11,6 @@ from app.models.entities import (
     User,
     UserFavoriteFood,
     UserProfileEntity,
+    WeightLog,
 )
 

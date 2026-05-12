@@ -20,10 +20,10 @@ const screens = [
   },
   {
     id: "charts",
-    label: "Biểu đồ",
+    label: "Theo dõi cân nặng",
     emoji: "📈",
-    title: "Biểu đồ dinh dưỡng",
-    desc: "Theo dõi xu hướng calories và macro theo tuần với biểu đồ trực quan.",
+    title: "Theo dõi tăng cân",
+    desc: "Cập nhật cân nặng định kỳ và xem xu hướng tăng cân theo dữ liệu thật bạn nhập.",
     preview: <ChartsPreview />,
   },
   {
@@ -110,7 +110,7 @@ function DashboardPreview() {
 function MealPlanPreview() {
   const meals = [
     { name: "Bữa sáng", items: "Yến mạch + Chuối + Sữa", kcal: 520 },
-    { name: "Bữa trưa", items: "Cơm + Ức gà + Rau cải", kcal: 710 },
+    { name: "Bữa trưa", items: "Cơm + Cá hồi + Rau cải", kcal: 710 },
     { name: "Bữa tối", items: "Mì ý + Bò bằm + Salad", kcal: 680 },
     { name: "Bữa phụ", items: "Bánh mì + Trứng + Phô mai", kcal: 380 },
   ];

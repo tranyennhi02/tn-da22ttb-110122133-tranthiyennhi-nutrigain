@@ -43,6 +43,16 @@ class UserRepository:
         return user
 
     def upsert_profile(self, user_id: int, values: dict) -> UserProfileEntity:
+        import inspect
+        try:
+            caller_frame = inspect.stack()[1]
+            caller_filename = caller_frame.filename.split("\\")[-1].split("/")[-1]
+            caller_function = caller_frame.function
+            source_name = f"{caller_filename}:{caller_function}"
+        except Exception:
+            source_name = "unknown"
+        print(f"[PROFILE WRITE SOURCE] {source_name} values={values}")
+
         profile = self.db.scalar(
             select(UserProfileEntity).where(UserProfileEntity.user_id == user_id)
         )
@@ -51,7 +61,15 @@ class UserRepository:
             self.db.add(profile)
             self.db.flush()
         for key, value in values.items():
-            setattr(profile, key, value)
+            if hasattr(profile, key):
+                # Logging writes for debugging disappearance/restore of disliked_foods
+                if key == "disliked_foods" or key == "favorite_foods":
+                    try:
+                        old = getattr(profile, key, None)
+                    except Exception:
+                        old = None
+                    print("[PROFILE WRITE SOURCE] user_repository.upsert_profile key=", key, "old=", old, "new=", value)
+                setattr(profile, key, value)
         self.db.commit()
         self.db.refresh(profile)
         return profile

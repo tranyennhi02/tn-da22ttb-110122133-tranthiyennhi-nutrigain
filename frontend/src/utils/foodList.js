@@ -8,7 +8,7 @@ export function parseFoodList(value) {
   }
 
   return value
-    .split(",")
+    .split(/[,\n;]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }

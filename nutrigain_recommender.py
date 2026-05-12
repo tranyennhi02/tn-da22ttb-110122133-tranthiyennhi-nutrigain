@@ -1659,18 +1659,27 @@ class HealthyWeightGainRecommender:
         remaining_calories = target_calories - (target_protein * 4) - (target_fat * 9)
         target_carbs = max(remaining_calories / 4, 0.0)
 
-        # BMI status and medical warning
-        if bmi < 16:
-            bmi_status = "Suy dinh dưỡng độ 3"
-            medical_warning = "BMI rất thấp, nên tham khảo chuyên gia dinh dưỡng hoặc bác sĩ trước khi tăng cân nhanh."
-        elif bmi < 17:
-            bmi_status = "Suy dinh dưỡng độ 2"
-            medical_warning = "BMI đang thấp. Nên theo dõi sức khỏe và tham khảo chuyên gia nếu có triệu chứng bất thường."
-        elif bmi < 18.5:
-            bmi_status = "Gầy"
+        # Asian BMI status and medical warning
+        display_bmi = round(bmi, 1)
+        if display_bmi < 16:
+            bmi_category = "underweight"
+            bmi_status = "Gầy / thiếu cân"
+            medical_warning = "BMI của bạn đang rất thấp. Thực đơn chỉ mang tính hỗ trợ, nên theo dõi cân nặng định kỳ và tham khảo chuyên gia dinh dưỡng khi cần."
+        elif display_bmi < 18.5:
+            bmi_category = "underweight"
+            bmi_status = "Gầy / thiếu cân"
+            medical_warning = None
+        elif display_bmi < 23:
+            bmi_category = "normal"
+            bmi_status = "Bình thường"
+            medical_warning = None
+        elif display_bmi < 25:
+            bmi_category = "overweight"
+            bmi_status = "Thừa cân"
             medical_warning = None
         else:
-            bmi_status = "Bình thường"
+            bmi_category = "obese"
+            bmi_status = "Béo phì"
             medical_warning = None
 
         return {
@@ -1683,7 +1692,9 @@ class HealthyWeightGainRecommender:
             "tdee": round(maintenance_kcal, 1),
             "maintenance_kcal": round(maintenance_kcal, 1),
             "surplus_kcal": round(surplus_kcal, 1),
-            "eligible": bmi < 18.7,
+            "eligible": display_bmi < 18.5,
+            "bmi_category": bmi_category,
+            "bmi_label": bmi_status,
             "bmi_status": bmi_status,
             "medical_warning": medical_warning,
         }
@@ -1720,11 +1731,11 @@ class HealthyWeightGainRecommender:
     @staticmethod
     def _daily_family_limit(family: str) -> int:
         if family in {"bean", "tofu", "soy"}:
-            return 2
+            return 1
         if family in {"rice", "oat", "bread", "potato", "corn", "noodle", "pasta"}:
             return 2
         if family in {"milk", "yogurt", "cheese"}:
-            return 2
+            return 1
         if family in {"vegetable", "fruit"}:
             return 3
         return 2
@@ -2104,6 +2115,8 @@ class HealthyWeightGainRecommender:
         assert self.merged_df is not None and self.feature_matrix is not None
 
         target_nutrition = self._estimate_target_nutrition(profile)
+        if not target_nutrition.get("eligible", True):
+            raise ValueError("NutriGain chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân có BMI dưới 18.5.")
         user_vector = self._scale_profile_vector(target_nutrition)
         scores = cosine_similarity(user_vector, self.feature_matrix).ravel()
 

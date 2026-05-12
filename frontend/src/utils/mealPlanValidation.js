@@ -138,7 +138,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
 
   if (totalProtein < target.proteinTarget * 0.8) {
     if (level !== "error") level = "warning";
-    messages.push("Protein thấp hơn 80% mục tiêu. Nên thêm món đạm hoặc tăng khẩu phần.");
+    messages.push("Bữa này còn thiếu đạm. Có thể thêm trứng, cá, thịt nạc, đậu hũ hoặc sữa chua Hy Lạp.");
   }
   if (totalProtein > target.proteinTarget * 1.35) {
     if (level !== "error") level = "warning";
@@ -148,11 +148,11 @@ export function validateMealPlan(mealPlan, userProfile, target) {
   if (totalFat < target.fatTarget * 0.8) {
     isValid = false;
     level = "error";
-    messages.push("Fat thap hon 80% muc tieu. Nen thay mon phu bang sua, sua chua, qua bo, hat, bo dau phong hoac pho mai phu hop.");
+    messages.push("Bữa này còn thiếu chất béo tốt. Có thể thêm bơ, hạt, trứng, cá béo hoặc sữa nguyên kem.");
   }
-  if (totalCarbs > target.carbTarget * 1.25) {
+  if (totalCarbs > target.carbTarget * 1.15) {
     if (level !== "error") level = "warning";
-    messages.push("Carbs cao hon muc tieu, nen giam mon tinh bot/ngot va tang chat beo tot.");
+    messages.push("Bữa này hơi nhiều tinh bột. Có thể giảm một phần tinh bột hoặc đổi sang bơ, hạt, trứng hay sữa nguyên kem.");
   }
 
   for (const [mealName, items] of getMealEntries(mealPlan)) {
@@ -187,7 +187,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
   });
 
   if (messages.length === 0) {
-    messages.push("Thực đơn phù hợp với mục tiêu hôm nay.");
+    messages.push("Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch tăng cân hôm nay.");
   }
 
   const proteinRatio = target.proteinTarget > 0 ? totalProtein / target.proteinTarget : 1;

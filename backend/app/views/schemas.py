@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,7 +31,7 @@ class UserProfileInput(BaseModel):
     gender: str | None = None
     activity_level: str = "moderate"
     surplus_kcal: float | None = Field(default=None, ge=0)
-    favorite_foods: str | None = None
+    favorite_foods: list[str] = Field(default_factory=list)
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
     target_weight_kg: float | None = Field(default=None, gt=0)
@@ -43,13 +44,12 @@ class UserProfileInput(BaseModel):
     @classmethod
     def normalize_favorite_foods(cls, value: Any):
         if value is None or value == "":
-            return None
+            return []
         if isinstance(value, str):
-            return value.strip() or None
+            return [item.strip() for item in value.replace(";", ",").split(",") if item.strip()]
         if isinstance(value, list):
-            items = [str(item).strip() for item in value if str(item).strip()]
-            return ", ".join(items) if items else None
-        return str(value).strip() or None
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
 
     @field_validator("disliked_foods", "disliked_food_groups", mode="before")
     @classmethod
@@ -71,7 +71,7 @@ class UserProfileView(BaseModel):
     gender: str | None = None
     activity_level: str = "moderate"
     surplus_kcal: float | None = None
-    favorite_foods: str | None = None
+    favorite_foods: list[str] = Field(default_factory=list)
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
     target_weight_kg: float | None = None
@@ -93,6 +93,45 @@ class UserView(BaseModel):
 
 class CurrentUserView(UserView):
     profile: UserProfileView | None = None
+
+
+class WeightLogCreate(BaseModel):
+    weight_kg: float = Field(..., gt=0)
+    log_date: date | None = None
+    note: str | None = None
+    # source is assigned server-side; frontend should not set it
+
+
+class WeightLogResponse(BaseModel):
+    id: int
+    user_id: int
+    weight_kg: float
+    log_date: date
+    note: str | None = None
+    source: str | None = None
+    is_chart_milestone: bool = False
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class WeightLogSummary(BaseModel):
+    start_date: date | None = None
+    current_weight: float | None = None
+    start_weight: float | None = None
+    target_weight: float | None = None
+    change_kg: float | None = None
+    gained_kg: float | None = None
+    remaining_kg: float | None = None
+    progress_percent: float = 0.0
+    trend: str = "not_enough_data"
+    last_log_date: date | None = None
+    latest_milestone_date: date | None = None
+    next_checkin_date: date | None = None
+    next_milestone_date: date | None = None
+    milestone_points: list[dict] | None = None
+    days_since_latest_milestone: int | None = None
+    should_checkin: bool = False
+    message: str
 
 
 class AuthTokenResponse(BaseModel):
@@ -313,6 +352,8 @@ class MealPlanRegenerateInput(BaseModel):
 
 class NutritionTargetView(BaseModel):
     bmi: float
+    bmi_category: str | None = None
+    bmi_label: str | None = None
     bmr: float
     tdee: float
     maintenance_kcal: float
@@ -389,8 +430,11 @@ class TodayMealPlanResponse(BaseModel):
 class EligibilityCheckView(BaseModel):
     bmi: float | None = None
     weight_status: str
+    bmi_category: str | None = None
+    bmi_label: str | None = None
     eligible: bool
     reason: str
+    message: str | None = None
 
 
 class OverallAssessmentView(BaseModel):
@@ -434,6 +478,8 @@ class ProfileSummarySchema(BaseModel):
     weight_kg: float | None = None
     bmi: float | None = None
     bmi_status: str | None = None
+    bmi_category: str | None = None
+    bmi_label: str | None = None
     medical_warning: bool | None = None
     target_weight_missing: bool | None = None
     suggested_stage_1_weight: float | None = None
@@ -483,6 +529,13 @@ class ValidationSchema(BaseModel):
     kcal_diff_pct: float | None = None
 
 class RecommendationOutput(BaseModel):
+    eligible: bool | None = None
+    reason: str | None = None
+    bmi: float | None = None
+    bmi_category: str | None = None
+    bmi_label: str | None = None
+    message: str | None = None
+    warning: str | None = None
     profile_summary: ProfileSummarySchema | None = None
     nutrition_target: NutritionTargetSchema | None = None
     meal_plan: MealPlanSchema | None = None

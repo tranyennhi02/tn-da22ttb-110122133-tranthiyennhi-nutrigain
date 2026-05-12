@@ -4,16 +4,32 @@ import { updateUserProfile, postRegenerateMealPlan, fetchCurrentUser } from "../
 import { mapFormStateToBackendProfile } from "../App";
 import { normalizePayload } from "../models/recommendationModel";
 import NutriGainLogo from "../components/NutriGainLogo";
-import { formatFoodListInput, parseFoodList } from "../utils/foodList.js";
+import {
+  asianBmiLabel,
+  bmiPreviewMessage,
+  buildAsianBmiOutOfScopeResult,
+  calculateAsianBmi,
+  classifyAsianBMI,
+} from "../utils/bmi";
+import { foodListToInput, parseFoodList } from "../utils/profileFormUtils.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function safeNum(v) { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; }
+
+function getVietnamDateString() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 function buildRegeneratePayload(formData) {
   const payload = normalizePayload({ ...formData, save_user_data: true });
   return {
     ...payload,
-    date: new Date().toISOString().slice(0, 10),
+    date: getVietnamDateString(),
     excludePreviousItems: true,
     randomSeed: Date.now(),
     favorite_foods: parseFoodList(formData.favorite_foods),
@@ -22,6 +38,35 @@ function buildRegeneratePayload(formData) {
   };
 }
 function fmt(n) { return Number.isFinite(n) ? Math.round(n) : "—"; }
+
+function getMealPlanItems(mealPlan) {
+  if (!mealPlan) return [];
+  if (Array.isArray(mealPlan.meals)) {
+    return mealPlan.meals.flatMap((meal) => (Array.isArray(meal.items) ? meal.items : []));
+  }
+  if (Array.isArray(mealPlan)) {
+    return mealPlan.flatMap((meal) => (Array.isArray(meal.items) ? meal.items : []));
+  }
+  return Object.values(mealPlan).flatMap((items) => (Array.isArray(items) ? items : []));
+}
+
+function getMealPlanKcal(mealPlan) {
+  if (!mealPlan) return 0;
+  const explicit = Number(mealPlan.total_kcal ?? mealPlan.totalKcal ?? mealPlan.total_calories ?? 0);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const items = getMealPlanItems(mealPlan);
+  return items.reduce((sum, item) => sum + Number(item?.calories ?? item?.kcal ?? 0), 0);
+}
+
+function ensureValidMealPlanResult(result) {
+  if (!result || result.eligible === false) return result;
+  const items = getMealPlanItems(result.meal_plan);
+  const totalKcal = getMealPlanKcal(result.meal_plan);
+  if (!items.length || totalKcal <= 0) {
+    throw new Error("Không thể tạo thực đơn hợp lệ. Meal plan đang rỗng hoặc kcal bằng 0.");
+  }
+  return result;
+}
 
 
 
@@ -106,15 +151,59 @@ function StepGender({ data, update }) {
 }
 
 // ─── StepBody ────────────────────────────────────────────────────────────────
-function StepBody({ data, update, errors }) {
+function StepBody({ data, update, errors, onLogout }) {
   function handle(e){ update(e.target.name, e.target.value); }
+  const bmi = calculateAsianBmi(data.weight, data.height);
+  const bmiCategory = classifyAsianBMI(bmi);
+  const isOutOfScope = Number.isFinite(bmi) && bmi >= 18.5;
+
+  let outOfScopeMessage = "";
+  if (isOutOfScope) {
+    if (bmiCategory === "normal") {
+      outOfScopeMessage = "BMI của bạn hiện đang ở mức bình thường. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
+    } else if (bmiCategory === "overweight") {
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
+    } else if (bmiCategory === "obese") {
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
+    }
+  }
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <NumberField label="Cân nặng hiện tại" name="weight" value={data.weight} onChange={handle} placeholder="60" unit="kg" error={errors.weight} />
-      <NumberField label="Chiều cao" name="height" value={data.height} onChange={handle} placeholder="165" unit="cm" error={errors.height} />
-      <div className="sm:col-span-2">
-        <NumberField label="Tuổi" name="age" value={data.age} onChange={handle} placeholder="22" unit="tuổi" error={errors.age} />
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumberField label="Cân nặng hiện tại" name="weight" value={data.weight} onChange={handle} placeholder="60" unit="kg" error={errors.weight} />
+        <NumberField label="Chiều cao" name="height" value={data.height} onChange={handle} placeholder="165" unit="cm" error={errors.height} />
+        <div className="sm:col-span-2">
+          <NumberField label="Tuổi" name="age" value={data.age} onChange={handle} placeholder="22" unit="tuổi" error={errors.age} />
+        </div>
       </div>
+      {Number.isFinite(bmi) && (
+        isOutOfScope ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-[#92400E] animate-fade-in sm:col-span-2">
+            <p className="text-xl font-black">BMI {bmi.toFixed(1)}</p>
+            <p className="mt-3 text-sm font-semibold leading-relaxed">
+              {outOfScopeMessage}
+            </p>
+            <p className="mt-3 text-sm font-semibold leading-relaxed">
+              Bạn có thể đăng xuất khỏi hệ thống. Cảm ơn bạn đã quan tâm đến NutriGain.
+            </p>
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={onLogout}
+                className="h-11 rounded-xl bg-amber-600 px-6 text-sm font-black text-white shadow-md hover:bg-amber-700 transition"
+              >
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-[#D1FAE5] bg-[#ECFDF5] px-4 py-3 sm:col-span-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#047857]">BMI {bmi.toFixed(1)}</p>
+            <p className="mt-1 text-sm font-bold leading-6 text-[#065F46]">{bmiPreviewMessage(bmiCategory)}</p>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -250,20 +339,22 @@ function StepFoods({ data, update }) {
   return (
     <div className="space-y-6">
       <TagInput label="Món yêu thích" name="favorite_foods" value={data.favorite_foods} onChange={handle} placeholder="Ví dụ: chuối, sữa, cơm, trứng" />
-      <TagInput label="Món không thích / dị ứng" name="unfavorite_foods" value={data.unfavorite_foods} onChange={handle} placeholder="Ví dụ: tôm, đậu phộng, gà" />
+      <TagInput label="Món không thích / dị ứng" name="unfavorite_foods" value={data.unfavorite_foods} onChange={handle} placeholder="Ví dụ: tôm, đậu phộng, trứng" />
     </div>
   );
 }
 
 // ─── StepSummary ─────────────────────────────────────────────────────────────
-function StepSummary({ data, onFinish, onContinue, isSaving, finishError, profileComplete }) {
+function StepSummary({ data, onFinish, onBack, isSaving, finishError, step, isExistingUser }) {
   const preview = useMemo(()=>calculateNutritionTarget({
     weight: data.weight, height: data.height, age: data.age,
     sex: data.sex, activity: data.activity,
     goal_type: data.goal_type, gain_speed: data.gain_speed,
   }),[data]);
 
-  const bmiLabel = preview.bmi < 18.5 ? "Thiếu cân" : preview.bmi < 25 ? "Bình thường" : "Thừa cân";
+  const bmiCategory = classifyAsianBMI(preview.bmi);
+  const bmiLabel = asianBmiLabel(bmiCategory);
+  const bmiMessage = bmiPreviewMessage(bmiCategory);
   const stats = [
     { label:"BMI", value:fmt(preview.bmi), sub: bmiLabel, color:"text-[#10B981]" },
     { label:"Mục tiêu", value:`${fmt(preview.targetCalories)} kcal`, sub:"mỗi ngày", color:"text-[#FB923C]" },
@@ -284,22 +375,27 @@ function StepSummary({ data, onFinish, onContinue, isSaving, finishError, profil
           </div>
         ))}
       </div>
-      <div className="mt-8 flex flex-col gap-3">
+      <div className="mt-4 rounded-2xl border border-[#D1FAE5] bg-[#ECFDF5] px-4 py-3 text-sm font-bold leading-6 text-[#065F46]">
+        {bmiMessage}
+      </div>
+      <div className="mt-8">
         {finishError && (
-          <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold leading-6 text-red-600">
+          <div className="mb-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold leading-6 text-red-600">
             {finishError}
           </div>
         )}
-        <button onClick={onFinish} disabled={isSaving}
-          className="h-14 w-full rounded-2xl bg-[#10B981] text-base font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60">
-          {isSaving ? "Đang cập nhật..." : profileComplete ? "Cập nhật và tạo thực đơn" : "Hoàn tất hồ sơ và tạo thực đơn"}
-        </button>
-        {profileComplete && (
-          <button onClick={onContinue} disabled={isSaving}
-            className="h-14 w-full rounded-2xl border-2 border-[#E2E8F0] bg-white text-base font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] disabled:opacity-60">
-            Tiếp tục vào Dashboard
+        <div className="flex items-center justify-between gap-4">
+          {((isExistingUser && step > 0) || (!isExistingUser && step > 1)) && (
+            <button onClick={onBack}
+              className="flex h-12 items-center gap-2 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] flex-none">
+              ← Quay lại
+            </button>
+          )}
+          <button onClick={onFinish} disabled={isSaving}
+            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60">
+            {isSaving ? "Đang cập nhật..." : isExistingUser ? "Cập nhật và tạo thực đơn" : "Hoàn tất và tạo thực đơn"}
           </button>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -315,20 +411,53 @@ function validateStep(stepName, data) {
     if (!safeNum(data.age)) errs.age="Vui lòng nhập tuổi hợp lệ";
   }
   if (stepName==="activity" && !data.activity) errs._step="Vui lòng chọn mức độ hoạt động";
+  if (stepName === "goal") {
+    const target = safeNum(data.target_weight || data.target_weight_kg);
+    const weight = safeNum(data.weight || data.weight_kg);
+    const height = safeNum(data.height || data.height_cm);
+    if (!target) {
+      errs.target_weight = "Vui lòng nhập cân nặng mục tiêu hợp lệ";
+    } else if (target <= weight) {
+      errs.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
+    } else if (height > 0) {
+      const targetBmi = target / ((height / 100) ** 2);
+      if (targetBmi >= 23.0) {
+        const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
+        const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
+        errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+      }
+    }
+  }
   return errs;
 }
 
 function validateProfile(data) {
   const errs = {};
   if (!data.sex) errs.sex = "Vui lòng chọn giới tính";
-  if (!safeNum(data.weight || data.weight_kg)) errs.weight = "Vui lòng nhập cân nặng hợp lệ";
-  if (!safeNum(data.height || data.height_cm)) errs.height = "Vui lòng nhập chiều cao hợp lệ";
+  const weight = safeNum(data.weight || data.weight_kg);
+  const height = safeNum(data.height || data.height_cm);
+  if (!weight) errs.weight = "Vui lòng nhập cân nặng hợp lệ";
+  if (!height) errs.height = "Vui lòng nhập chiều cao hợp lệ";
   if (!safeNum(data.age)) errs.age = "Vui lòng nhập tuổi hợp lệ";
   if (!data.activity && !data.activity_level) errs.activity = "Vui lòng chọn mức độ vận động";
   if (!data.gain_speed && !data.weight_gain_speed) errs.gain_speed = "Vui lòng chọn tốc độ tăng cân";
   if (!data.diet_style && !data.diet_type) errs.diet_style = "Vui lòng chọn chế độ ăn";
   if (!data.budget_level) errs.budget_level = "Vui lòng chọn ngân sách";
   if (!data.meal_complexity && !data.items_per_meal) errs.meal_complexity = "Vui lòng chọn số món mỗi bữa";
+
+  const target = safeNum(data.target_weight || data.target_weight_kg);
+  if (!target) {
+    errs.target_weight = "Vui lòng nhập cân nặng mục tiêu hợp lệ";
+  } else if (weight && target <= weight) {
+    errs.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
+  } else if (height > 0) {
+    const targetBmi = target / ((height / 100) ** 2);
+    if (targetBmi >= 23.0) {
+      const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
+      const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
+      errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+    }
+  }
   return errs;
 }
 
@@ -346,7 +475,7 @@ function isProfileDataComplete(data) {
   );
 }
 
-export default function OnboardingView({ userEmail, onComplete, initialData, user, onLogout }) {
+export default function OnboardingView({ userEmail, onComplete, initialData, user, onLogout, profileFormMode = "register_onboarding" }) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState(() => ({ ...INIT, ...(initialData || {}) }));
   const [errors, setErrors] = useState({});
@@ -375,21 +504,33 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       meal_complexity: profile.items_per_meal === 3 ? "simple" : profile.items_per_meal === 5 ? "full" : prev.meal_complexity,
       diet_style: profile.diet_type ?? prev.diet_style,
       budget_level: profile.budget_level ?? prev.budget_level,
-      favorite_foods: formatFoodListInput(profile.favorite_foods ?? prev.favorite_foods),
-      unfavorite_foods: formatFoodListInput(profile.disliked_foods ?? prev.unfavorite_foods),
-      disliked_foods: parseFoodList(profile.disliked_foods ?? prev.disliked_foods),
+      favorite_foods: profile.favorite_foods !== undefined && profile.favorite_foods !== null ? foodListToInput(profile.favorite_foods) : prev.favorite_foods,
+      unfavorite_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? foodListToInput(profile.disliked_foods) : prev.unfavorite_foods,
+      disliked_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? parseFoodList(profile.disliked_foods) : prev.disliked_foods,
     }));
   }, [user]);
 
-  // Check if we're editing an existing profile (not showing welcome step)
-  const isEditing = Boolean(user?.profile);
-  const stepsToShow = isEditing ? STEPS.filter(s => s !== "welcome") : STEPS;
-  const stepName = stepsToShow[step];
+  const isLoggedIn = Boolean(user);
+  const hasExistingProfile = Boolean(
+    user?.profile || 
+    user?.onboarding_completed || 
+    (user?.weight_kg || user?.height_cm || user?.age)
+  );
+  const isExistingUser = isLoggedIn && hasExistingProfile;
+
+  const isOnboardingMode = !isExistingUser;
+  const isEditProfileMode = isExistingUser;
+  const isEditingExistingProfile = isEditProfileMode;
+  const stepsToShow = isEditProfileMode ? STEPS.filter(s => s !== "welcome") : STEPS;
+  const stepName = stepsToShow[step] || "";
+  const isLastStep = stepName === "summary";
   const isSummary = stepName === "summary";
   const profileComplete = isProfileDataComplete(data);
   const totalVisible = stepsToShow.length;
   const progressStep = Math.max(0, step);
   const progressPct = totalVisible > 1 ? Math.round((progressStep / (totalVisible - 1)) * 100) : 0;
+  const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
+  const canGenerateMealPlan = classifyAsianBMI(currentBmi) === "underweight";
 
   const stepTitles = {
     welcome: "Chào mừng đến NutriGain",
@@ -399,7 +540,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     goal: "Mục tiêu tăng cân của bạn",
     diet: "Phong cách ăn uống",
     foods: "Sở thích và loại trừ",
-    summary: isEditing ? "Xác nhận cập nhật hồ sơ" : "Hồ sơ của bạn đã sẵn sàng 🎉",
+    summary: isEditProfileMode ? "Xác nhận cập nhật hồ sơ" : "Hồ sơ của bạn đã sẵn sàng 🎉",
   };
 
   function update(field, value) {
@@ -412,6 +553,14 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   function goNext() {
     const errs = validateStep(stepName, data);
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+    
+    if (stepName === "body") {
+      const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
+      if (Number.isFinite(currentBmi) && currentBmi >= 18.5) {
+        return;
+      }
+    }
+
     setErrors({});
     setStep(s=>Math.min(s+1, stepsToShow.length-1));
     window.scrollTo({top:0,behavior:"smooth"});
@@ -424,6 +573,13 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   }
 
   async function handleFinish() {
+    const stepErrors = validateStep(stepName, data);
+    if (Object.keys(stepErrors).length > 0) {
+      setErrors(stepErrors);
+      setFinishError("Vui lòng hoàn thành thông tin của bước hiện tại.");
+      return;
+    }
+
     const validationErrors = validateProfile(data);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -438,15 +594,39 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     try {
       // Convert form data to backend profile format
       const backendProfile = mapFormStateToBackendProfile(data);
+      console.log("[PROFILE SUBMIT] payload =", backendProfile);
       
       // Update user profile via API
-      await updateUserProfile(backendProfile);
+      const result = await updateUserProfile(backendProfile);
+      console.log("[PROFILE PUT RESULT] =", result);
       const updatedUser = await fetchCurrentUser();
+      console.log("[PROFILE REFRESH /users/me] =", updatedUser);
+      console.log("[PROFILE STATE AFTER SAVE]", {
+        weight_kg: updatedUser?.profile?.weight_kg,
+        target_weight_kg: updatedUser?.profile?.target_weight_kg,
+        favorite_foods: updatedUser?.profile?.favorite_foods,
+        disliked_foods: updatedUser?.profile?.disliked_foods,
+      });
+
+      const outOfScopeResult = buildAsianBmiOutOfScopeResult(data);
+      if (outOfScopeResult) {
+        if (onComplete) {
+          onComplete({
+            ...data,
+            _mealPlanResult: outOfScopeResult,
+            _updatedUser: updatedUser
+          }, false);
+        }
+        setIsSaving(false);
+        return;
+      }
 
       // Regenerate meal plan (may fail) — handle regeneration errors separately
       let mealPlanResult = null;
       try {
-        mealPlanResult = await postRegenerateMealPlan(buildRegeneratePayload(data));
+        mealPlanResult = ensureValidMealPlanResult(
+          await postRegenerateMealPlan(buildRegeneratePayload(data))
+        );
       } catch (err) {
         console.error("Regenerate failed after profile save:", err);
         const msg = err?.message || String(err) || "Không thể tạo thực đơn";
@@ -472,11 +652,19 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   }
 
   async function retryRegenerate() {
+    const outOfScopeResult = buildAsianBmiOutOfScopeResult(data);
+    if (outOfScopeResult) {
+      const updatedUser = await fetchCurrentUser();
+      onComplete?.({ ...data, _mealPlanResult: outOfScopeResult, _updatedUser: updatedUser }, false);
+      return;
+    }
     setIsSaving(true);
     setFinishError("");
     setRegenerateFailed(false);
     try {
-      const mealPlanResult = await postRegenerateMealPlan(buildRegeneratePayload(data));
+      const mealPlanResult = ensureValidMealPlanResult(
+        await postRegenerateMealPlan(buildRegeneratePayload(data))
+      );
       const updatedUser = await fetchCurrentUser();
       if (onComplete) {
         onComplete({ ...data, _mealPlanResult: mealPlanResult, _updatedUser: updatedUser }, false);
@@ -506,6 +694,16 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     }
   }
 
+  console.log({
+    user,
+    profile: user?.profile,
+    isLoggedIn,
+    hasExistingProfile,
+    isExistingUser,
+    isLastStep,
+    currentStep: step
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#ECFDF5] via-[#F8FAFC] to-[#FFF7ED] px-4 py-8 sm:px-6">
       {/* Top bar */}
@@ -513,7 +711,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
         <NutriGainLogo size="sm" />
         <div className="flex items-center gap-4">
           {userEmail && <span className="text-sm text-[#64748B]">{userEmail}</span>}
-          {isEditing && onLogout && (
+          {onLogout && (
             <button onClick={onLogout} className="text-sm font-semibold text-[#64748B] hover:text-[#10B981] transition">
               Đăng xuất
             </button>
@@ -552,24 +750,37 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
         {/* Step content */}
         {stepName==="welcome" && <StepWelcome onNext={goNext} />}
         {stepName==="gender" && <StepGender data={data} update={update} />}
-        {stepName==="body" && <StepBody data={data} update={update} errors={errors} onChange={handleChange} />}
+        {stepName==="body" && <StepBody data={data} update={update} errors={errors} onLogout={onLogout} />}
         {stepName==="activity" && <StepActivity data={data} update={update} />}
         {stepName==="goal" && <StepGoal data={data} update={update} errors={errors} onChange={handleChange} />}
         {stepName==="diet" && <StepDiet data={data} update={update} />}
         {stepName==="foods" && <StepFoods data={data} update={update} onChange={handleChange} />}
         {stepName==="summary" && (
           <StepSummary data={data} isSaving={isSaving} finishError={finishError}
-            onFinish={handleFinish} onContinue={gotoDashboard} profileComplete={profileComplete} />
+            onFinish={handleFinish} onBack={goBack} step={step} isExistingUser={isExistingUser} />
         )}
-        {profileComplete && !isSummary && !regenerateFailed && (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <button onClick={handleFinish} disabled={isSaving}
-              className="h-12 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/20 transition hover:bg-[#047857] disabled:opacity-60">
-              {isSaving ? "Đang cập nhật..." : "Cập nhật và tạo thực đơn"}
-            </button>
-            <button onClick={gotoDashboard} disabled={isSaving}
-              className="h-12 rounded-2xl border-2 border-[#E2E8F0] bg-white px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] disabled:opacity-60">
-              Tiếp tục vào Dashboard
+        {stepName !== "welcome" && !isSummary && !(stepName === "body" && currentBmi >= 18.5) && (
+          <div className="mt-8 flex items-center justify-between gap-4">
+            {/* 1. Back Button */}
+            {((isOnboardingMode && step > 1) || (isEditProfileMode && step > 0)) && (
+              <button onClick={goBack}
+                className="flex h-12 items-center gap-2 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] flex-none">
+                ← Quay lại
+              </button>
+            )}
+
+            {/* 2. Middle "Cập nhật & tạo thực đơn" if existing user */}
+            {isExistingUser && (
+              <button onClick={handleFinish} disabled={isSaving}
+                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-[#10B981] text-[#10B981] bg-emerald-50/30 hover:bg-emerald-50 text-sm font-bold transition disabled:opacity-60">
+                {isSaving ? "Đang lưu..." : "Cập nhật & tạo thực đơn"}
+              </button>
+            )}
+
+            {/* 3. Primary Next Button */}
+            <button onClick={goNext}
+              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition hover:bg-[#047857]">
+              Tiếp tục →
             </button>
           </div>
         )}
@@ -582,20 +793,6 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
             <button onClick={gotoDashboard} disabled={isSaving}
               className="h-12 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] disabled:opacity-60">
               Vào Dashboard
-            </button>
-          </div>
-        )}
-
-        {/* Navigation buttons (not on welcome / summary) */}
-        {stepName !== "welcome" && !isSummary && (
-          <div className="mt-8 flex items-center justify-between gap-4">
-            <button onClick={goBack}
-              className="flex h-12 items-center gap-2 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981]">
-              ← Quay lại
-            </button>
-            <button onClick={goNext}
-              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/20 transition hover:bg-[#047857]">
-              Tiếp tục →
             </button>
           </div>
         )}

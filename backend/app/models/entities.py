@@ -30,6 +30,10 @@ class User(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    weight_logs: Mapped[list["WeightLog"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     recommendations: Mapped[list["RecommendationRequest"]] = relationship(back_populates="user")
 
 
@@ -61,6 +65,23 @@ class UserProfileEntity(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="profile")
+
+
+class WeightLog(Base):
+    __tablename__ = "weight_logs"
+    __table_args__ = (UniqueConstraint("user_id", "log_date", name="unique_user_weight_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    weight_kg: Mapped[float] = mapped_column(Float, nullable=False)
+    log_date: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_chart_milestone: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="weight_logs")
 
 
 class FoodCategory(Base):

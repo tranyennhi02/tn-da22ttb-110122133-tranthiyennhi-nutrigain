@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, Component } from "react";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -31,17 +32,25 @@ class ErrorBoundary extends Component {
 }
 
 import { loadTodayMealPlan, regenerateMealPlan, saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
-import { fetchCurrentUser } from "../services/apiService";
+import { fetchCurrentUser, fetchWeightLogSummary, fetchWeightLogs, saveWeightLog } from "../services/apiService";
 import { mapUserProfileToFormState } from "../App";
+import { normalizeProfilePayload, foodListToInput } from "../utils/profileFormUtils.js";
 import AccountPanel from "../components/AccountPanel";
-import CaloriesChart from "../components/CaloriesChart";
-import EnergyChart from "../components/EnergyChart";
 import Header from "../components/Header";
-import MacroChart from "../components/MacroChart";
 import NutriGainLogo from "../components/NutriGainLogo";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
 import { defaultFormState } from "../models/recommendationModel";
+import {
+  BMI_SEVERE_UNDERWEIGHT_WARNING,
+  asianBmiLabel,
+  bmiMessageForCategory,
+  bmiPreviewMessage,
+  buildAsianBmiOutOfScopeResult,
+  calculateAsianBmi,
+  classifyAsianBMI,
+  isOutOfScopeBmiReason,
+} from "../utils/bmi";
 import { calculateNutritionTarget } from "../utils/nutritionTarget";
 import { validateMealPlan } from "../utils/mealPlanValidation";
 
@@ -61,7 +70,7 @@ const fallbackSummary = {
 const pageTitles = {
   overview: "Tổng quan dinh dưỡng",
   journal: "Nhật ký ăn uống",
-  charts: "Biểu đồ dinh dưỡng",
+  charts: "Theo dõi tăng cân",
   "meal-plan": "Kế hoạch bữa ăn",
   account: "Tài khoản",
   system: "Cài đặt hệ thống",
@@ -97,7 +106,7 @@ export default function DashboardViewWrapper(props) {
   );
 }
 
-function DashboardView({ userEmail, onLogout, initialFormState, initialResult, initialSection, onRequireProfile, onEditProfile }) {
+function DashboardView({ userEmail, onLogout, initialFormState, initialResult, initialSection, onRequireProfile, onEditProfile, onProfileUpdate }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState(initialSection || "overview");
 
@@ -109,8 +118,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const [formState, setFormState] = useState(() => ({
     ...defaultFormState,
     ...(initialFormState || {}),
-    disliked_foods: (initialFormState?.disliked_foods?.length ? initialFormState.disliked_foods : loadStoredList(dislikedFoodsStorageKey)),
-    disliked_food_groups: (initialFormState?.disliked_food_groups?.length ? initialFormState.disliked_food_groups : loadStoredList(dislikedFoodGroupsStorageKey)),
+    disliked_foods: initialFormState?.disliked_foods || [],
+    disliked_food_groups: initialFormState?.disliked_food_groups || [],
   }));
   const [result, setResult] = useState(() => initialResult || null);
   const [formErrors, setFormErrors] = useState({});
@@ -129,7 +138,20 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     setActiveSection(initialSection || "meal-plan");
   }, [initialResult, initialSection]);
 
-  const hasRecommendation = Boolean(result);
+  useEffect(() => {
+    setFormState({
+      ...defaultFormState,
+      ...(initialFormState || {}),
+      disliked_foods: initialFormState?.disliked_foods || [],
+      disliked_food_groups: initialFormState?.disliked_food_groups || [],
+    });
+  }, [initialFormState]);
+
+  const profileOutOfScopeResult = useMemo(() => buildAsianBmiOutOfScopeResult(formState), [formState]);
+  const profileOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(profileOutOfScopeResult), [profileOutOfScopeResult]);
+  const resultOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(result), [result]);
+  const outOfScopeNotice = profileOutOfScopeNotice || resultOutOfScopeNotice;
+  const hasRecommendation = Boolean(result) && !outOfScopeNotice;
   const meals = useMemo(() => buildMeals(result?.meal_plan, formState.diet_style, formState), [result, formState]);
   const consumedNutrition = useMemo(() => calculateConsumedNutrition(meals, mealLog), [meals, mealLog]);
   const summary = useMemo(() => buildSummary(result, consumedNutrition), [result, consumedNutrition]);
@@ -141,7 +163,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     [result, nutritionTarget],
   );
   useEffect(() => {
-    if (didLoadToday || initialResult || result) return;
+    if (didLoadToday || initialResult || result || profileOutOfScopeResult) return;
     let cancelled = false;
     async function hydrateTodayPlan() {
       setDidLoadToday(true);
@@ -158,7 +180,12 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     return () => {
       cancelled = true;
     };
-  }, [didLoadToday, initialResult, nutritionTarget, result]);
+  }, [didLoadToday, initialResult, nutritionTarget, profileOutOfScopeResult, result]);
+  useEffect(() => {
+    if (resultOutOfScopeNotice && !profileOutOfScopeNotice) {
+      setResult(null);
+    }
+  }, [profileOutOfScopeNotice, resultOutOfScopeNotice]);
   const mealPlanValidation = useMemo(
     () => {
       if (result?.validation) {
@@ -245,6 +272,13 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       return;
     }
 
+    const outOfScopeResult = buildOutOfScopeResultFromProfile(formState);
+    if (outOfScopeResult) {
+      setResult(outOfScopeResult);
+      setActiveSection("meal-plan");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const data = await submitRecommendation(formState);
@@ -272,6 +306,13 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       return;
     }
 
+    const outOfScopeResult = buildOutOfScopeResultFromProfile(formState);
+    if (outOfScopeResult) {
+      setResult(outOfScopeResult);
+      setActiveSection("meal-plan");
+      return;
+    }
+
     const previousMealPlanId = result?.meal_plan?.id || result?.meal_plan?.meal_plan_id || null;
     setIsSubmitting(true);
     // Lưu lại trạng thái cũ
@@ -292,6 +333,9 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       // 3. Reload thông tin user mới nhất
       try {
         const currentUser = await fetchCurrentUser();
+        if (currentUser && typeof onProfileUpdate === "function") {
+          onProfileUpdate(currentUser);
+        }
         const profile = currentUser?.profile;
         if (profile) {
           setFormState((current) => ({
@@ -332,6 +376,24 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     }
     // Fallback: open account section
     setActiveSection("account");
+  }
+
+  async function refreshProfileFromBackend() {
+    try {
+      const currentUser = await fetchCurrentUser();
+      if (currentUser && typeof onProfileUpdate === "function") {
+        onProfileUpdate(currentUser);
+      }
+      const profile = currentUser?.profile;
+      if (profile) {
+        setFormState((current) => ({
+          ...current,
+          ...mapUserProfileToFormState(profile),
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to reload profile after weight update:", error);
+    }
   }
 
   function handleSidebarNavigate(sectionId) {
@@ -386,7 +448,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     return { status: "added" };
   }
 
-  function handleDislikeFood(food, dislikeType = "food") {
+  async function handleDislikeFood(food, dislikeType = "food") {
     const foodKey = String(food?.foodId || food?.id || food?.name || "").trim();
     const groupKey = String(food?.technicalCategory || food?.subCategory || food?.foodGroup || food?.category || "").trim();
     const nextDislikedFoods = dislikeType === "group" ? formState.disliked_foods : uniqueValues([...(formState.disliked_foods || []), foodKey || food?.name]);
@@ -396,8 +458,18 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       ...current,
       disliked_foods: nextDislikedFoods.filter(Boolean),
       disliked_food_groups: nextDislikedGroups.filter(Boolean),
+      unfavorite_foods: nextDislikedFoods.filter(Boolean).join(", "),
     }));
-    persistDislikedProfile(nextDislikedFoods, nextDislikedGroups);
+
+    try {
+      const updatedUser = await persistDislikedProfile(nextDislikedFoods, nextDislikedGroups);
+      if (typeof onProfileUpdate === "function" && updatedUser) {
+        onProfileUpdate(updatedUser);
+      }
+    } catch (err) {
+      // ignore network/save errors for UX
+    }
+
     setResult((current) => removeDislikedFromResult(current, food, dislikeType));
     setDislikeRequest(null);
   }
@@ -451,7 +523,13 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           onExport={handleExportReport}
         />
 
-        {!hasRecommendation && ["overview", "meal-plan", "charts", "journal"].includes(activeSection) ? (
+        {outOfScopeNotice ? (
+          <NoMealPlanState
+            isSubmitting={isSubmitting}
+            submitError={submitError}
+            onLogout={onLogout}
+          />
+        ) : !hasRecommendation && ["overview", "meal-plan", "journal"].includes(activeSection) ? (
           <NoMealPlanState
             isSubmitting={isSubmitting}
             submitError={submitError}
@@ -486,6 +564,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
             onRegenerate={requestRegenerateRecommendation}
             onOpenAddToMeal={(food) => setAddToMealRequest({ food, mealKey: null })}
             onOpenDislikeFood={(food) => setDislikeRequest(food)}
+            onProfileRefresh={refreshProfileFromBackend}
+            onEditProfile={handleEditProfile}
             isSubmitting={isSubmitting}
             handleSidebarNavigate={handleSidebarNavigate}
           />
@@ -507,7 +587,40 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   );
 }
 
-function NoMealPlanState({ isSubmitting, submitError, onGenerate }) {
+function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
+  if (typeof onLogout === "function") {
+    return (
+      <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
+        <section className="w-full max-w-2xl rounded-[2rem] border border-brand-border bg-white/95 px-6 py-8 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-primary/10 text-base font-black text-brand-primary">
+            NG
+          </div>
+          <h2 className="mt-5 text-center text-2xl font-black text-brand-text-main sm:text-[2rem]">
+            NutriGain chưa phù hợp với tình trạng hiện tại của bạn
+          </h2>
+          <div className="mt-4 space-y-4 text-left text-sm leading-7 text-brand-text-sub sm:text-base">
+            <p>
+              Dựa trên thông tin chiều cao và cân nặng bạn cung cấp, mục tiêu tăng cân hiện chưa phải là lựa chọn phù hợp với tình trạng cơ thể của bạn.
+            </p>
+            <p>
+              NutriGain được thiết kế để hỗ trợ xây dựng thực đơn tăng cân lành mạnh cho người thiếu cân có BMI dưới 18.5. Vì vậy, hệ thống tạm thời chưa thể tiếp tục tạo thực đơn tăng cân cho hồ sơ hiện tại của bạn.
+            </p>
+            <p>
+              Cảm ơn bạn đã quan tâm đến NutriGain. Bạn có thể đăng xuất khỏi hệ thống để đảm bảo quá trình sử dụng phù hợp với mục tiêu sức khỏe của mình.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="mt-7 h-12 rounded-2xl bg-brand-primary px-7 text-sm font900 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark"
+          >
+            Đăng xuất
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
       <div className="w-full max-w-lg text-center">
@@ -548,6 +661,14 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
   const previewTarget = useMemo(() => calculateNutritionTarget(formState), [formState]);
   const macroTotal = previewTarget.proteinTarget + previewTarget.fatTarget + previewTarget.carbTarget;
   const bmiStatus = bmiStatusLabel(previewTarget.bmi);
+  const bmiCategory = classifyAsianBMI(previewTarget.bmi);
+  const bmiPreview = bmiPreviewMessage(bmiCategory);
+
+  console.log("[PROFILE FORM RENDER]", {
+    weight_kg: formState.weight_kg ?? formState.weight,
+    favorite_foods: formState.favorite_foods,
+    disliked_foods: formState.disliked_foods,
+  });
 
   return (
     <main className="px-4 pb-10 pt-6 sm:px-6 xl:px-8">
@@ -719,7 +840,7 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
                 <TagInput
                   label="Danh sách món yêu thích"
                   name="favorite_foods"
-                  placeholder="Ví dụ: ức gà, yến mạch, chuối"
+                  placeholder="Ví dụ: yến mạch, chuối, sữa chua"
                   helperText="Nhấn Enter để thêm tag, dùng dấu phẩy để ngăn cách."
                   value={formState.favorite_foods}
                   error={errors.favorite_foods}
@@ -798,7 +919,7 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
                     <span className="text-3xl font-black text-brand-text-main">{previewTarget.bmi}</span>
                     <span className="pb-1 text-xs font900 text-brand-primary">{bmiStatus}</span>
                   </div>
-                  <p className="mt-2 text-xs font800 text-brand-primary">Theo cân nặng & chiều cao</p>
+                  <p className="mt-2 text-xs font800 leading-5 text-brand-primary">{bmiPreview}</p>
                 </div>
                 <div className="rounded-2xl bg-brand-cream p-4">
                   <p className="text-xs font900 uppercase tracking-[0.12em] text-brand-orange">Kcal mục tiêu</p>
@@ -882,6 +1003,8 @@ function DashboardContent({
   onRegenerate,
   onOpenAddToMeal,
   onOpenDislikeFood,
+  onProfileRefresh,
+  onEditProfile,
   isSubmitting,
   handleSidebarNavigate,
 }) {
@@ -939,6 +1062,9 @@ function DashboardContent({
           summary={summary}
           meals={meals}
           validation={validation}
+          profileSettings={profileSettings}
+          onProfileRefresh={onProfileRefresh}
+          onEditProfile={onEditProfile}
         />
       ) : null}
 
@@ -1157,6 +1283,7 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
   const entries = mealLog?.entries || {};
   const manualItems = mealLog?.manualItems || [];
   const [showMacro, setShowMacro] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualDraft, setManualDraft] = useState({
     mealTitle: meals[0]?.title || "",
     name: "",
@@ -1179,6 +1306,27 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
           ...patch,
         },
       },
+    }));
+  }
+
+  function confirmMeal(meal) {
+    const patch = {};
+    const allEaten = meal.items.every(item => entries[`${meal.title}-${item.id}`]?.status === "eaten");
+    
+    meal.items.forEach(item => {
+      const entryKey = `${meal.title}-${item.id}`;
+      patch[entryKey] = {
+        ...(entries[entryKey] || {}),
+        status: allEaten ? "suggested" : "eaten"
+      };
+    });
+    
+    onMealLogChange(current => ({
+      ...current,
+      entries: {
+        ...(current.entries || {}),
+        ...patch
+      }
     }));
   }
 
@@ -1219,23 +1367,31 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
         </div>
 
         {/* 3 compact KPIs */}
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-            <div className="flex items-center justify-between text-sm font-bold">
-              <span className="text-[#64748B]">Kcal</span>
-              <span className="text-[#0F172A]">{round(actualTotals.calories).toLocaleString("vi-VN")} / {nutritionTarget.targetCalories.toLocaleString("vi-VN")}</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E2E8F0]">
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Kcal đã ăn</p>
+            <p className="mt-2 text-3xl font-black text-slate-900">
+              {round(actualTotals.calories).toLocaleString("vi-VN")}{" "}
+              <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.targetCalories.toLocaleString("vi-VN")} kcal</span>
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E2E8F0]">
               <div className={`h-full rounded-full transition-all duration-500 ${kcalPct >= 90 ? "bg-[#10B981]" : "bg-[#FB923C]"}`} style={{ width: `${kcalPct}%` }} />
             </div>
           </div>
-          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Protein đã ăn</p>
-            <p className="mt-2 text-lg font-black text-[#0F172A]">{round(actualTotals.protein)}g <span className="text-sm font-bold text-[#64748B]">/ {nutritionTarget.proteinTarget}g</span></p>
+          
+          <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Protein đã ăn</p>
+            <p className="mt-2 text-3xl font-black text-slate-900">
+              {round(actualTotals.protein)}g{" "}
+              <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.proteinTarget}g</span>
+            </p>
           </div>
-          <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Hoàn thành</p>
-            <p className={`mt-2 text-lg font-black ${kcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>{kcalPct}%</p>
+          
+          <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Mức độ hoàn thành</p>
+            <p className={`mt-2 text-3xl font-black ${kcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
+              {kcalPct}%
+            </p>
           </div>
         </div>
 
@@ -1255,120 +1411,235 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
           </div>
         ) : null}
 
-        <form className="mt-5 rounded-2xl bg-white/80 p-4 ring-1 ring-slate-100" onSubmit={addManualItem}>
-          <div className="grid gap-3 md:grid-cols-[1fr_1.4fr_repeat(4,minmax(86px,0.7fr))_auto]">
-            <select
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font800 outline-none focus:border-emerald-500"
-              value={manualDraft.mealTitle || meals[0]?.title || ""}
-              onChange={(event) => setManualDraft((current) => ({ ...current, mealTitle: event.target.value }))}
-              aria-label="Chọn bữa"
-            >
-              {meals.map((meal) => (
-                <option key={meal.title} value={meal.title}>{meal.title}</option>
-              ))}
-            </select>
-            <input
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font800 outline-none focus:border-emerald-500"
-              placeholder="Thêm món thủ công"
-              value={manualDraft.name}
-              onChange={(event) => setManualDraft((current) => ({ ...current, name: event.target.value }))}
-            />
-            {["calories", "protein", "fat", "carbs"].map((field) => (
-              <input
-                key={field}
-                type="number"
-                min="0"
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font800 outline-none focus:border-emerald-500"
-                placeholder={field === "calories" ? "kcal" : field}
-                value={manualDraft[field]}
-                onChange={(event) => setManualDraft((current) => ({ ...current, [field]: event.target.value }))}
-              />
-            ))}
-            <button type="submit" className="h-11 rounded-2xl bg-emerald-600 px-4 text-sm font900 text-white">
-              Thêm
-            </button>
-          </div>
-        </form>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setIsManualModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-4 py-2 text-xs font-bold text-[#64748B] hover:border-emerald-500 hover:text-emerald-600 transition"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14" /></svg>
+            + Thêm món khác
+          </button>
+        </div>
 
-        <div className="mt-5 grid gap-3">
-          {mealRows.map((meal) => (
-            <article key={meal.title} className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h3 className="text-lg font-black text-slate-950">{meal.title}</h3>
-                  <p className="mt-1 text-sm font800 text-slate-500">
-                    {meal.items.length} món · gợi ý {meal.suggested.calories} kcal · đã ăn {meal.actual.calories} kcal
-                  </p>
-                  <MealStatusPill status={meal.status} />
-                </div>
-                <div className="text-sm font-bold text-slate-500 bg-slate-50 rounded-xl px-4 py-2 self-start mt-2 lg:mt-0">
-                  <span className="text-sky-700">P {Math.round(meal.actual.protein)}/{Math.round(meal.suggested.protein)}g</span>
-                  <span className="mx-2 text-slate-300">·</span>
-                  <span className="text-orange-700">F {Math.round(meal.actual.fat)}/{Math.round(meal.suggested.fat)}g</span>
-                  <span className="mx-2 text-slate-300">·</span>
-                  <span className="text-emerald-700">C {Math.round(meal.actual.carbs)}/{Math.round(meal.suggested.carbs)}g</span>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3">
-                {meal.items.map((item) => {
-                  const entryKey = `${meal.title}-${item.id}`;
-                  const entry = entries[entryKey] || {};
-                  const baseGrams = Number(item.servingGrams || 100) || 100;
-                  const entryStatus = entry.status || "suggested";
-                  return (
-                    <div key={entryKey} className="grid gap-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 lg:grid-cols-[minmax(0,1fr)_150px_120px_110px] lg:items-center">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className={`mt-1 h-3 w-3 rounded-full ${entryStatus === "suggested" ? "bg-slate-300" : entryStatus === "skipped" ? "bg-orange-300" : "bg-emerald-500"}`} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font900 text-slate-950">{item.name}</span>
-                          <span className="mt-1 block text-xs font800 text-slate-500">
-                            Gợi ý {item.calories} kcal · {item.servingDisplay || `${baseGrams}g`}
-                          </span>
-                        </span>
-                      </div>
-                      <select
-                        className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm font800 outline-none focus:border-emerald-500"
-                        value={entryStatus}
-                        onChange={(event) => updateEntry(entryKey, { status: event.target.value })}
-                        aria-label={`Trạng thái ${item.name}`}
-                      >
-                        <option value="suggested">Gợi ý</option>
-                        <option value="eaten">Đã ăn</option>
-                        <option value="partial">Ăn một phần</option>
-                        <option value="skipped">Bỏ qua</option>
-                      </select>
-                      <input
-                        type="number"
-                        min="1"
-                        className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm font800 outline-none focus:border-emerald-500"
-                        value={entry.grams ?? baseGrams}
-                        onChange={(event) => updateEntry(entryKey, { grams: event.target.value, status: entryStatus === "suggested" ? "partial" : entryStatus })}
-                        aria-label={`Khẩu phần gram ${item.name}`}
-                      />
-                      <span className="rounded-2xl bg-white px-3 py-2 text-center text-sm font900 text-slate-700 ring-1 ring-slate-100">
-                        {round(scaleItemByPortion(item, entry).calories)} kcal
+        <div className="mt-5 grid gap-4">
+          {mealRows.map((meal) => {
+            const isAllEaten = meal.items.every(item => entries[`${meal.title}-${item.id}`]?.status === "eaten");
+            const confirmedCount = meal.items.filter((item) => ["eaten", "partial"].includes(entries[`${meal.title}-${item.id}`]?.status)).length + meal.manualItems.length;
+            const hasConfirmedAny = confirmedCount > 0;
+            return (
+              <article
+                key={meal.title}
+                className={`rounded-2xl bg-white p-5 ring-1 ring-slate-100 transition shadow-sm ${
+                  isAllEaten ? "opacity-75 bg-slate-50/50" : ""
+                }`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-black text-slate-900">{meal.title}</h3>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                        isAllEaten
+                          ? "bg-emerald-100 text-emerald-800"
+                          : hasConfirmedAny
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {isAllEaten ? "Đã ăn" : hasConfirmedAny ? "Đang ăn" : "Chưa ăn"}
                       </span>
                     </div>
-                  );
-                })}
-                {meal.manualItems.map((item) => (
-                  <div key={item.id} className="rounded-2xl bg-emerald-50 p-3 text-sm font800 text-emerald-900 ring-1 ring-emerald-100">
-                    Đã thêm thủ công: <strong>{item.name}</strong> · {item.calories} kcal
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      {meal.items.length} món · {meal.suggested.calories} kcal
+                    </p>
                   </div>
-                ))}
-              </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => confirmMeal(meal)}
+                    className={`rounded-xl px-4 py-2 text-sm font-bold transition flex items-center gap-1.5 ${
+                      isAllEaten
+                        ? "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/10"
+                    }`}
+                  >
+                    {isAllEaten ? (
+                      <>
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        Bỏ xác nhận
+                      </>
+                    ) : (
+                      `Xác nhận ${meal.title.toLowerCase()}`
+                    )}
+                  </button>
+                </div>
 
-              <textarea
-                className="mt-4 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font800 text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
-                placeholder={`Ghi chú ${meal.title.toLowerCase()}`}
-                value={entries[`${meal.title}-note`]?.note || ""}
-                onChange={(event) => updateEntry(`${meal.title}-note`, { note: event.target.value })}
-              />
-            </article>
-          ))}
+                {/* Meal Items List */}
+                <div className="mt-4 grid gap-2.5">
+                  {meal.items.map((item) => {
+                    const entryKey = `${meal.title}-${item.id}`;
+                    const entry = entries[entryKey] || {};
+                    const entryStatus = entry.status || "suggested";
+                    const isEaten = entryStatus === "eaten";
+                    return (
+                      <label
+                        key={entryKey}
+                        className={`flex items-center gap-3 rounded-xl p-3 ring-1 ring-slate-100 cursor-pointer transition ${
+                          isEaten
+                            ? "bg-slate-50/50 text-slate-400"
+                            : "bg-slate-50 hover:bg-slate-100 text-slate-800"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isEaten}
+                          onChange={() => updateEntry(entryKey, { status: isEaten ? "suggested" : "eaten" })}
+                          className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className={`block truncate text-sm font-bold ${isEaten ? "line-through text-slate-400" : "text-slate-900"}`}>
+                            {item.name}
+                          </span>
+                          <span className="block text-xs font-semibold text-slate-500">
+                            {item.servingDisplay || "Theo kế hoạch"}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  
+                  {meal.manualItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-xl bg-emerald-50/50 p-3 ring-1 ring-emerald-100"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="text-sm font-bold text-emerald-900">{item.name}</span>
+                        <span className="text-xs text-emerald-600">(món khác)</span>
+                      </div>
+                      <span className="text-xs font-bold text-emerald-700">{item.calories} kcal</span>
+                    </div>
+                  ))}
+                </div>
+
+                <textarea
+                  className="mt-4 min-h-12 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                  placeholder={`Ghi chú cho ${meal.title.toLowerCase()}...`}
+                  value={entries[`${meal.title}-note`]?.note || ""}
+                  onChange={(event) => updateEntry(`${meal.title}-note`, { note: event.target.value })}
+                />
+              </article>
+            );
+          })}
         </div>
       </section>
+
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm animate-fade-in">
+          <form
+            className="w-full max-w-md rounded-[28px] border border-white/80 bg-white p-6 shadow-2xl shadow-slate-950/20"
+            onSubmit={(e) => {
+              addManualItem(e);
+              setIsManualModalOpen(false);
+            }}
+          >
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Nhật ký ăn uống</p>
+              <h3 className="mt-1 text-2xl font-black text-[#0F172A]">Thêm món thủ công</h3>
+            </div>
+            
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Chọn bữa ăn</label>
+                <select
+                  className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                  value={manualDraft.mealTitle || meals[0]?.title || ""}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, mealTitle: event.target.value }))}
+                >
+                  {meals.map((meal) => (
+                    <option key={meal.title} value={meal.title}>{meal.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên món ăn</label>
+                <input
+                  required
+                  className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                  placeholder="Ví dụ: Bún chả, Phở bò..."
+                  value={manualDraft.name}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, name: event.target.value }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Kcal (calo)</label>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                    placeholder="kcal"
+                    value={manualDraft.calories}
+                    onChange={(event) => setManualDraft((current) => ({ ...current, calories: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Protein (đạm)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                    placeholder="g"
+                    value={manualDraft.protein}
+                    onChange={(event) => setManualDraft((current) => ({ ...current, protein: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Fat (béo)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                    placeholder="g"
+                    value={manualDraft.fat}
+                    onChange={(event) => setManualDraft((current) => ({ ...current, fat: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Carbs (tinh bột)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-emerald-500"
+                    placeholder="g"
+                    value={manualDraft.carbs}
+                    onChange={(event) => setManualDraft((current) => ({ ...current, carbs: event.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="h-11 rounded-2xl bg-slate-100 px-5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition"
+                onClick={() => setIsManualModalOpen(false)}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="h-11 rounded-2xl bg-emerald-600 px-5 text-sm font-bold text-white hover:bg-emerald-700 transition"
+              >
+                Thêm món
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -1474,37 +1745,30 @@ function MealsPage({
 function MealPlanHeader({
   totalKcal,
   totalMeals,
-  totalItems,
-  totalProtein,
-  totalFat,
-  totalCarbs,
   onRegenerate,
   isSubmitting,
 }) {
   return (
-    <section className="rounded-[32px] border border-emerald-100 bg-[#F0FDF4] p-5 shadow-sm shadow-emerald-900/5 sm:p-6">
+    <section className="rounded-[32px] border border-emerald-100 bg-[#F0FDF4] p-6 shadow-sm shadow-emerald-900/5 sm:p-7">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-black text-[#0B2A4A] sm:text-3xl">Kế hoạch bữa ăn hôm nay</h2>
-          <p className="mt-2 text-sm font700 text-[#64748B]">
+          <h2 className="text-3xl font-black text-[#0B2A4A] sm:text-4xl">Kế hoạch bữa ăn hôm nay</h2>
+          <p className="mt-2 text-base font-semibold text-[#64748B]">
             Thực đơn được cá nhân hóa theo hồ sơ dinh dưỡng của bạn.
           </p>
-          <p className="mt-3 text-sm font800 text-[#64748B]">
-            Protein {round(totalProtein)}g · Fat {round(totalFat)}g · Carbs {round(totalCarbs)}g
-          </p>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="rounded-[24px] bg-white px-5 py-3 shadow-sm ring-1 ring-emerald-100">
-            <p className="text-3xl font-black leading-none text-[#0F172A]">{round(totalKcal).toLocaleString("vi-VN")}</p>
-            <p className="mt-1 text-sm font900 text-[#10B981]">kcal</p>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="rounded-[24px] bg-white px-6 py-4 shadow-sm ring-1 ring-emerald-100 text-center">
+            <p className="text-4xl font-black leading-none text-[#0F172A]">{round(totalKcal).toLocaleString("vi-VN")}</p>
+            <p className="mt-1.5 text-xs font-black uppercase tracking-wider text-[#10B981]">kcal / ngày</p>
           </div>
-          <div className="rounded-[24px] bg-white px-5 py-3 shadow-sm ring-1 ring-emerald-100">
-            <p className="text-lg font-black text-[#0F172A]">{totalMeals} bữa · {totalItems} món</p>
-            <p className="mt-1 text-sm font800 text-[#64748B]">Tóm tắt hôm nay</p>
+          <div className="rounded-[24px] bg-white px-6 py-4 shadow-sm ring-1 ring-emerald-100 text-center">
+            <p className="text-2xl font-black leading-none text-[#0F172A]">{totalMeals} bữa</p>
+            <p className="mt-1.5 text-xs font-black uppercase tracking-wider text-[#64748B]">quy mô</p>
           </div>
           <button
             type="button"
-            className="h-12 rounded-[20px] bg-[#10B981] px-5 text-sm font900 text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-14 rounded-[24px] bg-[#10B981] px-6 text-sm font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={onRegenerate}
             disabled={isSubmitting}
           >
@@ -1518,23 +1782,23 @@ function MealPlanHeader({
 
 function MealSection({ mealName, totalKcal, itemCount, status, items, totals, balance, accent }) {
   return (
-    <section className="rounded-[32px] border border-slate-100 bg-white p-4 shadow-sm shadow-slate-900/5 sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className={`mt-1 h-12 w-2 rounded-full ${accentClass(accent)}`} />
+    <section className="rounded-[32px] border border-slate-100 bg-white p-5 shadow-sm shadow-slate-900/5 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className={`h-10 w-2 rounded-full ${accentClass(accent)}`} />
           <div>
-            <h3 className="text-xl font-black text-[#0F172A]">{mealName}</h3>
-            <p className="mt-1 text-sm font800 text-[#64748B]">
-              {itemCount} món · {round(totalKcal).toLocaleString("vi-VN")} kcal
+            <h3 className="text-2xl font-black text-[#0F172A]">{mealName}</h3>
+            <p className="mt-1 text-sm font-semibold text-[#64748B]">
+              {itemCount} món
             </p>
           </div>
         </div>
-        <span className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font900 ${status.className}`}>
-          {status.label}
-        </span>
+        <div className="rounded-[20px] bg-amber-50 px-4 py-2 text-base font-black text-[#D97706]">
+          {round(totalKcal).toLocaleString("vi-VN")} kcal
+        </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {items.map((item) => (
           <MealFoodCard
             key={item.id}
@@ -1542,7 +1806,6 @@ function MealSection({ mealName, totalKcal, itemCount, status, items, totals, ba
             imageAlt={item.imageAlt || item.name}
             fallbackImage={item.fallbackImage || defaultFoodImage}
             name={item.name}
-            category={item.foodGroup || item.category}
             servingText={formatServingText(item)}
             kcal={item.calories}
           />
@@ -1554,12 +1817,12 @@ function MealSection({ mealName, totalKcal, itemCount, status, items, totals, ba
   );
 }
 
-function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, category, servingText, kcal }) {
-  const metaText = [category, servingText].filter(Boolean).join(" · ");
+function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, servingText, kcal }) {
+  const metaText = servingText || "1 phần";
 
   return (
-    <article className="flex min-h-28 gap-3 rounded-[28px] bg-slate-50 p-2 ring-1 ring-slate-100 transition hover:bg-white hover:shadow-md hover:shadow-slate-900/5 sm:block">
-      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[22px] bg-emerald-50 sm:h-auto sm:w-full sm:aspect-[4/3]">
+    <article className="flex min-h-[120px] gap-4 rounded-[28px] bg-slate-50 p-3 ring-1 ring-slate-100 transition hover:bg-white hover:shadow-lg hover:shadow-slate-900/5 sm:block sm:min-h-[290px] w-full">
+      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[22px] bg-emerald-50 sm:h-40 sm:w-full">
         <img
           src={imageUrl || defaultFoodImage}
           alt={imageAlt || name}
@@ -1572,9 +1835,34 @@ function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, category, servi
           }}
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center px-1 py-1 sm:px-2 sm:py-3">
-        <h4 className="line-clamp-2 text-base font-black leading-snug text-[#0F172A]">{name}</h4>
-        <p className="mt-1 line-clamp-1 text-sm font800 text-[#64748B]">{metaText || "Món ăn"}</p>
+      <div className="flex min-w-0 flex-1 flex-col justify-between px-1 py-1 sm:px-2 sm:py-3 sm:min-h-[110px]">
+        <div>
+          <h4 
+            className="text-base font-black leading-snug text-[#0F172A]"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              lineHeight: 1.35
+            }}
+          >
+            {name}
+          </h4>
+          <p 
+            className="mt-1 text-sm font-semibold text-[#64748B]"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              whiteSpace: "normal",
+              lineHeight: 1.35
+            }}
+          >
+            {metaText}
+          </p>
+        </div>
         <p className="mt-2 text-sm font-black text-[#FB923C]">{round(kcal).toLocaleString("vi-VN")} kcal</p>
       </div>
     </article>
@@ -1584,40 +1872,51 @@ function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, category, servi
 function NutritionDetailsCollapse({ totals, items, balance, status }) {
   const [open, setOpen] = useState(false);
   const groupSummary = buildMealGroupSummary(items);
-  const detailText = buildMealStatusDetail(status, balance);
+
+  const groupsList = groupSummary.map(g => {
+    let l = g.label.toLowerCase();
+    if (l.includes("ngũ cốc") || l.includes("tinh bột")) return "tinh bột";
+    if (l.includes("đạm") || l.includes("protein")) return "đạm";
+    if (l.includes("rau") || l.includes("trái cây") || l.includes("quả")) return "trái cây";
+    if (l.includes("sữa")) return "sữa";
+    if (l.includes("chất béo") || l.includes("bơ")) return "chất béo";
+    return l;
+  });
+
+  const uniqueGroups = Array.from(new Set(groupsList));
+  let sentence = "Bữa này gồm các món ăn đầy đủ dinh dưỡng.";
+  if (uniqueGroups.length > 0) {
+    if (uniqueGroups.length === 1) {
+      sentence = `Bữa này gồm: ${uniqueGroups[0]}.`;
+    } else {
+      const last = uniqueGroups.pop();
+      sentence = `Bữa này gồm: ${uniqueGroups.join(", ")} và ${last}.`;
+    }
+  }
 
   return (
     <div className="mt-4 border-t border-slate-100 pt-4">
       <button
         type="button"
-        className="h-10 rounded-[18px] bg-emerald-50 px-4 text-sm font900 text-[#047857] transition hover:bg-emerald-100"
+        className="h-10 rounded-[18px] bg-emerald-50 px-4 text-sm font-black text-[#047857] transition hover:bg-emerald-100 flex items-center gap-2"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
       >
-        {open ? "Ẩn chi tiết dinh dưỡng" : "Xem chi tiết dinh dưỡng"}
+        <span>{open ? "Ẩn chi tiết dinh dưỡng" : "Xem chi tiết dinh dưỡng"}</span>
+        <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </button>
 
       {open ? (
-        <div className="mt-4 grid gap-4 rounded-[24px] bg-slate-50 p-4 ring-1 ring-slate-100 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div className="grid grid-cols-3 gap-2">
-            <NutritionMini label="Protein" value={`${round(totals.protein)}g`} tone="bg-sky-500" />
-            <NutritionMini label="Fat" value={`${round(totals.fat)}g`} tone="bg-[#FB923C]" />
-            <NutritionMini label="Carbs" value={`${round(totals.carbs)}g`} tone="bg-[#10B981]" />
-          </div>
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">Nhóm món</p>
-              <p className="mt-1 text-sm font800 leading-6 text-[#0F172A]">
-                {groupSummary.map((group) => `${group.label} (${group.count})`).join(" · ") || "Chưa đủ dữ liệu"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">Nhận xét</p>
-              <p className="mt-1 text-sm font800 leading-6 text-[#64748B]">
-                {status.label}: {detailText}
-              </p>
-            </div>
-          </div>
+        <div className="mt-4 rounded-[24px] bg-slate-50 p-4 ring-1 ring-slate-100/50 animate-fade-in">
+          <p className="text-sm font-black text-slate-800">
+            Đạm: {round(totals.protein)}g · Chất béo: {round(totals.fat)}g · Tinh bột: {round(totals.carbs)}g
+          </p>
+          <p className="mt-2 text-sm font-semibold text-slate-600">
+            {sentence}
+          </p>
+          <p className="mt-1 text-sm text-slate-500 italic">
+            Nhận xét: Bữa ăn cân bằng, phù hợp với kế hoạch hôm nay.
+          </p>
         </div>
       ) : null}
     </div>
@@ -1636,13 +1935,19 @@ function NutritionMini({ label, value, tone }) {
 
 function buildMealStatusDetail(status, balance) {
   if (status.label === "Carbs hơi cao") {
-    return "Bữa này hơi nhiều tinh bột. Có thể giảm khẩu phần tinh bột hoặc đổi sang món giàu chất béo tốt.";
+    return "Bữa này hơi nhiều tinh bột. Có thể giảm một phần tinh bột hoặc đổi sang bơ, hạt, trứng hay sữa nguyên kem.";
   }
   if (status.label === "Thiếu chất béo tốt") {
-    return "Bữa này còn thiếu chất béo tốt. Có thể thêm bơ, hạt, trứng hoặc sữa nguyên kem.";
+    return "Bữa này còn thiếu chất béo tốt. Có thể thêm bơ, hạt, trứng, cá béo hoặc sữa nguyên kem.";
+  }
+  if (status.label === "Thiếu đạm") {
+    return "Bữa này còn thiếu đạm. Có thể thêm trứng, cá, thịt nạc, đậu hũ hoặc sữa chua Hy Lạp.";
   }
   if (status.label === "Cân bằng") {
-    return "Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch hôm nay.";
+    return "Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch tăng cân hôm nay.";
+  }
+  if (balance.warnings.some((message) => message.includes("Thiếu nhóm đạm"))) {
+    return "Bữa này còn thiếu đạm. Có thể thêm trứng, cá, thịt nạc, đậu hũ hoặc sữa chua Hy Lạp.";
   }
   return balance.warnings.length
     ? balance.warnings.join(" ")
@@ -1886,205 +2191,513 @@ function FoodLibraryCard({ item, disliked, onDetail, onAdd, onDislike }) {
   );
 }
 
-function ChartsPage({ weeklyCalories, macroData, summary, meals, validation }) {
-  const [activeTab, setActiveTab] = useState("calories");
-  const [range, setRange] = useState("7");
-  const visibleCalories = weeklyCalories.slice(-Number(range));
-  const groupCounts = buildFoodGroupCounts(meals);
-  const compliance = buildComplianceRows(validation);
-  const hasHistory = visibleCalories.length > 1;
-  const tabs = [
-    { id: "calories", label: "Calories", icon: "🔥" },
-    { id: "macro", label: "Macro", icon: "🥑" },
-    { id: "weight", label: "Cân nặng", icon: "⚖️" },
-    { id: "compliance", label: "Tuân thủ thực đơn", icon: "✅" },
-    { id: "groups", label: "Nhóm thực phẩm", icon: "🥗" },
-  ];
+function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {} }) {
+  const [range, setRange] = useState("30");
+  const [logs, setLogs] = useState([]);
+  const [weightSummary, setWeightSummary] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [draft, setDraft] = useState(() => buildWeightDraft(profileSettings));
 
-  const avgCalories = visibleCalories.length
-    ? Math.round(visibleCalories.reduce((sum, item) => sum + item.calories, 0) / visibleCalories.length)
-    : summary.eatenCalories || 0;
-    
-  const compliancePercent = summary.targetCalories ? Math.min(100, Math.round((summary.eatenCalories / summary.targetCalories) * 100)) : 0;
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWeightProgress() {
+      setIsLoading(true);
+      setLoadError("");
+      try {
+        const [summaryData, logData] = await Promise.all([
+          fetchWeightLogSummary(),
+          fetchWeightLogs(range),
+        ]);
+        if (cancelled) return;
+        setWeightSummary(summaryData);
+        setLogs(Array.isArray(logData) ? logData : []);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error.message || "Không thể tải dữ liệu cân nặng.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+    loadWeightProgress();
+    return () => {
+      cancelled = true;
+    };
+  }, [range, refreshKey, profileSettings.weight_kg, profileSettings.weight]);
+
+  const summary = weightSummary || buildFallbackWeightSummary(profileSettings);
+  console.log("[WEIGHT SUMMARY RENDER]", weightSummary);
+  console.log("[WEIGHT DISPLAY SOURCE]", {
+    currentWeightFromSummary: weightSummary?.current_weight,
+    userWeight: profileSettings?.weight_kg ?? profileSettings?.weight,
+  });
+  const chartPoints = useMemo(() => {
+    const fallbackFromLogs = logs.map((item) => ({
+      date: item.log_date,
+      weight_kg: Number(item.weight_kg || 0),
+      type: item.source === "initial_profile" ? "initial" : "milestone",
+    }));
+    const points = weightSummary?.milestone_points?.length
+      ? weightSummary.milestone_points
+      : fallbackFromLogs;
+    console.log("[CHART POINTS USED]", points);
+    return points;
+  }, [weightSummary, logs]);
+
+  const chartData = useMemo(
+    () => chartPoints.map((item) => ({
+      date: item.date || item.log_date,
+      label: formatShortDate(item.date || item.log_date),
+      weight_kg: Number(item.weight_kg || 0),
+      note: item.note || "",
+    })),
+    [chartPoints],
+  );
+  const hasEnoughData = chartData.length >= 2;
+  const hasInitialWeight = chartData.length === 1;
+  const trendInfo = trendPresentation(summary.trend);
+  const shouldMuteRangeEmphasis = chartData.length <= 1;
+
+  function openWeightForm() {
+    setDraft(buildWeightDraft(profileSettings, summary));
+    setSaveError("");
+    setIsFormOpen(true);
+  }
+
+  async function handleWeightSubmit(event) {
+    event.preventDefault();
+    const weight = Number(draft.weight_kg);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setSaveError("Vui lòng nhập cân nặng hợp lệ.");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError("");
+    try {
+      await saveWeightLog({
+        weight_kg: weight,
+        log_date: draft.log_date || undefined,
+        note: draft.note?.trim() || null,
+      });
+      setIsFormOpen(false);
+      setRefreshKey((value) => value + 1);
+      await onProfileRefresh?.();
+    } catch (error) {
+      setSaveError(error.message || "Không thể lưu cân nặng.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
-      {/* 1. Header trang */}
-      <section className="glass-panel p-6 shadow-sm border border-slate-200/60 rounded-3xl">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="rounded-[28px] border border-emerald-100/80 bg-white p-6 shadow-xl shadow-emerald-900/8 sm:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 mb-2">
-              <span className="flex h-6 items-center rounded-md bg-emerald-100 px-2.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800">
-                NutriGain
-              </span>
-            </div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Biểu đồ dinh dưỡng</h2>
-            <p className="mt-1.5 text-sm font-semibold text-slate-500">
-              Theo dõi xu hướng calories, macro, cân nặng và mức tuân thủ thực đơn.
+            <p className="text-xs font900 uppercase tracking-[0.18em] text-[#10B981]">NutriGain Progress</p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight text-[#0F172A]">Theo dõi tiến độ tăng cân</h2>
+            <p className="mt-2 max-w-2xl text-sm font700 leading-6 text-[#64748B]">
+              Cập nhật cân nặng mỗi 3 ngày để NutriGain theo dõi xu hướng tăng cân của bạn.
             </p>
           </div>
-          
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200">
-              {["7", "14", "30"].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={`h-9 px-4 text-sm font-bold rounded-lg transition-all ${
-                    range === item 
-                      ? "bg-white text-emerald-600 shadow-sm ring-1 ring-black/5" 
-                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
-                  }`}
-                  onClick={() => setRange(item)}
-                >
-                  {item} ngày
-                </button>
-              ))}
+          {/* Update weight button removed per UI-only change request */}
+        </div>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <WeightOverviewCard label="Cân nặng hiện tại" value={formatWeight(summary.current_weight)} />
+        {summary.target_weight ? (
+          <WeightOverviewCard label="Mục tiêu cân nặng" value={formatWeight(summary.target_weight)} />
+        ) : (
+          <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">Mục tiêu cân nặng</p>
+            <div className="mt-4 inline-flex min-h-12 items-center rounded-2xl px-3 text-2xl font-black text-[#0F172A]">
+              Chưa có mục tiêu
             </div>
+            <p className="mt-3 text-sm font800 leading-6 text-[#64748B]">Thêm mục tiêu trong Hồ sơ dinh dưỡng</p>
+            <button
+              type="button"
+              onClick={() => { if (typeof onEditProfile === 'function') onEditProfile(); }}
+              className="mt-3 text-sm font900 text-[#10B981] underline"
+            >
+              Chỉnh hồ sơ
+            </button>
           </div>
-        </div>
+        )}
+        <WeightOverviewCard label="Đã tăng được" value={formatDelta(summary.change_kg)} tone={Number(summary.change_kg || 0) >= 0 ? "green" : "orange"} />
+        <WeightOverviewCard label="Còn thiếu" value={formatWeight(summary.remaining_kg)} tone="orange" />
+        <WeightOverviewCard label="Tiến độ" value={`${formatNumber(summary.progress_percent || 0)}%`} />
       </section>
 
-      {/* 2. KPI Cards (compact 3) */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center text-base">🔥</div>
-            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Kcal trung bình</span>
-          </div>
-          <h3 className="text-2xl font-black text-[#0F172A]">{avgCalories} <span className="text-sm font-bold text-[#64748B]">kcal/ngày</span></h3>
-        </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center text-base">🎯</div>
-            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Mức tuân thủ</span>
-          </div>
-          <h3 className={`text-2xl font-black ${compliancePercent >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>{compliancePercent}%</h3>
-        </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-base">📅</div>
-            <span className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Ngày ghi nhận</span>
-          </div>
-          <h3 className="text-2xl font-black text-[#0F172A]">{weeklyCalories.length} <span className="text-sm font-bold text-[#64748B]">ngày</span></h3>
-        </div>
-      </section>
+      {summary.should_checkin ? (
+        <section className="rounded-3xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm font800 leading-6 text-orange-900 shadow-sm">
+          Đã hơn 3 ngày bạn chưa cập nhật cân nặng. Hãy nhập cân nặng hôm nay để biểu đồ chính xác hơn.
+        </section>
+      ) : null}
 
-      {/* 3. Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none snap-x">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`shrink-0 snap-start flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition-all shadow-sm ${
-              activeTab === tab.id 
-                ? "bg-emerald-600 text-white border border-emerald-600" 
-                : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:text-slate-900"
-            }`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            <span>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {hasInitialWeight && !summary.should_checkin ? (
+        <section className="rounded-3xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font800 leading-6 text-emerald-900 shadow-sm">
+          Mốc tiếp theo: {formatDisplayDate(summary.next_checkin_date)}. Biểu đồ sẽ cập nhật khi bạn ghi nhận cân nặng mới sau mốc này.
+        </section>
+      ) : null}
 
-      {/* 4 & 5. Main Chart Card & Empty State */}
-      <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 relative overflow-hidden">
-        {activeTab === "calories" ? (
-          hasHistory ? (
-            <div className="p-6">
-              <div className="mb-6">
-                <h3 className="text-lg font-black text-slate-900">Biểu đồ Calories</h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Xu hướng nạp năng lượng trong khoảng {range} ngày gần đây.</p>
+      {loadError ? (
+        <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font800 text-rose-700">
+          {loadError}
+        </section>
+      ) : null}
+
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/6 sm:p-6">
+        <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-xl font-black text-[#0F172A]">Xu hướng cân nặng</h3>
+            <p className="mt-1 text-sm font700 text-[#64748B]">Dữ liệu từ cân nặng bạn tự nhập theo ngày ghi nhận.</p>
+          </div>
+          <div className="flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+            {[
+              { id: "30", label: "30 ngày" },
+              { id: "90", label: "90 ngày" },
+              { id: "all", label: "Tất cả" },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`h-10 rounded-xl px-4 text-sm font900 transition ${
+                  range === option.id
+                    ? shouldMuteRangeEmphasis
+                      ? "bg-white text-[#0F172A]"
+                      : "bg-white text-[#10B981] shadow-sm"
+                    : "text-[#64748B] hover:text-[#0F172A]"
+                }`}
+                onClick={() => setRange(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-5">
+          {isLoading ? (
+            <div className="grid h-[340px] place-items-center rounded-3xl bg-slate-50 text-sm font800 text-[#64748B]">
+              Đang tải dữ liệu cân nặng...
+            </div>
+          ) : hasEnoughData ? (
+            <WeightTrendLineChart data={chartData} />
+          ) : hasInitialWeight ? (
+            <div className="grid h-[340px] place-items-center rounded-3xl bg-slate-50">
+              <div className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 shadow-sm text-left">
+                <p className="text-xs font900 uppercase tracking-[0.12em] text-[#64748B]">Mốc khởi tạo</p>
+                <div className="mt-2 flex items-baseline gap-4">
+                  <div>
+                    <p className="text-sm text-[#64748B]">Ngày ghi nhận</p>
+                    <p className="text-lg font-black text-[#0F172A]">{formatDisplayDate(summary.last_log_date)}</p>
+                  </div>
+                  <div className="ml-auto text-right">
+                    <p className="text-sm text-[#64748B]">Cân nặng</p>
+                    <p className="text-2xl font-black text-[#10B981]">{formatNumber(summary.current_weight)} kg</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm text-[#64748B]">Cần thêm 1 mốc sau ngày {formatDisplayDate(summary.next_checkin_date)} để vẽ xu hướng tăng cân.</p>
+                {/* Kept only informational text; update button removed per request */}
               </div>
-              <CaloriesChart data={visibleCalories} />
             </div>
           ) : (
-            <EmptyChartState 
-              title="Chưa đủ dữ liệu lịch sử Calories" 
-              desc="Hệ thống cần ít nhất 2 ngày ghi nhận để vẽ xu hướng. Bạn hãy tạo lịch sử bằng cách sử dụng ứng dụng mỗi ngày."
-              actionLabel="Ghi nhận ngay"
+            <EmptyChartState
+              title={hasInitialWeight ? "Đã có cân nặng khởi tạo." : "Chưa đủ dữ liệu cân nặng."}
+              desc={
+                hasInitialWeight
+                  ? (
+                    <>
+                      <p>Đã ghi nhận cân nặng ban đầu: {formatNumber(summary.current_weight)}kg</p>
+                      <p>Cập nhật tiếp theo đề xuất: {formatDisplayDate(summary.next_checkin_date)}</p>
+                      <p className="mt-2">Cần thêm ít nhất 1 lần cập nhật nữa để NutriGain vẽ xu hướng tăng cân.</p>
+                    </>
+                  )
+                  : "Hãy cập nhật cân nặng mỗi 3 ngày để theo dõi xu hướng."
+              }
             />
-          )
-        ) : null}
+          )}
+        </div>
+      </section>
 
-        {activeTab === "macro" ? (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(320px,0.3fr)] p-6">
-            <div className="flex flex-col">
-              <div className="mb-6">
-                <h3 className="text-lg font-black text-slate-900">Tỷ lệ Macronutrients</h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Phân bổ Protein, Fat, Carbs trong bữa ăn hôm nay.</p>
-              </div>
-              <div className="flex-1 flex justify-center items-center min-h-[300px]">
-                <MacroChart data={macroData} />
-              </div>
-            </div>
-            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 flex flex-col justify-center">
-              <div className="inline-flex mb-4">
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 uppercase rounded-md tracking-wider">AI Insight</span>
-              </div>
-              <h3 className="text-lg font-black text-slate-900">Phân tích nhanh</h3>
-              <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-600 border-b border-slate-200 pb-5">{buildMacroComment(macroData)}</p>
-              <div className="mt-5 grid gap-4">
-                <InfoRow label="🥩 Protein" value={`${macroData.protein}g`} />
-                <InfoRow label="🥑 Fat" value={`${macroData.fat}g`} />
-                <InfoRow label="🍚 Carbs" value={`${macroData.carbs}g`} />
-              </div>
-            </div>
+      <section className={`rounded-3xl border p-5 shadow-sm ${trendInfo.className}`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font900 uppercase tracking-[0.18em] opacity-75">{hasInitialWeight ? "Trạng thái theo dõi" : "Nhận xét xu hướng"}</p>
+            <h3 className="mt-2 text-xl font-black">{hasInitialWeight ? "Trạng thái theo dõi" : trendInfo.label}</h3>
+            <p className="mt-2 text-sm font800 leading-6">
+              {hasInitialWeight
+                ? "Đã ghi nhận mốc cân nặng đầu tiên. Hãy cập nhật lại sau 3 ngày để đánh giá xu hướng tăng cân."
+                : summary.message}
+            </p>
           </div>
-        ) : null}
+        </div>
+      </section>
 
-        {activeTab === "weight" ? (
-          <EmptyChartState 
-            title="Chưa có lịch sử Cân Nặng" 
-            desc={`Chỉ số BMI hiện tại của bạn là ${summary.bmi}. Cập nhật cân nặng định kỳ ở trang Tài khoản để ứng dụng theo dõi tiến trình tăng/giảm cân của bạn.`}
-            actionLabel="Cập nhật hồ sơ"
-          />
-        ) : null}
+      {isFormOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+          <form
+            className="w-full max-w-lg rounded-[28px] border border-white/80 bg-white p-6 shadow-2xl shadow-slate-950/20"
+            onSubmit={handleWeightSubmit}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font900 uppercase tracking-[0.18em] text-[#10B981]">Weight check-in</p>
+                <h3 className="mt-2 text-2xl font-black text-[#0F172A]">Cập nhật cân nặng</h3>
+              </div>
+              <button
+                type="button"
+                className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-100 text-slate-500 transition hover:bg-slate-200"
+                onClick={() => setIsFormOpen(false)}
+                aria-label="Đóng form cập nhật cân nặng"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
 
-        {activeTab === "compliance" ? (
-          <div className="p-6">
-            <div className="mb-6 border-b border-slate-100 pb-5">
-              <h3 className="text-lg font-black text-slate-900">Chi tiết mức tuân thủ</h3>
-              <p className="text-sm font-medium text-slate-500 mt-1">So sánh thực tế đạt được so với mục tiêu đề ra.</p>
+            <div className="mt-6 grid gap-4">
+              <label className="block">
+                <span className="text-sm font900 text-[#0F172A]">Cân nặng hiện tại (kg)</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={draft.weight_kg}
+                  onChange={(event) => setDraft((current) => ({ ...current, weight_kg: event.target.value }))}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-emerald-100"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font900 text-[#0F172A]">Ngày ghi nhận</span>
+                <input
+                  type="date"
+                  value={draft.log_date}
+                  onChange={(event) => setDraft((current) => ({ ...current, log_date: event.target.value }))}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-emerald-100"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font900 text-[#0F172A]">Ghi chú tùy chọn</span>
+                <textarea
+                  rows="3"
+                  value={draft.note}
+                  onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))}
+                  className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font800 text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-emerald-100"
+                  placeholder="Ví dụ: Cân buổi sáng"
+                />
+              </label>
             </div>
-            <div className="grid gap-5 md:grid-cols-3">
-              {compliance.map((item) => (
-                <ProgressMetric key={item.label} label={item.label} value={item.value} target={item.target} unit={item.unit} />
-              ))}
-            </div>
-          </div>
-        ) : null}
 
-        {activeTab === "groups" ? (
-          <div className="p-6">
-            <div className="mb-6">
-              <h3 className="text-lg font-black text-slate-900">Tần suất nhóm món ăn</h3>
-              <p className="text-sm font-medium text-slate-500 mt-1">Sự đa dạng của các nhóm thực phẩm trong thực đơn hiện tại.</p>
+            {saveError ? (
+              <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font800 text-rose-700">
+                {saveError}
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="h-12 rounded-2xl border border-slate-200 px-5 text-sm font900 text-[#64748B] transition hover:bg-slate-50"
+                onClick={() => setIsFormOpen(false)}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="h-12 rounded-2xl bg-[#10B981] px-5 text-sm font900 text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? "Đang lưu..." : "Lưu cân nặng"}
+              </button>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {groupCounts.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 hover:shadow-sm transition-all hover:bg-white">
-                  <div className="flex items-center justify-between gap-3 mb-4">
-                    <strong className="text-sm font-extrabold text-slate-800">{item.label}</strong>
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md">{item.count} món</span>
-                  </div>
-                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-200">
-                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-1000" style={{ width: `${item.percent}%` }} />
-                  </div>
-                  <p className="text-[11px] font-bold text-slate-400 text-right mt-2 uppercase">{item.percent}% tổng số</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+          </form>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WeightOverviewCard({ label, value, tone = "green" }) {
+  const toneClass = tone === "orange" ? "text-[#FB923C] bg-orange-50" : "text-[#10B981] bg-emerald-50";
+  return (
+    <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+      <p className="text-xs font900 uppercase tracking-[0.16em] text-[#64748B]">{label}</p>
+      <div className={`mt-4 inline-flex min-h-12 items-center rounded-2xl px-3 text-2xl font-black ${toneClass}`}>
+        {value}
       </div>
     </div>
   );
 }
 
-function EmptyChartState({ title, desc, actionLabel }) {
+function WeightTrendLineChart({ data }) {
+  return (
+    <div className="h-[360px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 12, right: 18, bottom: 8, left: 0 }}>
+          <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 12, fontWeight: 700 }} />
+          <YAxis
+            width={52}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: "#64748B", fontSize: 12, fontWeight: 700 }}
+            tickFormatter={(value) => `${formatNumber(value)}kg`}
+            domain={[
+              (dataMin) => Math.max(0, Math.floor(Number(dataMin || 0) - 1)),
+              (dataMax) => Math.ceil(Number(dataMax || 0) + 1),
+            ]}
+          />
+          <Tooltip content={<WeightTooltip />} cursor={{ stroke: "#10B981", strokeWidth: 1, strokeDasharray: "4 4" }} />
+          <Line
+            type="monotone"
+            dataKey="weight_kg"
+            stroke="#10B981"
+            strokeWidth={4}
+            dot={{ r: 5, strokeWidth: 3, fill: "#FFFFFF", stroke: "#10B981" }}
+            activeDot={{ r: 7, strokeWidth: 3, fill: "#10B981", stroke: "#FFFFFF" }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function WeightTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-xl shadow-emerald-900/10">
+      <p className="text-xs font900 uppercase tracking-[0.12em] text-[#64748B]">{formatDisplayDate(row.date)}</p>
+      <p className="mt-1 text-base font-black text-[#10B981]">{formatNumber(row.weight_kg)} kg</p>
+      {row.note ? <p className="mt-1 max-w-[220px] text-xs font800 text-[#64748B]">{row.note}</p> : null}
+    </div>
+  );
+}
+
+function buildWeightDraft(profileSettings, summary = null) {
+  const profileWeight = profileSettings?.weight ?? profileSettings?.weight_kg ?? "";
+  return {
+    weight_kg: summary?.current_weight ?? profileWeight ?? "",
+    log_date: todayInputValue(),
+    note: "",
+  };
+}
+
+function buildFallbackWeightSummary(profileSettings = {}) {
+  const currentWeight = toFiniteNumber(profileSettings?.weight ?? profileSettings?.weight_kg);
+  const targetWeight = toFiniteNumber(profileSettings?.target_weight ?? profileSettings?.target_weight_kg);
+  return {
+    current_weight: currentWeight,
+    start_weight: currentWeight,
+    target_weight: targetWeight,
+    change_kg: currentWeight != null ? 0 : null,
+    remaining_kg: targetWeight != null && currentWeight != null ? targetWeight - currentWeight : null,
+    progress_percent: 0,
+    trend: "not_enough_data",
+    last_log_date: null,
+    next_checkin_date: null,
+    days_since_last_log: null,
+    should_checkin: false,
+    message: "Hãy cập nhật cân nặng mỗi 3 ngày để NutriGain theo dõi xu hướng chính xác hơn.",
+  };
+}
+
+function trendPresentation(trend) {
+  if (trend === "increasing") {
+    return { label: "Đang tăng", className: "border-emerald-200 bg-emerald-50 text-emerald-950" };
+  }
+  if (trend === "stable") {
+    return { label: "Đi ngang", className: "border-slate-200 bg-slate-50 text-slate-800" };
+  }
+  if (trend === "decreasing") {
+    return { label: "Đang giảm", className: "border-orange-200 bg-orange-50 text-orange-950" };
+  }
+  return { label: "Chưa đủ dữ liệu", className: "border-slate-200 bg-white text-slate-800" };
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function formatWeight(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "Chưa có";
+  return `${formatNumber(value)} kg`;
+}
+
+function formatDelta(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "Chưa có";
+  const prefix = Number(value) > 0 ? "+" : "";
+  return `${prefix}${formatNumber(value)} kg`;
+}
+
+function formatNumber(value, digits = 1) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "0";
+  return new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 1,
+  }).format(number);
+}
+
+const VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh";
+
+function formatDisplayDate(value) {
+  if (!value) return "Chưa có";
+  const date =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00+07:00`)
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: VIETNAM_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  const date =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00+07:00`)
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: VIETNAM_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+}
+
+function todayInputValue() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: VIETNAM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function EmptyChartState({ title, desc, actionLabel, onAction }) {
   return (
     <div className="flex flex-col items-center justify-center p-12 text-center py-20">
       <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-6 shadow-sm">
@@ -2093,10 +2706,16 @@ function EmptyChartState({ title, desc, actionLabel }) {
         </svg>
       </div>
       <h3 className="text-xl font-black text-slate-800 mb-2">{title}</h3>
-      <p className="max-w-md text-sm font-semibold text-slate-500 leading-relaxed mb-8">{desc}</p>
-      <button className="h-10 px-5 rounded-xl bg-emerald-50 text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition-all">
-        {actionLabel}
-      </button>
+      <div className="max-w-md text-sm font-semibold text-slate-500 leading-relaxed mb-8 space-y-1">{desc}</div>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          className="h-10 px-5 rounded-xl bg-emerald-50 text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition-all"
+          onClick={onAction}
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2746,8 +3365,8 @@ function SystemSettingsPage({ datasetStats, progress, summary, validation }) {
           <div className="space-y-3">
             <ValidationRuleItem 
               id="bmi" 
-              label="Kiểm tra BMI < 18.5" 
-              description="Từ chối sinh thực đơn đối với người có BMI bình thường hoặc béo phì." 
+              label="Kiểm tra BMI < 25" 
+              description="Từ chối sinh thực đơn tăng cân đối với người thừa cân hoặc béo phì." 
               checked={rules.bmi} 
               onChange={toggleRule} 
               required 
@@ -2969,11 +3588,8 @@ function formatTagValue(tags) {
 }
 
 function bmiStatusLabel(bmi) {
-  if (!Number.isFinite(bmi)) return "Đang theo dõi";
-  if (bmi < 18.5) return "Thiếu cân";
-  if (bmi < 23) return "Bình thường";
-  if (bmi < 25) return "Thừa cân";
-  return "Béo phì";
+  if (!Number.isFinite(Number(bmi))) return "Đang theo dõi";
+  return asianBmiLabel(Number(bmi));
 }
 
 function ProfileField({ label, name, type = "text", value, error, helperText, onChange, ...props }) {
@@ -3584,15 +4200,15 @@ function EnhancedHelpPanel({ foods }) {
   ];
 
   const faqs = [
-    { id: 'faq-0', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Hệ thống dành cho ai?', answer: 'NutriGain chỉ phục vụ người thiếu cân hoặc BMI dưới 18.5 có nhu cầu tăng cân lành mạnh.' },
-    { id: 'faq-1', category: 'profile', group: 'Hồ sơ & BMI', title: 'Vì sao cần BMI < 18.5?', answer: 'Đây là ràng buộc phạm vi hệ thống. Chúng tôi thiết kế thuật toán dành riêng cho người thiếu cân, không áp dụng cho người bình thường, thừa cân hoặc béo phì.' },
+    { id: 'faq-0', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Hệ thống dành cho ai?', answer: 'NutriGain tập trung hỗ trợ tăng cân lành mạnh cho người thiếu cân có BMI dưới 18.5 theo chuẩn Châu Á.' },
+    { id: 'faq-1', category: 'profile', group: 'Hồ sơ & BMI', title: 'Vì sao chặn BMI >= 18.5?', answer: 'NutriGain không phải app giảm cân và không tạo thực đơn tăng cân cho người BMI bình thường, thừa cân hoặc béo phì.' },
     { id: 'faq-2', category: 'profile', group: 'Hồ sơ & BMI', title: 'BMR/TDEE là gì?', answer: 'BMR là năng lượng nền (năng lượng cơ thể cần để duy trì sự sống). TDEE là tổng năng lượng tiêu hao ước tính theo mức độ vận động hàng ngày của bạn.' },
     { id: 'faq-3', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Vì sao hệ thống không sinh thực đơn cho người BMI bình thường?', answer: 'Thuật toán tăng cân yêu cầu thặng dư calo cụ thể, nếu áp dụng cho người bình thường sẽ gây nguy cơ thừa cân béo phì. Hệ thống sẽ khóa tính năng sinh thực đơn nếu BMI ≥ 18.5.' },
     { id: 'faq-4', category: 'menu', group: 'Thực đơn & món ăn', title: 'Cách đổi món trong kế hoạch bữa ăn?', answer: 'Bạn nhấn nút "Đổi món" ở góc thẻ món ăn trong Kế hoạch. Hệ thống sẽ đề xuất một nhóm món khác có giá trị dinh dưỡng tương đương.' },
     { id: 'faq-5', category: 'account', group: 'Tài khoản', title: 'Cách cập nhật cân nặng và tạo lại thực đơn?', answer: 'Vào phần "Tài khoản", cập nhật cân nặng hiện tại và nhấn "Cập nhật và tạo lại thực đơn". Lượng calories bắt buộc sẽ được tính toán lại theo cân nặng mới.' },
     { id: 'faq-6', category: 'data', group: 'Ảnh và dữ liệu', title: 'Vì sao ảnh món ăn có thể là ảnh minh họa?', answer: 'Hệ thống tối ưu hiệu suất và tốc độ load bằng cách dùng bộ dataset tĩnh. Một số món ăn chưa có ảnh thật sẽ được thay thế bằng placeholder hoặc ảnh minh họa chung.' },
-    { id: 'faq-7', category: 'menu', group: 'Thực đơn & món ăn', title: 'Nếu thực đơn chưa hiện thì phải làm gì?', answer: 'Đảm bảo bạn đã nhập đầy đủ Chiều cao, Cân nặng và hệ thống xác nhận bạn đủ điều kiện (BMI < 18.5). Sau đó nhấn Tạo thực đơn.' },
-    { id: 'faq-8', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Khi nào dữ liệu biểu đồ được hiển thị?', answer: 'Biểu đồ sẽ xuất hiện sau khi bạn có ít nhất một thao tác đánh dấu "Đã ăn" hoặc có dòng dữ liệu báo cáo dinh dưỡng trong ngày được ghi nhận.' },
+    { id: 'faq-7', category: 'menu', group: 'Thực đơn & món ăn', title: 'Nếu thực đơn chưa hiện thì phải làm gì?', answer: 'Đảm bảo bạn đã nhập đầy đủ chiều cao, cân nặng và hệ thống xác nhận BMI dưới 18.5. Sau đó nhấn Tạo thực đơn.' },
+    { id: 'faq-8', category: 'system', group: 'Hệ thống hoạt động thế nào?', title: 'Khi nào dữ liệu theo dõi cân nặng được hiển thị?', answer: 'Trang Theo dõi tăng cân cần ít nhất 2 lần cập nhật cân nặng để vẽ xu hướng rõ ràng.' },
     { id: 'faq-9', category: 'menu', group: 'Thực đơn & món ăn', title: 'Làm sao đánh dấu “Đã ăn”?', answer: 'Vào mục "Kế hoạch món ăn" hoặc Dashboard, click vào thẻ món ăn hoặc nút tick để xác nhận bạn đã tiêu thụ món đó. Hệ thống sẽ cộng dồn calories trong ngày.' }
   ];
 
@@ -3660,7 +4276,7 @@ function EnhancedHelpPanel({ foods }) {
           </div>
 
           <div className="mt-6 flex flex-wrap justify-center gap-2">
-            {["Hồ sơ dinh dưỡng", "Tạo thực đơn", "Đổi món", "Nhật ký ăn uống", "Biểu đồ", "Tài khoản", "Thông báo"].map(chip => (
+            {["Hồ sơ dinh dưỡng", "Tạo thực đơn", "Đổi món", "Nhật ký ăn uống", "Theo dõi tăng cân", "Tài khoản", "Thông báo"].map(chip => (
               <button key={chip} onClick={() => setSearchQuery(chip)} className="rounded-full bg-white/15 px-4 py-1.5 text-sm font800 text-white hover:bg-white/25 transition whitespace-nowrap">
                 {chip}
               </button>
@@ -4069,28 +4685,17 @@ function buildEligibilityStatus(profile, summary) {
     };
   }
 
-  const bmi = summary.bmi;
-  let status = "normal";
-  if (summary.bmiStatus === "severely_underweight" || summary.bmiStatus === "underweight" || bmi < 18.5) {
-    status = "underweight";
-  } else if (bmi >= 25 && bmi < 30) {
-    status = "overweight";
-  } else if (bmi >= 30) {
-    status = "obese";
-  }
-
-  const labels = {
-    underweight: "Thiếu cân",
-    normal: "Bình thường",
-    overweight: "Thừa cân",
-    obese: "Béo phì",
-  };
+  const profileBmi = calculateProfileBmi(profile);
+  const bmi = Number.isFinite(profileBmi)
+    ? Number(profileBmi.toFixed(1))
+    : (Number.isFinite(summary.bmi) && summary.bmi > 0 ? summary.bmi : null);
+  const status = classifyAsianBMI(bmi);
   return {
     bmi,
     status,
-    statusLabel: labels[status] || labels.normal,
+    statusLabel: asianBmiLabel(status),
     eligible: status === "underweight",
-    reason: status === "underweight" ? "Được phép sinh thực đơn tăng cân lành mạnh." : "Không thuộc phạm vi hệ thống dành riêng cho người thiếu cân.",
+    reason: bmiPreviewMessage(status),
     profile: { weight, height, targetWeight: Number.isFinite(targetWeight) ? targetWeight : null, bmiStatus: summary.bmiStatus },
   };
 }
@@ -4111,13 +4716,21 @@ function buildDataWarnings(profile, summary, validation, target) {
 
 function buildProfileSoftErrors(profile) {
   const errors = {};
-  const weight = Number(profile.weight);
-  const height = Number(profile.height);
-  const targetWeight = profile.target_weight === "" || profile.target_weight == null ? null : Number(profile.target_weight);
+  const weight = Number(profile.weight || profile.weight_kg);
+  const height = Number(profile.height || profile.height_cm);
+  const targetWeight = (profile.target_weight === "" || profile.target_weight == null) && (profile.target_weight_kg === "" || profile.target_weight_kg == null) ? null : Number(profile.target_weight ?? profile.target_weight_kg);
   if (!Number.isFinite(weight) || weight < 20 || weight > 250) errors.weight = "Cân nặng nên trong khoảng 20-250kg";
   if (!Number.isFinite(height) || height < 100 || height > 230) errors.height = "Chiều cao nên trong khoảng 100-230cm";
   if (targetWeight !== null && (!Number.isFinite(targetWeight) || targetWeight < 20 || targetWeight > 250)) errors.target_weight = "Mục tiêu cân nặng không hợp lệ";
   if (Number.isFinite(targetWeight) && Number.isFinite(weight) && targetWeight <= weight) errors.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
+  if (Number.isFinite(targetWeight) && Number.isFinite(height) && height > 0) {
+    const targetBmi = targetWeight / ((height / 100) ** 2);
+    if (targetBmi >= 23.0) {
+      const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
+      const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
+      errors.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+    }
+  }
   return errors;
 }
 
@@ -4232,6 +4845,13 @@ function deriveMealPlanStatus(balance, totals, expectedCount) {
     return {
       label: "Carbs hơi cao",
       className: "bg-orange-50 text-orange-800 ring-1 ring-orange-100",
+    };
+  }
+
+  if (!balance.roles.protein) {
+    return {
+      label: "Thiếu đạm",
+      className: "bg-sky-50 text-sky-800 ring-1 ring-sky-100",
     };
   }
 
@@ -4455,8 +5075,41 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
   return notices;
 }
 
+function getOutOfScopeNotice(result) {
+  const reason = result?.reason || result?.eligibility_check?.reason;
+  if (result?.eligible === false && isOutOfScopeBmiReason(reason)) {
+    const category = result.bmi_category || result.eligibility_check?.bmi_category || result.eligibility_check?.weight_status || classifyAsianBMI(result.bmi);
+    return {
+      reason,
+      bmi: result.bmi ?? result.eligibility_check?.bmi ?? null,
+      bmi_category: category,
+      bmi_label: result.bmi_label || result.eligibility_check?.bmi_label || asianBmiLabel(category),
+      message: result.message || result.eligibility_check?.message || bmiMessageForCategory(category),
+    };
+  }
+  return null;
+}
+
+function calculateProfileBmi(profile) {
+  return calculateAsianBmi(profile?.weight ?? profile?.weight_kg, profile?.height ?? profile?.height_cm);
+}
+
+function buildOutOfScopeResultFromProfile(profile) {
+  return buildAsianBmiOutOfScopeResult(profile);
+}
+
 function buildSummary(result, consumedNutrition = { calories: 0 }) {
   if (!result) return fallbackSummary;
+  const outOfScopeNotice = getOutOfScopeNotice(result);
+  if (outOfScopeNotice) {
+    return {
+      ...fallbackSummary,
+      eatenCalories: round(consumedNutrition.calories),
+      bmi: round(outOfScopeNotice.bmi, 1),
+      bmiStatus: bmiStatusLabel(Number(outOfScopeNotice.bmi)),
+      medicalWarning: "",
+    };
+  }
   if (result.profile_summary && result.nutrition_target) {
     return {
       targetCalories: round(result.nutrition_target.calorie_target),
@@ -4464,8 +5117,8 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
       bmr: round(result.nutrition_target.bmr),
       tdee: round(result.nutrition_target.tdee),
       bmi: round(result.profile_summary.bmi, 1),
-      bmiStatus: result.profile_summary.bmi_status || "Đang theo dõi",
-      medicalWarning: result.profile_summary.medical_warning ? "BMI của bạn đang rất thấp. Thực đơn chỉ mang tính hỗ trợ. Bạn nên tham khảo bác sĩ hoặc chuyên gia dinh dưỡng trước khi tăng khẩu phần nhanh." : "",
+      bmiStatus: result.profile_summary.bmi_label || asianBmiLabel(result.profile_summary.bmi_category || result.profile_summary.bmi_status || result.profile_summary.bmi),
+      medicalWarning: result.profile_summary.medical_warning ? (result.warning || BMI_SEVERE_UNDERWEIGHT_WARNING) : "",
       protein: round(result.nutrition_target.protein_g),
       fat: round(result.nutrition_target.fat_g),
       carbs: round(result.nutrition_target.carbs_g),
@@ -4478,7 +5131,7 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
     bmr: round(result.target.bmr),
     tdee: round(result.target.tdee),
     bmi: round(result.target.bmi, 1),
-    bmiStatus: result.target.bmi_status || "Đang theo dõi",
+    bmiStatus: result.target.bmi_label || asianBmiLabel(result.target.bmi_category || result.target.bmi_status || result.target.bmi),
     medicalWarning: result.target.medical_warning || "",
     protein: round(result.target.protein),
     fat: round(result.target.fat),
@@ -4889,18 +5542,45 @@ function loadStoredList(storageKey) {
   }
 }
 
-function persistDislikedProfile(dislikedFoods, dislikedFoodGroups) {
+async function persistDislikedProfile(dislikedFoods, dislikedFoodGroups) {
   const foods = uniqueValues((dislikedFoods || []).filter(Boolean));
   const groups = uniqueValues((dislikedFoodGroups || []).filter(Boolean));
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(dislikedFoodsStorageKey, JSON.stringify(foods));
-      window.localStorage.setItem(dislikedFoodGroupsStorageKey, JSON.stringify(groups));
+      window.localStorage.removeItem(dislikedFoodsStorageKey);
+      window.localStorage.removeItem(dislikedFoodGroupsStorageKey);
     } catch {
-      // Local storage may be unavailable in locked-down browsers; backend save still runs.
+      // Local storage may be unavailable
     }
   }
-  saveUserProfile({ disliked_foods: foods, disliked_food_groups: groups }).catch(() => {});
+
+  // Fetch full user profile to build a complete payload and avoid partial updates
+  try {
+    const currentUser = await fetchCurrentUser();
+    const profile = currentUser?.profile || {};
+    const payload = {
+      age: profile.age ?? null,
+      gender: profile.gender ?? profile.sex ?? null,
+      height_cm: profile.height_cm ?? null,
+      weight_kg: profile.weight_kg ?? null,
+      target_weight_kg: profile.target_weight_kg ?? null,
+      weight_gain_speed: profile.weight_gain_speed ?? null,
+      activity_level: profile.activity_level ?? null,
+      diet_type: profile.diet_type ?? null,
+      budget_level: profile.budget_level ?? null,
+      items_per_meal: profile.items_per_meal ?? null,
+      favorite_foods: profile.favorite_foods ?? [],
+      disliked_foods: foods,
+      disliked_food_groups: groups,
+    };
+
+    await saveUserProfile(payload);
+    const updatedUser = await fetchCurrentUser();
+    return updatedUser;
+  } catch (err) {
+    // swallow errors; caller handles UI fallback
+    return null;
+  }
 }
 
 function isUiMenuEligible(item) {

@@ -131,10 +131,21 @@ export async function fetchHistory(limit = 10, period = "week") {
 }
 
 export async function fetchCurrentUser() {
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
-    headers: authHeaders(),
-  });
-  return parseResponse(response, "Cannot fetch current user");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return null;
+      }
+      throw new Error(`Failed to fetch current user: ${response.status} ${response.statusText}`);
+    }
+    return parseResponse(response, "Cannot fetch current user");
+  } catch (err) {
+    console.error("fetchCurrentUser error:", err);
+    return null;
+  }
 }
 
 export async function updateUserProfile(payload) {
@@ -147,6 +158,32 @@ export async function updateUserProfile(payload) {
     body: JSON.stringify(payload),
   });
   return parseResponse(response, "Cannot update user profile");
+}
+
+export async function fetchWeightLogs(range = "30") {
+  const response = await fetch(`${API_BASE_URL}/api/v1/weight-logs?range=${encodeURIComponent(range)}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse(response, "Cannot load weight logs");
+}
+
+export async function fetchWeightLogSummary() {
+  const response = await fetch(`${API_BASE_URL}/api/v1/weight-logs/summary`, {
+    headers: authHeaders(),
+  });
+  return parseResponse(response, "Cannot load weight summary");
+}
+
+export async function saveWeightLog(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/weight-logs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "Cannot save weight log");
 }
 
 export async function favoriteFood(foodId) {

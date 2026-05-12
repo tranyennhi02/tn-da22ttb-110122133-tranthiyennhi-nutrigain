@@ -3,7 +3,7 @@ import NutriGainLogo from "./NutriGainLogo";
 const menuItems = [
   { id: "overview", label: "Tổng quan", icon: DashboardIcon },
   { id: "journal", label: "Nhật ký ăn uống", icon: JournalIcon },
-  { id: "charts", label: "Biểu đồ", icon: ChartIcon },
+  { id: "charts", label: "Theo dõi tăng cân", icon: ChartIcon },
   { id: "meal-plan", label: "Kế hoạch bữa ăn", icon: MealIcon },
   { id: "account", label: "Tài khoản", icon: UserIcon },
   { id: "notifications", label: "Thông báo", icon: BellIcon },

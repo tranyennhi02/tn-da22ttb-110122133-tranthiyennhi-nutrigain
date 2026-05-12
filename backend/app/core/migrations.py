@@ -74,6 +74,9 @@ def ensure_database_schema(engine: Engine) -> None:
     _add_column_if_missing(engine, "user_profiles", "budget_level", "budget_level VARCHAR(50) NULL")
     _add_column_if_missing(engine, "user_profiles", "items_per_meal", "items_per_meal INTEGER NULL")
     _add_column_if_missing(engine, "user_profiles", "gender", "gender VARCHAR(20) NULL")
+    _add_column_if_missing(engine, "weight_logs", "source", "source VARCHAR(50) NULL")
+    _add_column_if_missing(engine, "weight_logs", "is_chart_milestone", "is_chart_milestone BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "weight_logs", "updated_at", "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
 
     with engine.begin() as connection:
         connection.execute(

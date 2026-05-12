@@ -7,7 +7,8 @@ import DashboardView from "./views/DashboardView";
 import LoginView from "./views/LoginView";
 import OnboardingView from "./views/OnboardingView";
 import { defaultFormState } from "./models/recommendationModel";
-import { formatFoodListInput, parseFoodList } from "./utils/foodList.js";
+import { parseFoodList } from "./utils/foodList.js";
+import { normalizeProfilePayload, foodListToInput } from "./utils/profileFormUtils.js";
 
 export function isProfileComplete(user) {
   const profile = user?.profile || user?.nutrition_profile || user;
@@ -27,6 +28,21 @@ export function isProfileComplete(user) {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const ONBOARDING_DONE_KEY = "nutrigain_onboarding_done";
+const DISLIKED_FOODS_KEY = "nutrigain_disliked_foods";
+const DISLIKED_FOOD_GROUPS_KEY = "nutrigain_disliked_food_groups";
+const PROFILE_CACHE_KEYS = [
+  DISLIKED_FOODS_KEY,
+  DISLIKED_FOOD_GROUPS_KEY,
+  "nutritionProfile",
+  "onboardingData",
+  "userProfile",
+  "currentUser",
+  "mealPlan",
+  "progressSummary",
+  "dashboardData",
+  "dislikedFoods",
+  "favoriteFoods",
+];
 
 function markOnboardingDone() {
   localStorage.setItem(ONBOARDING_DONE_KEY, "1");
@@ -34,6 +50,31 @@ function markOnboardingDone() {
 
 function clearOnboardingFlag() {
   localStorage.removeItem(ONBOARDING_DONE_KEY);
+}
+
+function clearProfileCacheKeys() {
+  for (const key of PROFILE_CACHE_KEYS) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+}
+
+function normalizeProfileArrays(profile) {
+  if (!profile) return profile;
+  return {
+    ...profile,
+    favorite_foods: Array.isArray(profile.favorite_foods) ? profile.favorite_foods : parseFoodList(profile.favorite_foods),
+    disliked_foods: Array.isArray(profile.disliked_foods) ? profile.disliked_foods : parseFoodList(profile.disliked_foods),
+    disliked_food_groups: Array.isArray(profile.disliked_food_groups) ? profile.disliked_food_groups : parseFoodList(profile.disliked_food_groups),
+  };
+}
+
+function normalizeUserProfileArrays(user) {
+  if (!user) return user;
+  return {
+    ...user,
+    profile: normalizeProfileArrays(user.profile),
+  };
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -62,9 +103,14 @@ export default function App() {
     async function syncProfile() {
       setAppView("checking");
       try {
-        const currentUser = await fetchCurrentUser();
+        const rawUser = await fetchCurrentUser();
+        if (!rawUser) {
+          throw new Error("No user profile session returned from API or server offline");
+        }
+        const currentUser = normalizeUserProfileArrays(rawUser);
         const profile = currentUser?.profile;
         if (cancelled) return;
+        console.log("[PROFILE REFRESH /users/me] =", currentUser);
         setAuthUser(currentUser);
         if (profile) {
           setProfileFormState(mapUserProfileToFormState(profile));
@@ -74,13 +120,13 @@ export default function App() {
           return;
         }
       } catch (error) {
-        console.error("Failed to load user from stored session", error);
+        console.error("Failed to load user from stored session:", error);
         performLogout();
         clearOnboardingFlag();
+        clearProfileCacheKeys();
         if (!cancelled) {
           setAuthUser(null);
           setSession(null);
-          setAppView("checking");
         }
         return;
       }
@@ -103,10 +149,16 @@ export default function App() {
     setInitialSection("overview");
     setAppView("checking");
     clearOnboardingFlag();
+    clearProfileCacheKeys();
 
     try {
-      const currentUser = await fetchCurrentUser();
+      const rawUser = await fetchCurrentUser();
+      if (!rawUser) {
+        throw new Error("Could not fetch user profile after login");
+      }
+      const currentUser = normalizeUserProfileArrays(rawUser);
       const profile = currentUser?.profile;
+      console.log("[PROFILE REFRESH /users/me] =", currentUser);
       setAuthUser(currentUser);
       if (profile) {
         setProfileFormState(mapUserProfileToFormState(profile));
@@ -117,6 +169,7 @@ export default function App() {
       console.error("Failed to load user after auth", error);
       performLogout();
       clearOnboardingFlag();
+      clearProfileCacheKeys();
       setJustLoggedIn(false);
       setSession(null);
       setAuthUser(null);
@@ -133,7 +186,10 @@ export default function App() {
   function handleLogout() {
     performLogout();
     clearOnboardingFlag();
+    clearProfileCacheKeys();
     setJustLoggedIn(false);
+    setAuthUser(null);
+    setProfileFormState(defaultFormState);
     setSession(null);
     setAppView("checking");
     setInitialMealResult(null);
@@ -164,9 +220,15 @@ export default function App() {
     // If onboarding already persisted the profile, trust its fresh user payload.
     if (onboardingData._updatedUser || onboardingData._mealPlanResult) {
       const mealPlanResult = onboardingData._mealPlanResult;
-      const updatedUser = onboardingData._updatedUser;
+      const updatedUser = normalizeUserProfileArrays(onboardingData._updatedUser);
       
       if (updatedUser) {
+        console.log("[PROFILE STATE AFTER SAVE]", {
+          weight_kg: updatedUser?.profile?.weight_kg,
+          target_weight_kg: updatedUser?.profile?.target_weight_kg,
+          favorite_foods: updatedUser?.profile?.favorite_foods,
+          disliked_foods: updatedUser?.profile?.disliked_foods,
+        });
         setAuthUser(updatedUser);
       }
       
@@ -206,6 +268,20 @@ export default function App() {
     setAppView("onboarding");
   }
 
+  const handleProfileUpdate = useCallback((updatedUser) => {
+    const normalizedUser = normalizeUserProfileArrays(updatedUser);
+    console.log("[PROFILE STATE AFTER SAVE]", {
+      weight_kg: normalizedUser?.profile?.weight_kg,
+      target_weight_kg: normalizedUser?.profile?.target_weight_kg,
+      favorite_foods: normalizedUser?.profile?.favorite_foods,
+      disliked_foods: normalizedUser?.profile?.disliked_foods,
+    });
+    setAuthUser(normalizedUser);
+    if (normalizedUser?.profile) {
+      setProfileFormState(mapUserProfileToFormState(normalizedUser.profile));
+    }
+  }, []);
+
   // ── render ────────────────────────────────────────────────────────────────
   if (!session) {
     return <LoginView onAuthSuccess={handleAuthSubmit} />;
@@ -223,6 +299,7 @@ export default function App() {
   }
 
   if (appView === "onboarding") {
+    const isDone = localStorage.getItem(ONBOARDING_DONE_KEY) === "1";
     return (
       <OnboardingView
         userEmail={userEmail}
@@ -230,6 +307,7 @@ export default function App() {
         onComplete={handleOnboardingComplete}
         initialData={profileFormState}
         onLogout={handleLogout}
+        profileFormMode={isDone ? "edit_existing_profile" : "register_onboarding"}
       />
     );
   }
@@ -244,6 +322,7 @@ export default function App() {
       initialSection={initialSection}
       onRequireProfile={handleRequireProfile}
       onEditProfile={() => setAppView("onboarding")}
+      onProfileUpdate={handleProfileUpdate}
     />
   );
 }
@@ -252,26 +331,12 @@ export { parseFoodList };
 
 // Convert frontend form state to backend profile format
 export function mapFormStateToBackendProfile(formState) {
-  return {
-    age: formState.age ? parseInt(formState.age, 10) : null,
-    sex: formState.sex || formState.gender || null,
-    gender: formState.sex || formState.gender || null,
-    height_cm: formState.height || formState.height_cm ? parseFloat(formState.height || formState.height_cm) : null,
-    weight_kg: formState.weight || formState.weight_kg ? parseFloat(formState.weight || formState.weight_kg) : null,
-    target_weight_kg: formState.target_weight || formState.target_weight_kg ? parseFloat(formState.target_weight || formState.target_weight_kg) : null,
-    activity_level: formState.activity || formState.activity_level || "moderate",
-    weight_gain_speed: formState.gain_speed || formState.weight_gain_speed || "slow",
-    diet_type: formState.diet_style || formState.diet_type || "balanced",
-    budget_level: formState.budget_level || "standard",
-    items_per_meal: formState.meal_complexity === "simple" ? 3 : formState.meal_complexity === "full" ? 5 : 4,
-    favorite_foods: formatFoodListInput(formState.favorite_foods),
-    disliked_foods: parseFoodList(formState.unfavorite_foods || formState.disliked_foods),
-    disliked_food_groups: formState.disliked_food_groups || [],
-  };
+  return normalizeProfilePayload(formState);
 }
 
 export function mapUserProfileToFormState(profile) {
   if (!profile) return defaultFormState;
+  const normalizedProfile = normalizeProfileArrays(profile);
   const surplus = Number(profile.surplus_kcal || 0);
   const gainSpeed = surplus >= 475 ? "fast" : surplus >= 375 ? "medium" : "slow";
   const complexity = profile.items_per_meal === 3 ? "simple" : profile.items_per_meal === 5 ? "full" : "balanced";
@@ -297,10 +362,10 @@ export function mapUserProfileToFormState(profile) {
     diet_type: profile.diet_type || "balanced",
     budget_level: profile.budget_level || "standard",
     surplus_kcal: profile.surplus_kcal,
-    favorite_foods: formatFoodListInput(profile.favorite_foods),
-    unfavorite_foods: formatFoodListInput(profile.disliked_foods),
-    disliked_foods: parseFoodList(profile.disliked_foods),
-    disliked_food_groups: parseFoodList(profile.disliked_food_groups),
+    favorite_foods: foodListToInput(normalizedProfile.favorite_foods),
+    unfavorite_foods: foodListToInput(normalizedProfile.disliked_foods),
+    disliked_foods: normalizedProfile.disliked_foods,
+    disliked_food_groups: normalizedProfile.disliked_food_groups,
     save_user_data: true,
   };
 }

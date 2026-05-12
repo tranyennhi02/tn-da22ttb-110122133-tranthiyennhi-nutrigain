@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.models.entities import User
 from app.services.auth_service import AuthService
 from app.services.food_service import FoodService, InteractionService, UserService
+from app.services.weight_log_service import WeightLogService
 from app.views.schemas import (
     AccountStatusUpdate,
     AdminStatsResponse,
@@ -40,6 +41,9 @@ from app.views.schemas import (
     UserProfileView,
     UserUpdate,
     UserView,
+    WeightLogCreate,
+    WeightLogResponse,
+    WeightLogSummary,
 )
 
 
@@ -48,11 +52,51 @@ auth_service = AuthService()
 food_service = FoodService()
 user_service = UserService()
 interaction_service = InteractionService()
+weight_log_service = WeightLogService()
 
 
 @router.get("/health", tags=["system"])
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/debug-db", tags=["system"])
+def debug_db(email: str, db: Session = Depends(get_db)) -> dict:
+    from app.models.entities import User, UserProfileEntity
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return {"error": f"User not found: {email}"}
+    profile = db.query(UserProfileEntity).filter(UserProfileEntity.user_id == user.id).first()
+    return {
+        "user_id": user.id,
+        "email": user.email,
+        "user_disliked_foods": getattr(user, "disliked_foods", "N/A"),
+        "profile_disliked_foods": getattr(profile, "disliked_foods", "N/A") if profile else None,
+        "profile_favorite_foods": getattr(profile, "favorite_foods", "N/A") if profile else None,
+        "profile_disliked_food_groups": getattr(profile, "disliked_food_groups", "N/A") if profile else None,
+    }
+
+
+@router.post("/debug-db-reset", tags=["system"])
+def debug_db_reset(email: str, db: Session = Depends(get_db)) -> dict:
+    from app.models.entities import User, UserProfileEntity
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return {"error": f"User not found: {email}"}
+    profile = db.query(UserProfileEntity).filter(UserProfileEntity.user_id == user.id).first()
+    
+    # Reset the password to password123
+    import bcrypt as _bcrypt
+    hashed = _bcrypt.hashpw("password123".encode("utf-8"), _bcrypt.gensalt())
+    user.password_hash = "bcrypt$" + hashed.decode("utf-8")
+    
+    if profile:
+        profile.disliked_foods = None
+        profile.favorite_foods = None
+        profile.disliked_food_groups = None
+        
+    db.commit()
+    return {"status": "reset_successful"}
 
 
 @router.post("/auth/register", response_model=AuthTokenResponse, tags=["auth"])
@@ -86,6 +130,37 @@ def update_profile(
     current_user: User = Depends(get_current_user),
 ) -> UserProfileView:
     return UserProfileView(**user_service.update_profile(db, current_user, payload))
+
+
+@router.post("/weight-logs", response_model=WeightLogResponse, tags=["weight-logs"])
+def upsert_weight_log(
+    payload: WeightLogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WeightLogResponse:
+    return WeightLogResponse(**weight_log_service.save_log(db, current_user, payload))
+
+
+@router.get("/weight-logs", response_model=list[WeightLogResponse], tags=["weight-logs"])
+def list_weight_logs(
+    range: str = Query("30", pattern="^(30|90|all)$"),
+    mode: str = Query("milestones", pattern="^(milestones|all)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[WeightLogResponse]:
+    range_days = None if range == "all" else int(range)
+    return [
+        WeightLogResponse(**item)
+        for item in weight_log_service.list_logs(db, current_user, range_days, mode=mode)
+    ]
+
+
+@router.get("/weight-logs/summary", response_model=WeightLogSummary, tags=["weight-logs"])
+def weight_log_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WeightLogSummary:
+    return WeightLogSummary(**weight_log_service.summary(db, current_user))
 
 
 @router.get("/foods", response_model=FoodListResponse, tags=["foods"])

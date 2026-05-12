@@ -1,25 +1,43 @@
 from datetime import datetime, timezone
 import math
 
+ASIAN_BMI_LABELS = {
+    "underweight": "Gầy / thiếu cân",
+    "normal": "Bình thường",
+    "overweight": "Thừa cân",
+    "obese": "Béo phì",
+    "unknown": "Đang theo dõi",
+}
+
+
+def classify_asian_bmi(bmi: float) -> str:
+    if bmi is None:
+        return "unknown"
+    value = round(float(bmi), 1)
+    if value < 18.5:
+        return "underweight"
+    if value < 23:
+        return "normal"
+    if value < 25:
+        return "overweight"
+    return "obese"
+
+
+def asian_bmi_label(category: str | None) -> str:
+    return ASIAN_BMI_LABELS.get(str(category or "").strip().lower(), "Đang theo dõi")
+
+
 class NutritionCalculationService:
     @staticmethod
     def calculate_bmi(weight_kg: float, height_cm: float) -> float:
         if height_cm <= 0:
             return 0.0
         height_m = height_cm / 100.0
-        return round(weight_kg / (height_m * height_m), 2)
+        return round(weight_kg / (height_m * height_m), 1)
 
     @staticmethod
     def get_bmi_status(bmi: float) -> str:
-        if bmi < 16:
-            return "severely_underweight"
-        if bmi < 18.5:
-            return "underweight"
-        if bmi < 25:
-            return "normal"
-        if bmi < 30:
-            return "overweight"
-        return "obese"
+        return classify_asian_bmi(bmi)
 
     @staticmethod
     def calculate_bmr(weight_kg: float, height_cm: float, age: int, gender: str) -> float:
@@ -53,6 +71,7 @@ class NutritionCalculationService:
     ) -> dict:
         bmi = NutritionCalculationService.calculate_bmi(weight_kg, height_cm)
         bmi_status = NutritionCalculationService.get_bmi_status(bmi)
+        bmi_label = asian_bmi_label(bmi_status)
         bmr = NutritionCalculationService.calculate_bmr(weight_kg, height_cm, age, gender)
         tdee = bmr * NutritionCalculationService.get_activity_factor(activity_level)
         
@@ -103,6 +122,8 @@ class NutritionCalculationService:
                 "weight_kg": weight_kg,
                 "bmi": bmi,
                 "bmi_status": bmi_status,
+                "bmi_category": bmi_status,
+                "bmi_label": bmi_label,
                 "medical_warning": medical_warning,
                 "target_weight_missing": target_weight_missing,
                 "suggested_stage_1_weight": stage_1_weight,

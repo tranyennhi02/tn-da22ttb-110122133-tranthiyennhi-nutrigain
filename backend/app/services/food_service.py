@@ -7,6 +7,7 @@ from app.models.entities import Food, FoodCategory, FoodRating, User, UserProfil
 from app.repositories.food_repository import FoodRepository
 from app.repositories.interaction_repository import InteractionRepository
 from app.repositories.user_repository import UserRepository
+from app.services.weight_log_service import WeightLogService
 from app.views.schemas import (
     AccountStatusUpdate,
     FoodCategoryCreate,
@@ -36,9 +37,9 @@ def _parse_profile_list(value: object) -> list[str]:
     return [part.strip() for part in text.replace(",", ";").split(";") if part.strip()]
 
 
-def _serialize_profile_list(value: object) -> str | None:
+def _serialize_profile_list(value: object) -> str:
     items = _parse_profile_list(value)
-    return ";".join(items) if items else None
+    return ";".join(items) if items else ""
 
 
 class FoodService:
@@ -172,7 +173,7 @@ class UserService:
             "gender": profile.gender or profile.sex,
             "activity_level": profile.activity_level,
             "surplus_kcal": profile.surplus_kcal,
-            "favorite_foods": profile.favorite_foods or "",
+            "favorite_foods": _parse_profile_list(profile.favorite_foods),
             "disliked_foods": _parse_profile_list(profile.disliked_foods),
             "disliked_food_groups": _parse_profile_list(profile.disliked_food_groups),
             "target_weight_kg": profile.target_weight_kg,
@@ -186,6 +187,7 @@ class UserService:
     def get_me(self, user: User) -> dict:
         payload = self.user_to_payload(user)
         payload["profile"] = self.profile_to_payload(user.profile)
+        print("[GET /users/me RESPONSE]", payload)
         return payload
 
     def update_me(self, db: Session, user: User, payload: UserUpdate) -> dict:
@@ -212,19 +214,59 @@ class UserService:
         return self.get_me(user)
 
     def update_profile(self, db: Session, user: User, payload: UserProfileInput) -> dict:
+        print("[PUT PROFILE] user_id=", user.id)
+        print("[PUT PROFILE] raw payload=", payload)
         values = _dump_model(payload, exclude_unset=True)
+        print("[PUT PROFILE] update_data=", values)
+        current_profile = getattr(user, "profile", None)
+        
+        target_weight = values.get("target_weight_kg")
+        height = values.get("height_cm") or (getattr(current_profile, "height_cm", None) if current_profile else None)
+        if target_weight is not None and height is not None and float(height) > 0:
+            target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
+            if target_bmi >= 23.0:
+                min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
+                max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
+                )
+
+        old_weight = getattr(current_profile, "weight_kg", None)
         if "gender" in values and values["gender"] is not None:
             values["sex"] = values["gender"]
         elif "sex" in values and values["sex"] is not None:
             values["gender"] = values["sex"]
+
+        if "favorite_foods" in values:
+            normalized_favorite_foods = _parse_profile_list(values["favorite_foods"])
+            print("[PUT PROFILE] normalized favorite_foods=", normalized_favorite_foods)
+            values["favorite_foods"] = _serialize_profile_list(normalized_favorite_foods)
         if "disliked_foods" in values:
-            values["disliked_foods"] = _serialize_profile_list(values["disliked_foods"])
+            normalized_disliked_foods = _parse_profile_list(values["disliked_foods"])
+            print("[PUT PROFILE] normalized disliked_foods=", normalized_disliked_foods)
+            values["disliked_foods"] = _serialize_profile_list(normalized_disliked_foods)
         if "disliked_food_groups" in values:
-            values["disliked_food_groups"] = _serialize_profile_list(values["disliked_food_groups"])
-        if "favorite_foods" in values and values["favorite_foods"] is not None:
-            values["favorite_foods"] = str(values["favorite_foods"]).strip() or None
+            grp_list = _parse_profile_list(values["disliked_food_groups"])
+            values["disliked_food_groups"] = _serialize_profile_list(grp_list)
+
         profile = UserRepository(db).upsert_profile(user.id, values)
-        return self.profile_to_payload(profile) or {}
+        new_weight = values.get("weight_kg")
+        if new_weight is not None and "weight_kg" in values and (
+            old_weight is None or abs(float(new_weight) - float(old_weight or 0.0)) >= 0.05
+        ):
+            WeightLogService().sync_profile_weight(db, user, profile.weight_kg)
+        refreshed_user = UserRepository(db).get_by_id(user.id)
+        refreshed_profile = getattr(refreshed_user, "profile", None) if refreshed_user else None
+        print("[PUT PROFILE] weight_kg=", getattr(refreshed_profile, "weight_kg", None))
+        print("[PUT PROFILE] target_weight_kg=", getattr(refreshed_profile, "target_weight_kg", None))
+        print("[PUT PROFILE AFTER COMMIT]", {
+            "weight_kg": getattr(refreshed_profile, "weight_kg", None),
+            "target_weight_kg": getattr(refreshed_profile, "target_weight_kg", None),
+            "favorite_foods": getattr(refreshed_profile, "favorite_foods", None),
+            "disliked_foods": getattr(refreshed_profile, "disliked_foods", None),
+        })
+        return self.profile_to_payload(refreshed_profile) or {}
 
     def admin_stats(self, db: Session) -> dict:
         repository = UserRepository(db)

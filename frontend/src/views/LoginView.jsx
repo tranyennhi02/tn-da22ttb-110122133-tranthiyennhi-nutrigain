@@ -37,9 +37,36 @@ export default function LoginView({ onAuthSuccess }) {
     setToast("");
     try {
       await onAuthSuccess({ ...defaultLoginState, ...formData, mode: authMode });
-      setToast("Đăng nhập thành công!");
-    } catch {
-      setServerError("Email hoặc mật khẩu không chính xác.");
+      setToast(authMode === "register" ? "Đăng ký thành công!" : "Đăng nhập thành công!");
+    } catch (err) {
+      console.error("Auth error:", err);
+      const errMsg = err.message || "";
+      
+      if (authMode === "register") {
+        if (errMsg.includes("already exists") || errMsg.includes("registered") || errMsg.includes("Conflict")) {
+          setServerError("Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
+        } else if (errMsg.includes("at least 8 characters") || errMsg.includes("too short") || formData.password.length < 8) {
+          setServerError("Mật khẩu cần có ít nhất 8 ký tự.");
+        } else if (errMsg.includes("Invalid email") || errMsg.includes("invalid")) {
+          setServerError("Email không hợp lệ.");
+        } else if (errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError")) {
+          setServerError("Không thể kết nối đến máy chủ. Vui lòng thử lại sau.");
+        } else if (errMsg) {
+          setServerError(errMsg);
+        } else {
+          setServerError("Không thể tạo tài khoản lúc này. Vui lòng thử lại.");
+        }
+      } else {
+        if (errMsg.includes("Invalid email or password") || errMsg.includes("incorrect") || errMsg.includes("Unauthorized")) {
+          setServerError("Email hoặc mật khẩu không chính xác.");
+        } else if (errMsg.includes("disabled")) {
+          setServerError("Tài khoản của bạn đã bị vô hiệu hóa.");
+        } else if (errMsg) {
+          setServerError(errMsg);
+        } else {
+          setServerError("Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.");
+        }
+      }
     } finally {
       setIsSubmitting(false);
     }

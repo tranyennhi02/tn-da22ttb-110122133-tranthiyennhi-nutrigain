@@ -19,7 +19,7 @@ export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, 
     if (!form.email.trim()) errs.email = "Vui lòng nhập email";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Email không hợp lệ";
     if (!form.password) errs.password = "Vui lòng nhập mật khẩu";
-    else if (form.password.length < 6) errs.password = "Tối thiểu 6 ký tự";
+    else if (form.password.length < 8) errs.password = "Mật khẩu cần có ít nhất 8 ký tự.";
     return errs;
   }
 
@@ -70,7 +70,7 @@ export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, 
           <Field label="Email" name="email" type="email" placeholder="ban@example.com" value={form.email} error={errors.email} onChange={handleChange} />
           <div>
             <div className="relative">
-              <Field label="Mật khẩu" name="password" type={showPw ? "text" : "password"} placeholder="Tối thiểu 6 ký tự" value={form.password} error={errors.password} onChange={handleChange} />
+              <Field label="Mật khẩu" name="password" type={showPw ? "text" : "password"} placeholder="Tối thiểu 8 ký tự" value={form.password} error={errors.password} onChange={handleChange} />
               <button
                 type="button"
                 onClick={() => setShowPw((v) => !v)}
