@@ -25,6 +25,7 @@ def ensure_database_schema(engine: Engine) -> None:
     not add new columns to old tables. These ALTERs keep older demo databases
     usable after adding auth/user-specific history.
     """
+    _add_column_if_missing(engine, "users", "auth_provider", "auth_provider VARCHAR(50) NULL DEFAULT 'email'")
     _add_column_if_missing(engine, "foods", "name", "name TEXT NULL")
     _add_column_if_missing(engine, "foods", "calories", "calories FLOAT NULL")
     _add_column_if_missing(engine, "foods", "protein", "protein FLOAT NULL")

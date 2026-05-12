@@ -85,6 +85,17 @@ export async function register(payload) {
   return persistSession(data);
 }
 
+export async function loginWithGoogle(idToken) {
+  if (!idToken) {
+    throw new Error("Token Google không hợp lệ.");
+  }
+  const data = await requestAuth("/api/v1/auth/google", {
+    id_token: idToken,
+  });
+  return persistSession(data);
+}
+
+
 export function logout() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
   for (const key of PROFILE_CACHE_KEYS) {

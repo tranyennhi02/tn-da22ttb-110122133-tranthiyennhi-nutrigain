@@ -23,12 +23,14 @@ class UserRepository:
         password_hash: str,
         full_name: str | None = None,
         role: str = "user",
+        auth_provider: str = "email",
     ) -> User:
         user = User(
             email=email.strip().lower(),
             password_hash=password_hash,
             full_name=full_name,
             role=role,
+            auth_provider=auth_provider,
         )
         self.db.add(user)
         self.db.commit()

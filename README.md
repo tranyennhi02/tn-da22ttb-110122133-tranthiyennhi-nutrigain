@@ -251,6 +251,46 @@ docker compose down
 
 ---
 
+## Thiết lập CI/CD và Deploy tự động
+
+Dự án NutriGain được tích hợp sẵn hệ thống **CI/CD hoàn chỉnh** qua **GitHub Actions**. Hệ thống sẽ tự động kiểm tra code (lint/build), đóng gói Docker và deploy trực tiếp lên máy chủ Linux (Production Server) của bạn khi có thay đổi trên nhánh `main`.
+
+### Luồng Hoạt Động của Pipeline
+
+1. **Backend Check**: Cài đặt dependencies, tự động chạy kiểm tra compile (`python -m compileall`).
+2. **Frontend Check**: Cài đặt node modules bằng `npm ci` và biên dịch production build (`npm run build`).
+3. **Docker Build Check**: Kiểm tra tính hợp lệ của cấu trúc `docker compose config` và thử nghiệm đóng gói container (`docker compose build`) để loại bỏ rủi ro vỡ build trên server.
+4. **Automated Deploy (chỉ chạy trên push to main)**: Kết nối an toàn qua SSH vào server, pull code mới, tự động sinh tệp `.env` cấu hình từ GitHub Secrets, tái khởi động các container (`docker compose up -d --build`) và kiểm tra độ phản hồi thông qua Post-Deployment Health Check (`/api/v1/health`).
+
+### Danh sách GitHub Repository Secrets cần cấu hình
+
+Để kích hoạt tính năng deploy tự động, hãy truy cập kho lưu trữ GitHub của bạn: `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret` và thêm các biến sau:
+
+| Secret Key | Giá trị mẫu | Ý nghĩa |
+|---|---|---|
+| `SERVER_HOST` | `123.45.67.89` | Địa chỉ IP Public của VPS/Server |
+| `SERVER_USER` | `root` hoặc `ubuntu` | Tên tài khoản SSH của Server |
+| `SERVER_SSH_KEY` | `-----BEGIN OPENSSH PRIVATE KEY-----...` | Khóa SSH Private dùng để xác thực không mật khẩu |
+| `SERVER_PORT` | `22` | Cổng SSH trên server (mặc định: 22) |
+| `MYSQL_DATABASE` | `food_recommender` | Tên cơ sở dữ liệu MySQL |
+| `MYSQL_USER` | `nutrigain` | Tài khoản kết nối MySQL |
+| `MYSQL_PASSWORD` | `your_secure_password` | Mật khẩu truy cập MySQL |
+| `MYSQL_ROOT_PASSWORD` | `your_root_password` | Mật khẩu tài khoản Root MySQL |
+| `JWT_SECRET_KEY` | `6c1071424b9e782e4e16...` | Chuỗi ký tự bảo mật cho JWT (sinh bằng `openssl rand -hex 32`) |
+| `BACKEND_PORT` | `8000` | Cổng Public cho backend API (mặc định: 8000) |
+| `FRONTEND_PORT` | `5173` | Cổng Public cho frontend (mặc định: 5173) |
+| `VITE_API_BASE_URL` | `http://123.45.67.89:8000` | URL API công khai của API để Frontend kết nối |
+| `APP_ENV` | `production` | Môi trường ứng dụng (`production` / `development`) |
+
+### Chuẩn bị Máy Chủ (Server) trước khi Deploy
+
+Trước khi chạy deploy lần đầu tiên, hãy đảm bảo rằng:
+1. Server đã được cài đặt sẵn **Docker** và **Docker Compose**.
+2. Người dùng SSH có quyền chạy lệnh `docker` và `git` không cần `sudo` (hoặc cấu hình docker daemon không sudo).
+3. Đã tạo sẵn thư mục `~/NutriGain` trên máy chủ, hoặc pipeline sẽ tự động clone dự án vào thư mục này lần đầu tiên.
+
+---
+
 ## CLI và xử lý dữ liệu
 
 NutriGain hỗ trợ các script CLI để nạp dữ liệu, xử lý dataset và huấn luyện model sở thích.

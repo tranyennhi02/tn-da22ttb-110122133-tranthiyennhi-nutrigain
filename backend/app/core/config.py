@@ -31,6 +31,7 @@ class Settings:
         "dev-only-change-this-secret-before-production",
     )
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+    google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID", None)
 
 
 settings = Settings()

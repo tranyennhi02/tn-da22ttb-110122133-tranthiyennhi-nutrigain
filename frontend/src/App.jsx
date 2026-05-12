@@ -10,20 +10,28 @@ import { defaultFormState } from "./models/recommendationModel";
 import { parseFoodList } from "./utils/foodList.js";
 import { normalizeProfilePayload, foodListToInput } from "./utils/profileFormUtils.js";
 
-export function isProfileComplete(user) {
-  const profile = user?.profile || user?.nutrition_profile || user;
-  return Boolean(
-    profile &&
-    profile.age &&
-    (profile.sex || profile.gender) &&
-    profile.height_cm &&
-    profile.weight_kg &&
-    profile.activity_level &&
-    profile.weight_gain_speed &&
-    profile.diet_type &&
-    profile.budget_level &&
-    profile.items_per_meal
-  );
+export function isProfileComplete(profile) {
+  if (!profile) return false;
+
+  const requiredFields = [
+    "weight_kg",
+    "height_cm",
+    "age",
+    "target_weight_kg",
+    "activity_level",
+    "diet_type",
+    "budget_level",
+    "items_per_meal",
+  ];
+
+  const hasRequiredFields = requiredFields.every((key) => {
+    const value = profile[key];
+    return value !== null && value !== undefined && value !== "";
+  });
+
+  const hasGender = Boolean(profile.gender || profile.sex);
+
+  return hasRequiredFields && hasGender;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -87,6 +95,7 @@ export default function App() {
   const [initialMealResult, setInitialMealResult] = useState(null);
   const [initialSection, setInitialSection] = useState("overview");
   const [justLoggedIn, setJustLoggedIn] = useState(false);
+  const [profileFormMode, setProfileFormMode] = useState("register_onboarding");
 
   const userEmail = useMemo(() => session?.email || "", [session]);
 
@@ -110,12 +119,23 @@ export default function App() {
         const currentUser = normalizeUserProfileArrays(rawUser);
         const profile = currentUser?.profile;
         if (cancelled) return;
-        console.log("[PROFILE REFRESH /users/me] =", currentUser);
+        console.log("[AFTER LOGIN /users/me]", currentUser);
         setAuthUser(currentUser);
         if (profile) {
           setProfileFormState(mapUserProfileToFormState(profile));
         }
-        if (isProfileComplete(currentUser) && localStorage.getItem(ONBOARDING_DONE_KEY) === "1") {
+        
+        const profileCompleted = isProfileComplete(currentUser?.profile);
+        console.log("[PROFILE COMPLETE CHECK]", {
+          profile: profile,
+          profileCompleted: profileCompleted
+        });
+
+        console.log("[AUTH REDIRECT]", profileCompleted ? "dashboard" : "onboarding");
+
+        if (profileCompleted) {
+          markOnboardingDone();
+          setProfileFormMode("edit_existing_profile");
           setAppView("dashboard");
           return;
         }
@@ -131,6 +151,7 @@ export default function App() {
         return;
       }
       clearOnboardingFlag();
+      setProfileFormMode("register_onboarding");
       if (!cancelled) setAppView("onboarding");
     }
 
@@ -158,12 +179,16 @@ export default function App() {
       }
       const currentUser = normalizeUserProfileArrays(rawUser);
       const profile = currentUser?.profile;
-      console.log("[PROFILE REFRESH /users/me] =", currentUser);
+      
+      console.log("[AUTH SUCCESS USER]", currentUser);
       setAuthUser(currentUser);
-      if (profile) {
-        setProfileFormState(mapUserProfileToFormState(profile));
-      }
+      
+      const formState = mapUserProfileToFormState(profile);
+      setProfileFormState(formState);
+      console.log("[PROFILE FORM PREFILL]", formState);
 
+      console.log("[AUTH REDIRECT]", "profile_form_after_login");
+      setProfileFormMode("edit_after_login");
       setAppView("onboarding");
     } catch (error) {
       console.error("Failed to load user after auth", error);
@@ -180,6 +205,7 @@ export default function App() {
 
   async function handleAuthSubmit(loginState) {
     const nextSession = await submitLogin(loginState);
+    console.log("[EMAIL LOGIN SUCCESS]", nextSession);
     await handleAuthSuccess(nextSession);
   }
 
@@ -299,7 +325,6 @@ export default function App() {
   }
 
   if (appView === "onboarding") {
-    const isDone = localStorage.getItem(ONBOARDING_DONE_KEY) === "1";
     return (
       <OnboardingView
         userEmail={userEmail}
@@ -307,7 +332,7 @@ export default function App() {
         onComplete={handleOnboardingComplete}
         initialData={profileFormState}
         onLogout={handleLogout}
-        profileFormMode={isDone ? "edit_existing_profile" : "register_onboarding"}
+        profileFormMode={profileFormMode}
       />
     );
   }

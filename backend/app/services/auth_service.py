@@ -83,3 +83,78 @@ class AuthService:
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
         return self._token_payload(user)
+
+    def google_login(self, id_token: str, db: Session) -> AuthTokenResponse:
+        import urllib.request
+        import json
+        import secrets
+        from app.core.config import settings
+
+        print("[GOOGLE CLIENT ID BACKEND]", "loaded" if settings.google_client_id else "missing")
+
+        if not id_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token Google không hợp lệ.",
+            )
+
+        url = f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "NutriGain-API"})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                google_data = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            print("[GOOGLE AUTH] Failed to verify token via Google API:", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token Google không hợp lệ.",
+            ) from exc
+
+        aud = google_data.get("aud")
+        email = google_data.get("email")
+        name = google_data.get("name") or google_data.get("given_name") or (email.split("@")[0] if email else "Google User")
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token Google không hợp lệ.",
+            )
+
+        if settings.google_client_id and aud != settings.google_client_id:
+            print(f"[GOOGLE AUTH] Client ID mismatch. Expected: {settings.google_client_id}, Got: {aud}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token Google không hợp lệ.",
+            )
+
+        repository = UserRepository(db)
+        user = repository.get_by_email(email)
+
+        if user is None:
+            dummy_password = secrets.token_hex(16)
+            password_hash = hash_password(dummy_password)
+            
+            try:
+                role = "admin" if repository.count_users() == 0 else "user"
+                user = repository.create_user(
+                    email=email,
+                    password_hash=password_hash,
+                    full_name=name,
+                    role=role,
+                    auth_provider="google",
+                )
+            except IntegrityError as exc:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email đã được đăng ký bằng phương thức khác.",
+                ) from exc
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is disabled",
+            )
+
+        return self._token_payload(user)
+

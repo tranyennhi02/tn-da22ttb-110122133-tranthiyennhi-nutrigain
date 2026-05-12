@@ -1,4 +1,4 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, useEffect } from "react";
 import NutriGainLogo from "../../components/NutriGainLogo";
 
 export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, isSubmitting, serverError, toast }) {
@@ -6,6 +6,53 @@ export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, 
   const [form, setForm] = useState({ fullName: "", email: "", password: "" });
   const [showPw, setShowPw] = useState(false);
   const [errors, setErrors] = useState({});
+
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const isGoogleConfigured = !!googleClientId && googleClientId !== "YOUR_GOOGLE_CLIENT_ID_HERE" && googleClientId !== "";
+
+  console.log("[GOOGLE CLIENT ID]", isGoogleConfigured ? "loaded" : "missing");
+
+  useEffect(() => {
+    if (!isGoogleConfigured) return;
+
+    let active = true;
+    let interval = setInterval(() => {
+      if (window.google) {
+        clearInterval(interval);
+        if (active) {
+          initGoogleSignIn();
+        }
+      }
+    }, 100);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+
+    function initGoogleSignIn() {
+      if (window.google) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (res) => {
+            if (res.credential) {
+              onGoogleLogin(res.credential);
+            }
+          },
+        });
+        window.google.accounts.id.renderButton(
+          document.getElementById("google-signin-btn"),
+          {
+            theme: "outline",
+            size: "large",
+            width: "376",
+            text: "continue_with",
+            shape: "pill",
+          }
+        );
+      }
+    }
+  }, [isGoogleConfigured, onGoogleLogin, googleClientId]);
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -46,14 +93,23 @@ export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, 
         </div>
 
         {/* Google button */}
-        <button
-          type="button"
-          onClick={onGoogleLogin}
-          className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-brand-border bg-white text-sm font800 text-brand-text-main shadow-sm transition hover:border-brand-primary hover:shadow-md"
-        >
-          <GoogleIcon />
-          Tiếp tục với Google
-        </button>
+        {isGoogleConfigured ? (
+          <div id="google-signin-btn" className="mt-7 flex w-full justify-center" />
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled
+              className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-sm font800 text-brand-text-main opacity-60 cursor-not-allowed"
+            >
+              <GoogleIcon />
+              Tiếp tục với Google
+            </button>
+            <p className="mt-2 text-center text-xs font700 text-amber-600">
+              Tính năng đăng nhập Google đang được phát triển. Vui lòng đăng nhập bằng email.
+            </p>
+          </>
+        )}
 
         {/* Divider */}
         <div className="my-6 flex items-center gap-4">

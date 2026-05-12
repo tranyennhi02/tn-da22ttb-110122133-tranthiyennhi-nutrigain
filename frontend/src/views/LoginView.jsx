@@ -72,9 +72,19 @@ export default function LoginView({ onAuthSuccess }) {
     }
   }
 
-  function handleGoogleLogin() {
-    // TODO: integrate Google OAuth
-    setServerError("Tính năng đang được phát triển. Vui lòng dùng email.");
+  async function handleGoogleLogin(idToken) {
+    setIsSubmitting(true);
+    setServerError("");
+    setToast("");
+    try {
+      await onAuthSuccess({ id_token: idToken, mode: "google" });
+      setToast("Đăng nhập Google thành công!");
+    } catch (err) {
+      console.error("Google auth error:", err);
+      setServerError(err.message || "Không thể đăng nhập bằng Google. Vui lòng thử lại hoặc đăng nhập bằng email.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   // ── Auth overlay ───────────────────────────────────────────────────────────

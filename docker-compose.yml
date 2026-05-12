@@ -4,12 +4,12 @@ services:
     container_name: nutrigain-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: food_recommender
-      MYSQL_USER: nutrigain
-      MYSQL_PASSWORD: yennhi2602
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-food_recommender}
+      MYSQL_USER: ${MYSQL_USER:-nutrigain}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-yennhi2602}
     ports:
-      - "3307:3306"
+      - "${DB_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -24,10 +24,12 @@ services:
       dockerfile: backend/Dockerfile
     container_name: nutrigain-backend
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       APP_NAME: NutriGain API
-      APP_ENV: production
-      FRONTEND_ORIGIN: http://localhost:5173
+      APP_ENV: ${APP_ENV:-production}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://nutrigain:yennhi2602@db:3306/food_recommender}
       FOOD_DATASET_PATH: ${FOOD_DATASET_PATH:-/app/food_dataset_fixed.csv}
       RAW_DATA_PATH: ${RAW_DATA_PATH:-/app/food_dataset_fixed.csv}
@@ -36,8 +38,9 @@ services:
       PREFERENCE_MODEL_PATH: ${PREFERENCE_MODEL_PATH:-/app/preference_model.joblib}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-before-production}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -46,12 +49,18 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     container_name: nutrigain-frontend
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
       - backend
 

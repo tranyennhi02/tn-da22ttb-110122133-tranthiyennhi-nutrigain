@@ -1,7 +1,10 @@
 import { normalizeLoginPayload } from "../models/authModel";
-import { getSession, login, logout, register } from "../services/authService";
+import { getSession, login, logout, register, loginWithGoogle } from "../services/authService";
 
 export async function submitLogin(loginState) {
+  if (loginState.mode === "google") {
+    return loginWithGoogle(loginState.id_token);
+  }
   const payload = normalizeLoginPayload(loginState);
   if (loginState.mode === "register") {
     return register(payload);

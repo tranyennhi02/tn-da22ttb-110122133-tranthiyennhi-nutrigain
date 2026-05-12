@@ -37,6 +37,7 @@ from app.views.schemas import (
     TodayMealPlanResponse,
     UserCreate,
     UserLogin,
+    GoogleLoginInput,
     UserProfileInput,
     UserProfileView,
     UserUpdate,
@@ -107,6 +108,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> AuthTokenRes
 @router.post("/auth/login", response_model=AuthTokenResponse, tags=["auth"])
 def login(payload: UserLogin, db: Session = Depends(get_db)) -> AuthTokenResponse:
     return auth_service.login(payload, db)
+
+
+@router.post("/auth/google", response_model=AuthTokenResponse, tags=["auth"])
+def google_login(payload: GoogleLoginInput, db: Session = Depends(get_db)) -> AuthTokenResponse:
+    return auth_service.google_login(payload.id_token, db)
 
 
 @router.get("/users/me", response_model=CurrentUserView, tags=["users"])

@@ -16,6 +16,10 @@ class UserLogin(BaseModel):
     password: str
 
 
+class GoogleLoginInput(BaseModel):
+    id_token: str
+
+
 class UserUpdate(BaseModel):
     email: str | None = None
     full_name: str | None = None

@@ -516,7 +516,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     user?.onboarding_completed || 
     (user?.weight_kg || user?.height_cm || user?.age)
   );
-  const isExistingUser = isLoggedIn && hasExistingProfile;
+  const isExistingUser = (isLoggedIn && hasExistingProfile) || profileFormMode === "edit_after_login";
 
   const isOnboardingMode = !isExistingUser;
   const isEditProfileMode = isExistingUser;
