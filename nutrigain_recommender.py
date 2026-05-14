@@ -40,6 +40,74 @@ def _console_safe(value: object) -> str:
     return str(value).encode(encoding, errors="replace").decode(encoding, errors="replace")
 
 
+def is_non_vegetarian_food(row: pd.Series | dict) -> bool:
+    import unicodedata
+
+    def strip_accents(s):
+        return "".join(c for c in unicodedata.normalize("NFD", str(s or "")) if unicodedata.category(c) != "Mn").replace("đ", "d").replace("Đ", "D")
+
+    cat_lower = str(row.get("category", "")).lower()
+    clean_cat_lower = str(row.get("clean_category", "")).lower()
+    group_lower = str(row.get("food_group", "")).lower()
+
+    if any(c in {"protein_meat", "protein_seafood", "meat", "seafood", "đạm · hải sản", "đạm · thịt", "egg", "trứng"} for c in [cat_lower, clean_cat_lower, group_lower]):
+        return True
+
+    parts = [
+        str(row.get("name", "")),
+        str(row.get("name_en", "")),
+        str(row.get("display_name_en", "")),
+        str(row.get("name_vi", "")),
+        str(row.get("category", "")),
+        str(row.get("clean_category", "")),
+        str(row.get("food_group", "")),
+        str(row.get("tags", "")),
+        str(row.get("ingredients", "")),
+    ]
+    raw_text = " ".join(parts).lower()
+    norm_text = strip_accents(raw_text).lower()
+
+    plant_milks = [
+        "sữa đậu", "sữa hạnh nhân", "sữa dừa", "sữa bắp", "sữa hạt", "sữa gạo", "sữa yến mạch", "sữa thực vật", "sữa chua đậu",
+        "sua dau", "sua hanh nhan", "sua dua", "sua bap", "sua hat", "sua gao", "sua yen mach", "sua thuc vat", "sua chua dau",
+        "soy milk", "almond milk", "coconut milk", "oat milk", "rice milk", "nut milk", "plant milk", "soy yogurt", "tofu yogurt",
+    ]
+    is_plant_milk = any(pm in raw_text or pm in norm_text for pm in plant_milks)
+
+    if any(c in {"dairy", "sữa"} for c in [cat_lower, clean_cat_lower, group_lower]) and not is_plant_milk:
+        return True
+
+    padded_raw = f" {raw_text} "
+    padded_norm = f" {norm_text} "
+
+    standalone_terms = [
+        "heo", "lon", "ga", "vit", "ca", "tom", "cua", "muc", "ngheu", "so", "oc", "luon", "suon", "gio", "pate", "thit",
+        "beef", "pork", "chicken", "duck", "fish", "shrimp", "crab", "squid", "meat", "steak", "sausage", "ham", "bacon", "tuna", "salmon",
+        "cá", "bò", "gà", "vịt", "heo", "lợn", "tôm", "cua", "mực", "ốc", "sò", "nghêu", "lươn", "sườn", "giò",
+        "trứng", "egg", "yolk", "mozzarella",
+    ]
+    for term in standalone_terms:
+        if f" {term} " in padded_norm or f" {term} " in padded_raw:
+            return True
+
+    multi_terms = [
+        "thit bo", "thit heo", "thit lon", "thit ga", "thit vit", "hai san", "bit tet", "mortadella", "xuc xich", "cha lua", "seafood",
+        "thịt bò", "thịt heo", "thịt lợn", "thịt gà", "thịt vịt", "hải sản", "bít tết", "xúc xích", "chả lụa",
+        "long do trung", "long trang trung", "lòng đỏ trứng", "lòng trắng trứng",
+    ]
+    for term in multi_terms:
+        if term in norm_text or term in raw_text:
+            return True
+
+    if not is_plant_milk:
+        dairy_terms = ["sữa", "sua", "milk", "cheese", "yogurt", "pho mai", "phô mai", "sữa chua", "sua chua", "dairy", "cream", "mozzarella"]
+        for term in dairy_terms:
+            if f" {term} " in padded_norm or f" {term} " in padded_raw or term in norm_text or term in raw_text:
+                return True
+
+    return False
+
+
 DEFAULT_ACTIVITY_FACTORS = {
     "default": 1.3,
     "sedentary": 1.2,
@@ -712,6 +780,9 @@ class UserProfile:
     weight_gain_speed: str | None = None
     disliked_foods: tuple[str, ...] = ()
     disliked_food_groups: tuple[str, ...] = ()
+    diet_type: str | None = None
+    items_per_meal: int | None = None
+    user_id: int | None = None
 
 
 class HealthyWeightGainRecommender:
@@ -1535,31 +1606,31 @@ class HealthyWeightGainRecommender:
         # Normalise common Vietnamese/mixed speed labels
         speed_surplus = {
             # Slow / nhẹ
-            "slow": 300.0,
-            "nhe": 300.0,
-            "nhẹ": 300.0,
-            "nhe on dinh": 300.0,
-            "nhẹ, ổn định": 300.0,
-            "nhe on": 300.0,
+            "slow": 250.0,
+            "nhe": 250.0,
+            "nhẹ": 250.0,
+            "nhe on dinh": 250.0,
+            "nhẹ, ổn định": 250.0,
+            "nhe on": 250.0,
             # Medium / vừa
             "medium": 400.0,
             "moderate": 400.0,
             "vua": 400.0,
             "vừa": 400.0,
             # Fast / mạnh
-            "fast": 500.0,
-            "strong": 500.0,
-            "nhanh": 500.0,
-            "manh": 500.0,
-            "mạnh": 500.0,
+            "fast": 650.0,
+            "strong": 650.0,
+            "nhanh": 650.0,
+            "manh": 650.0,
+            "mạnh": 650.0,
             # "Mạnh hơn" / "Nhanh hơn" (stronger/faster) → higher surplus
-            "manh hon": 550.0,
-            "mạnh hơn": 550.0,
-            "nhanh hon": 550.0,
-            "nhanh hơn": 550.0,
-            "faster": 550.0,
-            "stronger": 550.0,
-            "aggressive": 550.0,
+            "manh hon": 750.0,
+            "mạnh hơn": 750.0,
+            "nhanh hon": 750.0,
+            "nhanh hơn": 750.0,
+            "faster": 750.0,
+            "stronger": 750.0,
+            "aggressive": 750.0,
         }
         if speed in speed_surplus:
             return speed_surplus[speed]
@@ -1569,11 +1640,11 @@ class HealthyWeightGainRecommender:
                 return value
         # BMI-based fallback
         if bmi < 16:
-            return 500.0  # severely underweight → minimum aggressive surplus
+            return 500.0  # severely underweight → minimum meaningful surplus
         if bmi < 17.5:
             return 400.0
         if bmi < 18.5:
-            return 300.0
+            return 250.0
         return 250.0
 
     @staticmethod
@@ -1640,19 +1711,11 @@ class HealthyWeightGainRecommender:
             target_calories = max(target_calories, min_target)
 
 
-        # Protein: 2.0–2.4 g/kg for severely underweight (muscle repair priority)
-        if bmi < 16:
-            protein_per_kg = 2.2
-            protein_floor = 1.8 * profile.weight_kg
-            protein_ceiling = 2.4 * profile.weight_kg
-        elif bmi < 17.5:
-            protein_per_kg = 2.0
-            protein_floor = 1.8 * profile.weight_kg
-            protein_ceiling = 2.4 * profile.weight_kg
-        else:
-            protein_per_kg = 1.8
-            protein_floor = 1.6 * profile.weight_kg
-            protein_ceiling = 2.2 * profile.weight_kg
+        # Protein: keep recommendations near 1.6 g/kg, capped at 2.0 g/kg,
+        # so calorie surplus is not accidentally filled by too many protein foods.
+        protein_per_kg = 1.6
+        protein_floor = 1.4 * profile.weight_kg
+        protein_ceiling = 2.0 * profile.weight_kg
         target_protein = min(max(protein_floor, protein_per_kg * profile.weight_kg), protein_ceiling)
 
         target_fat = max(1.0 * profile.weight_kg, 0.30 * target_calories / 9.0)
@@ -2118,17 +2181,47 @@ class HealthyWeightGainRecommender:
         if not target_nutrition.get("eligible", True):
             raise ValueError("NutriGain chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân có BMI dưới 18.5.")
         user_vector = self._scale_profile_vector(target_nutrition)
-        scores = cosine_similarity(user_vector, self.feature_matrix).ravel()
+        all_scores = cosine_similarity(user_vector, self.feature_matrix).ravel()
 
-        result_df = self.merged_df.copy()
+        diet_type_str = getattr(profile, "diet_type", None)
+        print("[VEGETARIAN FILTER INPUT]", {
+            "user_id": getattr(profile, "user_id", None),
+            "diet_type": diet_type_str,
+            "items_per_meal": getattr(profile, "items_per_meal", None),
+        })
+
+        all_foods = self.merged_df.copy()
+        score_by_food_id = {str(row.get("food_id")): score for (_, row), score in zip(all_foods.iterrows(), all_scores)}
+
+        after_eligible = all_foods.copy()
+
+        if str(diet_type_str).strip().lower() in {"vegetarian", "vegan", "ăn chay", "an chay", "vegetarianism"}:
+            veg_mask = after_eligible.apply(is_non_vegetarian_food, axis=1)
+            after_vegetarian = after_eligible[~veg_mask].copy()
+            if after_vegetarian.empty:
+                after_vegetarian = after_eligible.copy()
+        else:
+            after_vegetarian = after_eligible.copy()
+
+        after_disliked = after_vegetarian.copy()
+        result_df = after_disliked.copy()
+
+        print("[RECOMMENDER CANDIDATE FILTER COUNTS]", {
+            "all_foods": len(all_foods),
+            "after_eligible": len(after_eligible),
+            "after_vegetarian": len(after_vegetarian),
+            "after_disliked": len(after_disliked),
+            "final_candidates": len(result_df),
+        })
+
+        candidate_scores = np.array([score_by_food_id.get(str(row.get("food_id")), 0.0) for _, row in result_df.iterrows()])
+
         target_calories = float(target_nutrition["calories"])
         meal_slots = max(1, sum(DEFAULT_MEAL_STRUCTURE.values()))
         per_item_target = max(target_calories / meal_slots, 1.0)
 
-        similarity_score = scores
-        calories_raw = result_df["calories_raw"].astype(float)
-
-        calorie_gap = (calories_raw - per_item_target).abs() / per_item_target
+        calories_raw = result_df["calories_raw"].astype(float).values
+        calorie_gap = np.abs(calories_raw - per_item_target) / per_item_target
         calorie_alignment = 1.0 - np.clip(calorie_gap, 0.0, 1.0)
 
         macro_targets_per_item = {
@@ -2136,9 +2229,9 @@ class HealthyWeightGainRecommender:
             "fat": max(float(target_nutrition["fat"]) / meal_slots, 1.0),
             "carbs": max(float(target_nutrition["carbs"]) / meal_slots, 1.0),
         }
-        protein_gap = (result_df["protein_raw"].astype(float) - macro_targets_per_item["protein"]).abs() / macro_targets_per_item["protein"]
-        fat_gap = (result_df["fat_raw"].astype(float) - macro_targets_per_item["fat"]).abs() / macro_targets_per_item["fat"]
-        carbs_gap = (result_df["carbs_raw"].astype(float) - macro_targets_per_item["carbs"]).abs() / macro_targets_per_item["carbs"]
+        protein_gap = np.abs(result_df["protein_raw"].astype(float).values - macro_targets_per_item["protein"]) / macro_targets_per_item["protein"]
+        fat_gap = np.abs(result_df["fat_raw"].astype(float).values - macro_targets_per_item["fat"]) / macro_targets_per_item["fat"]
+        carbs_gap = np.abs(result_df["carbs_raw"].astype(float).values - macro_targets_per_item["carbs"]) / macro_targets_per_item["carbs"]
         macro_alignment = 1.0 - np.clip(
             # Balanced macros for weight gain: protein = fat = carbs in importance
             0.35 * protein_gap + 0.30 * fat_gap + 0.35 * carbs_gap,
@@ -2146,10 +2239,43 @@ class HealthyWeightGainRecommender:
             1.0,
         )
 
+        preference_scores = candidate_scores
+        nutrition_scores = 0.15 * calorie_alignment + 0.45 * macro_alignment
+        diversity_scores = np.zeros(len(result_df))
+        budget_scores = np.zeros(len(result_df))
+
+        print("[RECOMMENDER SCORE SHAPES]", {
+            "candidate_foods": len(result_df),
+            "nutrition_scores": len(nutrition_scores),
+            "preference_scores": len(preference_scores),
+            "diversity_scores": len(diversity_scores),
+            "budget_scores": len(budget_scores),
+        })
+
+        def assert_same_length(label, expected_len, **arrays):
+            bad = {name: len(value) for name, value in arrays.items() if value is not None and len(value) != expected_len}
+            if bad:
+                print("[RECOMMENDER SHAPE MISMATCH]", {
+                    "label": label,
+                    "expected_len": expected_len,
+                    "bad": bad,
+                })
+                raise ValueError(f"Score arrays length mismatch at {label}: expected {expected_len}, got {bad}")
+
+        assert_same_length(
+            "final score combine",
+            len(result_df),
+            nutrition_scores=nutrition_scores,
+            preference_scores=preference_scores,
+            diversity_scores=diversity_scores,
+            budget_scores=budget_scores,
+        )
+
         result_df["score"] = (
-            0.40 * similarity_score
-            + 0.15 * calorie_alignment
-            + 0.45 * macro_alignment
+            0.40 * preference_scores
+            + nutrition_scores
+            + diversity_scores
+            + budget_scores
         )
 
         quality_score = result_df.apply(self._food_quality_score, axis=1)

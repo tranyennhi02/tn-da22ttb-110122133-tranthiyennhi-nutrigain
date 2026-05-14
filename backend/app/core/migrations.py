@@ -26,6 +26,8 @@ def ensure_database_schema(engine: Engine) -> None:
     usable after adding auth/user-specific history.
     """
     _add_column_if_missing(engine, "users", "auth_provider", "auth_provider VARCHAR(50) NULL DEFAULT 'email'")
+    _add_column_if_missing(engine, "users", "role", "role VARCHAR(30) NOT NULL DEFAULT 'USER'")
+    _add_column_if_missing(engine, "users", "status", "status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'")
     _add_column_if_missing(engine, "foods", "name", "name TEXT NULL")
     _add_column_if_missing(engine, "foods", "calories", "calories FLOAT NULL")
     _add_column_if_missing(engine, "foods", "protein", "protein FLOAT NULL")
@@ -79,7 +81,31 @@ def ensure_database_schema(engine: Engine) -> None:
     _add_column_if_missing(engine, "weight_logs", "is_chart_milestone", "is_chart_milestone BOOLEAN NOT NULL DEFAULT 0")
     _add_column_if_missing(engine, "weight_logs", "updated_at", "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
 
+    inspector = inspect(engine)
+    if "error_logs" not in inspector.get_table_names():
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE error_logs (
+                        id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id INTEGER NULL,
+                        endpoint VARCHAR(255) NULL,
+                        error_type VARCHAR(100) NOT NULL,
+                        message TEXT NULL,
+                        stack_trace TEXT NULL,
+                        status VARCHAR(30) NOT NULL DEFAULT 'OPEN',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+
     with engine.begin() as connection:
+        connection.execute(text("UPDATE users SET role = UPPER(role) WHERE role IS NOT NULL"))
+        connection.execute(text("UPDATE users SET role = 'USER' WHERE role IS NULL OR role = ''"))
+        connection.execute(text("UPDATE users SET status = 'LOCKED' WHERE is_active = 0"))
+        connection.execute(text("UPDATE users SET status = 'ACTIVE' WHERE status IS NULL OR status = ''"))
         connection.execute(
             text(
                 """

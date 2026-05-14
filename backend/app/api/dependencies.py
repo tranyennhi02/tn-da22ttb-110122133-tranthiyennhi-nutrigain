@@ -35,12 +35,16 @@ def get_current_user(
     user = UserRepository(db).get_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+    user_status = str(getattr(user, "status", "") or "").upper()
+    if not user.is_active or user_status == "LOCKED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa.")
     return user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    if str(current_user.role or "").upper() not in {"ADMIN", "SUPER_ADMIN"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền truy cập chức năng quản trị.",
+        )
     return current_user

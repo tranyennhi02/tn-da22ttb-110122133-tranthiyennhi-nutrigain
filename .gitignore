@@ -16,6 +16,7 @@ env/
 # Environments
 .env
 .env.local
+.env.production
 
 # OS
 .DS_Store

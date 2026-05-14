@@ -156,7 +156,8 @@ class UserService:
             "id": user.id,
             "email": user.email,
             "full_name": user.full_name,
-            "role": user.role,
+            "role": str(user.role or "USER").upper(),
+            "status": str(getattr(user, "status", None) or ("ACTIVE" if user.is_active else "LOCKED")).upper(),
             "is_active": user.is_active,
             "created_at": user.created_at.isoformat(timespec="seconds"),
         }
@@ -246,25 +247,33 @@ class UserService:
             normalized_disliked_foods = _parse_profile_list(values["disliked_foods"])
             print("[PUT PROFILE] normalized disliked_foods=", normalized_disliked_foods)
             values["disliked_foods"] = _serialize_profile_list(normalized_disliked_foods)
+        if values.get("diet_style") and not values.get("diet_type"):
+            values["diet_type"] = values["diet_style"]
+        elif values.get("diet_type") and not values.get("diet_style"):
+            values["diet_style"] = values["diet_type"]
+
         if "disliked_food_groups" in values:
             grp_list = _parse_profile_list(values["disliked_food_groups"])
             values["disliked_food_groups"] = _serialize_profile_list(grp_list)
 
         profile = UserRepository(db).upsert_profile(user.id, values)
-        new_weight = values.get("weight_kg")
-        if new_weight is not None and "weight_kg" in values and (
-            old_weight is None or abs(float(new_weight) - float(old_weight or 0.0)) >= 0.05
-        ):
-            WeightLogService().sync_profile_weight(db, user, profile.weight_kg)
+        if "weight_kg" in values and values.get("weight_kg") is not None:
+            WeightLogService().upsert_weight_log_from_profile_update(user, profile.weight_kg, db, source="profile_update")
         refreshed_user = UserRepository(db).get_by_id(user.id)
         refreshed_profile = getattr(refreshed_user, "profile", None) if refreshed_user else None
         print("[PUT PROFILE] weight_kg=", getattr(refreshed_profile, "weight_kg", None))
         print("[PUT PROFILE] target_weight_kg=", getattr(refreshed_profile, "target_weight_kg", None))
-        print("[PUT PROFILE AFTER COMMIT]", {
-            "weight_kg": getattr(refreshed_profile, "weight_kg", None),
-            "target_weight_kg": getattr(refreshed_profile, "target_weight_kg", None),
-            "favorite_foods": getattr(refreshed_profile, "favorite_foods", None),
-            "disliked_foods": getattr(refreshed_profile, "disliked_foods", None),
+        print("[PROFILE UPDATE CHECK]", {
+            "user_id": user.id,
+            "payload_diet_type": getattr(payload, "diet_type", None) or getattr(payload, "diet_style", None),
+            "payload_budget_level": getattr(payload, "budget_level", None),
+            "payload_items_per_meal": getattr(payload, "items_per_meal", None),
+            "before_diet_type": getattr(current_profile, "diet_type", None) if current_profile else None,
+            "before_budget_level": getattr(current_profile, "budget_level", None) if current_profile else None,
+            "before_items_per_meal": getattr(current_profile, "items_per_meal", None) if current_profile else None,
+            "after_diet_type": getattr(refreshed_profile, "diet_type", None) if refreshed_profile else None,
+            "after_budget_level": getattr(refreshed_profile, "budget_level", None) if refreshed_profile else None,
+            "after_items_per_meal": getattr(refreshed_profile, "items_per_meal", None) if refreshed_profile else None,
         })
         return self.profile_to_payload(refreshed_profile) or {}
 
@@ -296,8 +305,13 @@ class UserService:
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         values = _dump_model(payload, exclude_unset=True)
-        if values.get("role") is not None and values["role"] not in {"user", "admin"}:
+        if values.get("role") is not None and str(values["role"]).upper() not in {"USER", "ADMIN", "SUPER_ADMIN"}:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid role")
+        if values.get("role") is not None:
+            values["role"] = str(values["role"]).upper()
+        if values.get("status") is not None:
+            values["status"] = str(values["status"]).upper()
+            values["is_active"] = values["status"] == "ACTIVE"
         user = repository.update_user(user, values)
         return self.user_to_payload(user)
 

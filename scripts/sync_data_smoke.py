@@ -81,14 +81,14 @@ def main() -> None:
 
     first_log = WeightLog(
         user_id=user.id,
-        weight_kg=34,
+        weight_kg=25,
         log_date=today_vn - timedelta(days=2),
         source="initial_profile",
         is_chart_milestone=True,
     )
     latest_log = WeightLog(
         user_id=user.id,
-        weight_kg=34,
+        weight_kg=25,
         log_date=today_vn - timedelta(days=1),
         source="quick_update",
         is_chart_milestone=False,
@@ -98,11 +98,11 @@ def main() -> None:
 
     summary = WeightLogService().summary(db, db.get(User, user.id))
     assert_close(summary["current_weight"], 37)
-    assert_close(summary["start_weight"], 34)
-    assert_close(summary["change_kg"], 3)
-    assert_close(summary["gained_kg"], 3)
-    assert_close(summary["remaining_kg"], 19)
-    assert_close(summary["progress_percent"], 13.6, tolerance=0.1)
+    assert_close(summary["start_weight"], 25)
+    assert_close(summary["change_kg"], 12)
+    assert_close(summary["gained_kg"], 12)
+    assert_close(summary["remaining_kg"], 6)
+    assert_close(summary["progress_percent"], 75.0, tolerance=0.1)
 
     user = db.get(User, user.id)
     service.update_profile(db, user, UserProfileInput(weight_kg=38))

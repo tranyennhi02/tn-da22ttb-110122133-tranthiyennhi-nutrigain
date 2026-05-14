@@ -49,14 +49,18 @@ class NutritionCalculationService:
 
     @staticmethod
     def get_activity_factor(activity_level: str) -> float:
+        normalized = str(activity_level or "").strip().lower()
         factors = {
             "sedentary": 1.2,
+            "lightly_active": 1.375,
             "light": 1.375,
+            "light_active": 1.375,
             "moderate": 1.55,
+            "moderately_active": 1.55,
             "active": 1.725,
-            "very_active": 1.9
+            "very_active": 1.725
         }
-        return factors.get(activity_level.lower(), 1.55)
+        return factors.get(normalized, 1.55)
 
     @staticmethod
     def calculate_targets(
@@ -80,21 +84,23 @@ class NutritionCalculationService:
         # Surplus Logic
         surplus = 0
         ramp_up_week = weeks_active if bmi < 16 else None
+        speed_key = str(gain_speed or "medium").strip().lower()
+        if speed_key in {"slow", "nhe", "nhẹ"}:
+            speed_surplus = 250
+        elif speed_key in {"fast", "nhanh", "manh", "mạnh", "aggressive"}:
+            speed_surplus = 650
+        else:
+            speed_surplus = 400
         
         if bmi < 16:
             if weeks_active == 1:
-                surplus = 200
-            elif weeks_active == 2:
-                surplus = 300
-            else:
-                surplus = 400 # 400-500
-        else:
-            if gain_speed == "slow":
                 surplus = 250
-            elif gain_speed == "fast":
-                surplus = 500
-            else:
+            elif weeks_active == 2:
                 surplus = 400
+            else:
+                surplus = speed_surplus
+        else:
+            surplus = speed_surplus
 
         calorie_target = round(tdee + surplus)
 
@@ -104,11 +110,10 @@ class NutritionCalculationService:
         stage_2_weight = round(18.5 * (height_m * height_m), 1)
         target_weight_missing = target_weight is None or target_weight <= 0
 
-        # Macros
-        # 1.6 to 2.2 g/kg. Use target stage 1 weight if missing and BMI < 16
+        # Macros: keep protein in a safer 1.4-2.0 g/kg/day band, with
+        # 1.6 g/kg as the default weight-gain target.
         reference_weight = stage_1_weight if (bmi < 16 and target_weight_missing) else (target_weight or weight_kg)
-        
-        protein_g = round(2.0 * reference_weight) 
+        protein_g = round(min(max(1.6 * reference_weight, 1.4 * weight_kg), 2.0 * weight_kg))
         fat_g = round((0.30 * calorie_target) / 9)
         
         remaining_kcal = calorie_target - (protein_g * 4) - (fat_g * 9)

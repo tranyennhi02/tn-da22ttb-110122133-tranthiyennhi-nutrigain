@@ -253,8 +253,8 @@ function StepDiet({ data, update }) {
   const diets = [
     { v:"balanced", title:"Cân bằng", icon:"⚖️" },
     { v:"eat_clean", title:"Eat Clean", icon:"🥬" },
-    { v:"low_carb", title:"Giàu Protein", icon:"🥩" },
-    { v:"vegetarian", title:"Tiết kiệm", icon:"🌱" },
+    { v:"high_protein", title:"Giàu Protein", icon:"🥩" },
+    { v:"vegetarian", title:"Ăn chay", icon:"🌱" },
   ];
   const budgets = [
     { v:"low", title:"Tiết kiệm" },
@@ -502,7 +502,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       target_weight: profile.target_weight_kg ?? prev.target_weight,
       target_weight_kg: profile.target_weight_kg ?? prev.target_weight_kg,
       meal_complexity: profile.items_per_meal === 3 ? "simple" : profile.items_per_meal === 5 ? "full" : prev.meal_complexity,
-      diet_style: profile.diet_type ?? prev.diet_style,
+      diet_style: profile.diet_type === "low_carb" ? "high_protein" : profile.diet_type ?? prev.diet_style,
       budget_level: profile.budget_level ?? prev.budget_level,
       favorite_foods: profile.favorite_foods !== undefined && profile.favorite_foods !== null ? foodListToInput(profile.favorite_foods) : prev.favorite_foods,
       unfavorite_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? foodListToInput(profile.disliked_foods) : prev.unfavorite_foods,
@@ -516,7 +516,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     user?.onboarding_completed || 
     (user?.weight_kg || user?.height_cm || user?.age)
   );
-  const isExistingUser = (isLoggedIn && hasExistingProfile) || profileFormMode === "edit_after_login";
+  const isExistingUser = (isLoggedIn && hasExistingProfile) || profileFormMode === "edit_after_auth" || profileFormMode === "edit_after_login";
 
   const isOnboardingMode = !isExistingUser;
   const isEditProfileMode = isExistingUser;
@@ -769,11 +769,11 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
               </button>
             )}
 
-            {/* 2. Middle "Cập nhật & tạo thực đơn" if existing user */}
+            {/* 2. Middle "Cập nhật và tạo thực đơn" if existing user */}
             {isExistingUser && (
               <button onClick={handleFinish} disabled={isSaving}
                 className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-[#10B981] text-[#10B981] bg-emerald-50/30 hover:bg-emerald-50 text-sm font-bold transition disabled:opacity-60">
-                {isSaving ? "Đang lưu..." : "Cập nhật & tạo thực đơn"}
+                {isSaving ? "Đang lưu..." : "Cập nhật và tạo thực đơn"}
               </button>
             )}
 

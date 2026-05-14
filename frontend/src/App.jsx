@@ -4,6 +4,7 @@ import { performLogout, readSession, submitLogin } from "./controllers/authContr
 import { saveUserProfile, submitRecommendation } from "./controllers/recommendationController";
 import { fetchCurrentUser } from "./services/apiService";
 import DashboardView from "./views/DashboardView";
+import AdminView from "./views/AdminView";
 import LoginView from "./views/LoginView";
 import OnboardingView from "./views/OnboardingView";
 import { defaultFormState } from "./models/recommendationModel";
@@ -85,11 +86,36 @@ function normalizeUserProfileArrays(user) {
   };
 }
 
+function syncAuthToken(authResult) {
+  const token = authResult?.access_token || authResult?.accessToken || "";
+  if (!token) {
+    return;
+  }
+
+  const rawSession = localStorage.getItem("nutrigain_auth");
+  if (!rawSession) {
+    return;
+  }
+
+  try {
+    const session = JSON.parse(rawSession);
+    localStorage.setItem(
+      "nutrigain_auth",
+      JSON.stringify({
+        ...session,
+        accessToken: token,
+      })
+    );
+  } catch {
+    // Keep the session as-is if storage is corrupted.
+  }
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => readSession());
   const [authUser, setAuthUser] = useState(null);
-  // "checking" | "onboarding" | "dashboard"
+  // "checking" | "onboarding" | "dashboard" | "admin"
   const [appView, setAppView] = useState("checking");
   const [profileFormState, setProfileFormState] = useState(defaultFormState);
   const [initialMealResult, setInitialMealResult] = useState(null);
@@ -98,6 +124,13 @@ export default function App() {
   const [profileFormMode, setProfileFormMode] = useState("register_onboarding");
 
   const userEmail = useMemo(() => session?.email || "", [session]);
+  const isAdminUser = useCallback((user) => ["ADMIN", "SUPER_ADMIN"].includes(String(user?.role || "").toUpperCase()), []);
+
+  function navigateTo(path) {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
+    }
+  }
 
   useEffect(() => {
     if (!session) {
@@ -121,24 +154,27 @@ export default function App() {
         if (cancelled) return;
         console.log("[AFTER LOGIN /users/me]", currentUser);
         setAuthUser(currentUser);
-        if (profile) {
-          setProfileFormState(mapUserProfileToFormState(profile));
-        }
-        
-        const profileCompleted = isProfileComplete(currentUser?.profile);
-        console.log("[PROFILE COMPLETE CHECK]", {
-          profile: profile,
-          profileCompleted: profileCompleted
-        });
-
-        console.log("[AUTH REDIRECT]", profileCompleted ? "dashboard" : "onboarding");
-
-        if (profileCompleted) {
-          markOnboardingDone();
-          setProfileFormMode("edit_existing_profile");
-          setAppView("dashboard");
+        if (isAdminUser(currentUser)) {
+          navigateTo(window.location.pathname.startsWith("/admin") ? window.location.pathname : "/admin/overview");
+          setAppView("admin");
           return;
         }
+        const hasProfile = Boolean(profile);
+        if (hasProfile) {
+          setProfileFormState(mapUserProfileToFormState(profile));
+          setProfileFormMode("edit_after_auth");
+        } else {
+          setProfileFormState(defaultFormState);
+          setProfileFormMode("register_onboarding");
+        }
+
+        setInitialMealResult(null);
+        setInitialSection("overview");
+        clearOnboardingFlag();
+        console.log("[AUTH REDIRECT]", hasProfile ? "user_profile_form_prefilled" : "user_profile_form_empty");
+        navigateTo("/onboarding");
+        setAppView("onboarding");
+        return;
       } catch (error) {
         console.error("Failed to load user from stored session:", error);
         performLogout();
@@ -152,6 +188,10 @@ export default function App() {
       }
       clearOnboardingFlag();
       setProfileFormMode("register_onboarding");
+      setProfileFormState(defaultFormState);
+      setInitialMealResult(null);
+      setInitialSection("overview");
+      navigateTo("/onboarding");
       if (!cancelled) setAppView("onboarding");
     }
 
@@ -159,11 +199,12 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, isAdminUser]);
 
-  async function handleAuthSuccess(nextSession) {
+  async function handleUserAuthSuccess(authResult) {
     setJustLoggedIn(true);
-    setSession(nextSession);
+    syncAuthToken(authResult);
+    setSession(authResult);
     setAuthUser(null);
     setProfileFormState(defaultFormState);
     setInitialMealResult(null);
@@ -178,18 +219,28 @@ export default function App() {
         throw new Error("Could not fetch user profile after login");
       }
       const currentUser = normalizeUserProfileArrays(rawUser);
-      const profile = currentUser?.profile;
       
       console.log("[AUTH SUCCESS USER]", currentUser);
       setAuthUser(currentUser);
-      
-      const formState = mapUserProfileToFormState(profile);
-      setProfileFormState(formState);
-      console.log("[PROFILE FORM PREFILL]", formState);
+      if (isAdminUser(currentUser)) {
+        navigateTo("/admin/overview");
+        setJustLoggedIn(false);
+        setAppView("admin");
+        return;
+      }
 
-      console.log("[AUTH REDIRECT]", "profile_form_after_login");
-      setProfileFormMode("edit_after_login");
+      const profile = currentUser?.profile;
+      const formState = mapUserProfileToFormState(profile);
+      const hasProfile = Boolean(profile);
+      setProfileFormState(formState);
+      setProfileFormMode(hasProfile ? "edit_after_auth" : "register_onboarding");
+      setInitialMealResult(null);
+      setInitialSection("overview");
+      console.log("[PROFILE FORM PREFILL]", formState);
+      console.log("[AUTH REDIRECT]", hasProfile ? "user_profile_form_prefilled" : "user_profile_form_empty");
+      navigateTo("/onboarding");
       setAppView("onboarding");
+      setJustLoggedIn(false);
     } catch (error) {
       console.error("Failed to load user after auth", error);
       performLogout();
@@ -204,9 +255,9 @@ export default function App() {
   }
 
   async function handleAuthSubmit(loginState) {
-    const nextSession = await submitLogin(loginState);
-    console.log("[EMAIL LOGIN SUCCESS]", nextSession);
-    await handleAuthSuccess(nextSession);
+    const authResult = await submitLogin(loginState);
+    console.log("[AUTH SUCCESS]", authResult);
+    await handleUserAuthSuccess(authResult);
   }
 
   function handleLogout() {
@@ -220,6 +271,7 @@ export default function App() {
     setAppView("checking");
     setInitialMealResult(null);
     setInitialSection("overview");
+    navigateTo("/login");
   }
 
   // Called when onboarding completes
@@ -236,7 +288,8 @@ export default function App() {
       gain_speed: onboardingData.gain_speed || "slow",
       target_weight: onboardingData.target_weight,
       meal_complexity: onboardingData.meal_complexity || "balanced",
-      diet_style: onboardingData.diet_style || "balanced",
+      diet_style: onboardingData.diet_style || onboardingData.diet_type || "balanced",
+      diet_type: onboardingData.diet_type || onboardingData.diet_style || "balanced",
       budget_level: onboardingData.budget_level || "standard",
       favorite_foods: onboardingData.favorite_foods || "",
       unfavorite_foods: onboardingData.unfavorite_foods || "",
@@ -263,6 +316,7 @@ export default function App() {
       setInitialSection(mealPlanResult ? "meal-plan" : "overview");
       markOnboardingDone();
       setJustLoggedIn(false);
+      navigateTo("/dashboard");
       setAppView("dashboard");
       return;
     }
@@ -284,6 +338,7 @@ export default function App() {
     setInitialSection(generatedResult ? "meal-plan" : "overview");
     markOnboardingDone();
     setJustLoggedIn(false);
+    navigateTo("/dashboard");
     setAppView("dashboard");
   }, []);
 
@@ -337,6 +392,10 @@ export default function App() {
     );
   }
 
+  if (appView === "admin") {
+    return <AdminView user={authUser} onLogout={handleLogout} />;
+  }
+
   return (
     <DashboardView
       userEmail={userEmail}
@@ -365,6 +424,8 @@ export function mapUserProfileToFormState(profile) {
   const surplus = Number(profile.surplus_kcal || 0);
   const gainSpeed = surplus >= 475 ? "fast" : surplus >= 375 ? "medium" : "slow";
   const complexity = profile.items_per_meal === 3 ? "simple" : profile.items_per_meal === 5 ? "full" : "balanced";
+  const rawDiet = profile.diet_type || profile.diet_style || "balanced";
+  const dietStyle = rawDiet === "low_carb" ? "high_protein" : rawDiet;
   return {
     ...defaultFormState,
     weight: profile.weight_kg ?? "",
@@ -383,8 +444,8 @@ export function mapUserProfileToFormState(profile) {
     target_weight_kg: profile.target_weight_kg ?? "",
     meal_complexity: complexity,
     items_per_meal: profile.items_per_meal ?? 4,
-    diet_style: profile.diet_type || "balanced",
-    diet_type: profile.diet_type || "balanced",
+    diet_style: dietStyle,
+    diet_type: dietStyle,
     budget_level: profile.budget_level || "standard",
     surplus_kcal: profile.surplus_kcal,
     favorite_foods: foodListToInput(normalizedProfile.favorite_foods),

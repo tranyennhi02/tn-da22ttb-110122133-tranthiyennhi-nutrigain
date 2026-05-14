@@ -22,7 +22,7 @@ class UserRepository:
         email: str,
         password_hash: str,
         full_name: str | None = None,
-        role: str = "user",
+        role: str = "USER",
         auth_provider: str = "email",
     ) -> User:
         user = User(
@@ -89,4 +89,9 @@ class UserRepository:
         )
 
     def count_admin_users(self) -> int:
-        return int(self.db.scalar(select(func.count(User.id)).where(User.role == "admin")) or 0)
+        return int(
+            self.db.scalar(
+                select(func.count(User.id)).where(func.upper(User.role).in_(["ADMIN", "SUPER_ADMIN"]))
+            )
+            or 0
+        )

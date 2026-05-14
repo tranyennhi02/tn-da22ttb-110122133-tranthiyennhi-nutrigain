@@ -140,9 +140,10 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     if (level !== "error") level = "warning";
     messages.push("Bữa này còn thiếu đạm. Có thể thêm trứng, cá, thịt nạc, đậu hũ hoặc sữa chua Hy Lạp.");
   }
-  if (totalProtein > target.proteinTarget * 1.35) {
+  if (totalProtein > target.proteinTarget * 1.15) {
+    isValid = false;
     if (level !== "error") level = "warning";
-    messages.push("Protein đang cao hơn mục tiêu khá nhiều. Có thể giảm khẩu phần món đạm và tăng tinh bột/chất béo tốt.");
+    messages.push("Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt.");
   }
 
   if (totalFat < target.fatTarget * 0.8) {
@@ -198,7 +199,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     status = "invalid";
   } else if (kcalDiffPct <= 10 && proteinRatio >= 0.9 && proteinRatio <= 1.1 && fatRatio >= 0.8 && fatRatio <= 1.2 && carbRatio >= 0.8 && carbRatio <= 1.2) {
     status = "valid";
-  } else if (kcalDiffPct <= 10 && proteinRatio <= 1.3 && fatRatio >= 0.7 && carbRatio <= 1.3) {
+  } else if (kcalDiffPct <= 10 && proteinRatio <= 1.15 && fatRatio >= 0.7 && carbRatio <= 1.3) {
     status = "minor_adjustment";
   } else {
     status = "major_adjustment";

@@ -7,7 +7,7 @@ req=urllib.request.Request(base+'/api/v1/auth/register',data=json.dumps(register
 with urllib.request.urlopen(req) as resp:
     token=json.loads(resp.read())['access_token']
     print('token', token[:20])
-recommend_payload={'weight':36,'height':167,'activity':'moderate','age':22,'sex':'female','goal_type':'gain','gain_speed':'moderate','items_per_meal':4}
+recommend_payload={'weight':37,'height':167,'activity':'moderate','age':22,'sex':'female','goal_type':'gain','gain_speed':'moderate','items_per_meal':4}
 req2=urllib.request.Request(base+'/api/v1/recommendations',data=json.dumps(recommend_payload).encode(),headers={'Content-Type':'application/json','Authorization':f'Bearer {token}'})
 try:
     with urllib.request.urlopen(req2) as r:

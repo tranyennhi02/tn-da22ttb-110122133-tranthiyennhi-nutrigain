@@ -161,7 +161,7 @@ export async function updateUserProfile(payload) {
 }
 
 export async function fetchWeightLogs(range = "30") {
-  const response = await fetch(`${API_BASE_URL}/api/v1/weight-logs?range=${encodeURIComponent(range)}`, {
+  const response = await fetch(`${API_BASE_URL}/api/v1/weight-logs?range=${encodeURIComponent(range)}&mode=milestones`, {
     headers: authHeaders(),
   });
   return parseResponse(response, "Cannot load weight logs");

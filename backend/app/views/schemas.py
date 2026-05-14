@@ -41,6 +41,7 @@ class UserProfileInput(BaseModel):
     target_weight_kg: float | None = Field(default=None, gt=0)
     weight_gain_speed: str | None = None
     diet_type: str | None = None
+    diet_style: str | None = None
     budget_level: str | None = None
     items_per_meal: int | None = Field(default=None, ge=1, le=10)
 
@@ -91,6 +92,7 @@ class UserView(BaseModel):
     email: str
     full_name: str | None = None
     role: str
+    status: str = "ACTIVE"
     is_active: bool
     created_at: str
 
@@ -116,6 +118,16 @@ class WeightLogResponse(BaseModel):
     is_chart_milestone: bool = False
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class WeightMilestoneResponse(BaseModel):
+    date: str
+    log_date: date | None = None
+    weight_kg: float
+    source: str | None = None
+    label: str | None = None
+    is_milestone: bool = True
+    note: str | None = None
 
 
 class WeightLogSummary(BaseModel):
@@ -146,11 +158,12 @@ class AuthTokenResponse(BaseModel):
 
 class AccountStatusUpdate(BaseModel):
     is_active: bool | None = None
+    status: str | None = None
     role: str | None = None
 
 
 class AdminUserListResponse(BaseModel):
-    items: list[UserView]
+    items: list[dict]
     total: int
     limit: int
     offset: int
@@ -160,6 +173,41 @@ class AdminStatsResponse(BaseModel):
     total_users: int
     active_users: int
     admin_users: int
+
+
+class AdminOverviewResponse(BaseModel):
+    total_users: int
+    new_users_today: int
+    total_meal_plans: int
+    total_foods: int
+    eligible_foods: int
+    underweight_users: int
+    recent_errors: int
+
+
+class AdminFoodListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminCategorySummaryResponse(BaseModel):
+    items: list[dict]
+
+
+class AdminMealPlanListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminSystemErrorListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    limit: int
+    offset: int
 
 
 class FoodCreate(BaseModel):
@@ -187,6 +235,11 @@ class FoodUpdate(BaseModel):
     type: str | None = None
     image_url: str | None = None
     source: str | None = None
+    clean_category: str | None = None
+    recommended_serving_g: float | None = Field(default=None, ge=0)
+    serving_display: str | None = None
+    menu_eligible: bool | None = None
+    quality_flags: str | None = None
 
 
 class FoodView(BaseModel):
@@ -545,6 +598,13 @@ class RecommendationOutput(BaseModel):
     meal_plan: MealPlanSchema | None = None
     validation: ValidationSchema | None = None
     target: NutritionTargetView | None = None
+    target_kcal: float | None = None
+    target_protein: float | None = None
+    target_fat: float | None = None
+    target_carbs: float | None = None
+    items_per_meal: int | None = None
+    kcal_delta: float | None = None
+    macro_delta: dict | None = None
     
     # Old fields for compatibility
     eligibility_check: EligibilityCheckView | None = None

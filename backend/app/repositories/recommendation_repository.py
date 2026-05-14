@@ -544,11 +544,14 @@ class RecommendationRepository:
             plan_status = "invalid"
         elif kcal_diff_pct <= 10 and 0.9 <= protein_ratio <= 1.1 and 0.8 <= fat_ratio <= 1.2 and 0.8 <= carbs_ratio <= 1.2:
             plan_status = "valid"
-        elif kcal_diff_pct <= 10 and protein_ratio <= 1.3 and fat_ratio >= 0.7 and carbs_ratio <= 1.3:
+        elif kcal_diff_pct <= 10 and protein_ratio <= 1.15 and fat_ratio >= 0.7 and carbs_ratio <= 1.3:
             plan_status = "minor_adjustment"
         else:
             plan_status = "major_adjustment"
         is_valid = plan_status == "valid"
+        warnings = []
+        if protein_ratio > 1.15:
+            warnings.append("Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt.")
         reason = None
         if not is_valid:
             direction = "cao hơn" if kcal_diff > 0 else "thấp hơn"
@@ -571,7 +574,7 @@ class RecommendationRepository:
             "kcal_diff": kcal_diff,
             "kcal_diff_pct": kcal_diff_pct,
             "errors": [] if is_valid else [reason],
-            "warnings": [],
+            "warnings": warnings,
         }
 
     def list_recent_requests(

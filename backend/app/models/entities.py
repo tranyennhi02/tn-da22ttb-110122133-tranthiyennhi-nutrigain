@@ -16,7 +16,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="email")
-    role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    role: Mapped[str] = mapped_column(String(30), default="USER", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -36,6 +37,19 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     recommendations: Mapped[list["RecommendationRequest"]] = relationship(back_populates="user")
+
+
+class ErrorLog(Base):
+    __tablename__ = "error_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    endpoint: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="OPEN", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class UserProfileEntity(Base):

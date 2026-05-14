@@ -169,7 +169,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       setDidLoadToday(true);
       try {
         const today = await loadTodayMealPlan();
-        if (!cancelled && today?.has_plan && today?.meal_plan?.status === "valid") {
+        if (!cancelled && today?.has_plan && ["valid", "minor_adjustment", "major_adjustment"].includes(today?.meal_plan?.status)) {
           setResult(adaptTodayMealPlanResponse(today, nutritionTarget));
         }
       } catch {
@@ -808,9 +808,10 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
                   error={errors.diet_style}
                   onChange={onChange}
                   options={[
-                    { value: "balanced", label: "Cân bằng / eat clean" },
-                    { value: "vegetarian", label: "Chay" },
-                    { value: "low_carb", label: "Low-carb" },
+                    { value: "balanced", label: "Cân bằng" },
+                    { value: "eat_clean", label: "Eat Clean" },
+                    { value: "high_protein", label: "Giàu Protein" },
+                    { value: "vegetarian", label: "Ăn chay" },
                   ]}
                 />
                 <div className="sm:col-span-2">
@@ -2238,16 +2239,12 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
     currentWeightFromSummary: weightSummary?.current_weight,
     userWeight: profileSettings?.weight_kg ?? profileSettings?.weight,
   });
+  console.log("[WEIGHT SUMMARY MILESTONES JSON]", JSON.stringify(weightSummary?.milestone_points, null, 2));
+  console.log("[WEIGHT LOGS JSON]", JSON.stringify(logs, null, 2));
   const chartPoints = useMemo(() => {
-    const fallbackFromLogs = logs.map((item) => ({
-      date: item.log_date,
-      weight_kg: Number(item.weight_kg || 0),
-      type: item.source === "initial_profile" ? "initial" : "milestone",
-    }));
-    const points = weightSummary?.milestone_points?.length
-      ? weightSummary.milestone_points
-      : fallbackFromLogs;
+    const points = Array.isArray(weightSummary?.milestone_points) ? weightSummary.milestone_points : [];
     console.log("[CHART POINTS USED]", points);
+    console.log("[CHART POINTS USED JSON]", JSON.stringify(points, null, 2));
     return points;
   }, [weightSummary, logs]);
 
@@ -2399,15 +2396,39 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
                 <div className="mt-2 flex items-baseline gap-4">
                   <div>
                     <p className="text-sm text-[#64748B]">Ngày ghi nhận</p>
-                    <p className="text-lg font-black text-[#0F172A]">{formatDisplayDate(summary.last_log_date)}</p>
+                    <p className="text-lg font-black text-[#0F172A]">
+                      {formatDisplayDate(chartPoints[0]?.date || chartPoints[0]?.log_date)}
+                    </p>
                   </div>
                   <div className="ml-auto text-right">
                     <p className="text-sm text-[#64748B]">Cân nặng</p>
-                    <p className="text-2xl font-black text-[#10B981]">{formatNumber(summary.current_weight)} kg</p>
+                    <p className="text-2xl font-black text-[#10B981]">
+                      {formatNumber(chartPoints[0]?.weight_kg)} kg
+                    </p>
                   </div>
                 </div>
-                <p className="mt-4 text-sm text-[#64748B]">Cần thêm 1 mốc sau ngày {formatDisplayDate(summary.next_checkin_date)} để vẽ xu hướng tăng cân.</p>
-                {/* Kept only informational text; update button removed per request */}
+                <p className="mt-4 text-sm text-[#64748B]">
+                  {(() => {
+                    const initialDate = chartPoints[0]?.date || chartPoints[0]?.log_date;
+                    if (initialDate && summary.next_checkin_date) {
+                      const dStart = new Date(initialDate);
+                      if (!isNaN(dStart.getTime())) {
+                        const todayObj = new Date();
+                        todayObj.setHours(0, 0, 0, 0);
+                        let cur = new Date(dStart.getTime() + 3 * 24 * 60 * 60 * 1000);
+                        while (cur < todayObj) {
+                          const curIso = cur.toISOString().split('T')[0];
+                          const hasPoint = chartPoints.some(p => (p.date || p.log_date) === curIso);
+                          if (!hasPoint) {
+                            return `Bạn chưa có dữ liệu tại mốc ${formatDisplayDate(curIso)}. Mốc tiếp theo: ${formatDisplayDate(summary.next_checkin_date)}.`;
+                          }
+                          cur = new Date(cur.getTime() + 3 * 24 * 60 * 60 * 1000);
+                        }
+                      }
+                    }
+                    return `Cần thêm 1 mốc vào ngày ${formatDisplayDate(summary.next_checkin_date)} để vẽ xu hướng tăng cân.`;
+                  })()}
+                </p>
               </div>
             </div>
           ) : (
@@ -3093,7 +3114,7 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
               <ProfileField label="Cân nặng mục tiêu (kg)" name="target_weight" type="number" min="20" max="250" value={profile.target_weight || ""} error={errors.target_weight} onChange={onChange} />
               <ProfileSelect label="Tốc độ tăng cân" name="gain_speed" value={profile.gain_speed} error={errors.gain_speed} onChange={onChange} options={[{ value: "slow", label: "Nhẹ, ổn định" }, { value: "medium", label: "Vừa phải" }, { value: "fast", label: "Mạnh hơn" }]} />
               <ProfileSelect label="Mức độ vận động" name="activity" value={profile.activity} error={errors.activity} onChange={onChange} options={[{ value: "default", label: "Mặc định" }, { value: "sedentary", label: "Ít vận động" }, { value: "light", label: "Nhẹ" }, { value: "moderate", label: "Vừa phải" }, { value: "active", label: "Năng động" }, { value: "very_active", label: "Rất năng động" }]} />
-              <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng / eat clean" }, { value: "vegetarian", label: "Chay" }, { value: "low_carb", label: "Low-carb" }]} />
+              <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng" }, { value: "eat_clean", label: "Eat Clean" }, { value: "high_protein", label: "Giàu Protein" }, { value: "vegetarian", label: "Ăn chay" }]} />
               <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
               <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
               <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} helperText="Nhập các món muốn ưu tiên, phân tách bằng dấu phẩy." />
@@ -3476,7 +3497,7 @@ function getMacroStatus(actual, target, label) {
     }
     return { status: "ok", text: "Đạt mục tiêu", color: "bg-emerald-100 text-emerald-800" };
   } else {
-    return { status: "high", text: `Vượt ${diff.toFixed(0)}g`, color: ratio > 1.25 ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800" };
+    return { status: "high", text: `Vượt ${diff.toFixed(0)}g`, color: ratio > 1.15 ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800" };
   }
 }
 
@@ -3488,7 +3509,7 @@ function deriveEvaluationStatus({ totalCalories, targetKcal, totalProtein, total
   const f = targetFat > 0 ? totalFat / targetFat : 1;
   const c = targetCarbs > 0 ? totalCarbs / targetCarbs : 1;
   if (kcalPct <= 0.1 && p >= 0.9 && p <= 1.1 && f >= 0.8 && f <= 1.2 && c >= 0.8 && c <= 1.2) return "valid";
-  if (kcalPct <= 0.1 && p <= 1.3 && f >= 0.7 && c <= 1.3) return "minor_adjustment";
+  if (kcalPct <= 0.1 && p <= 1.15 && f >= 0.7 && c <= 1.3) return "minor_adjustment";
   return "major_adjustment";
 }
 
@@ -3526,17 +3547,20 @@ function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) 
   const status = validation.status || (validation.isValid ? "valid" : "major_adjustment");
   
   let shellClass = "border-emerald-200 bg-emerald-50 text-emerald-900";
-  let title = "Thực đơn phù hợp với mục tiêu hôm nay.";
+  let title = "Đạt mục tiêu";
   
   if (status === "minor_adjustment") {
     shellClass = "border-amber-200 bg-amber-50 text-amber-900";
-    title = "Thực đơn gần đạt mục tiêu.";
+    title = "Gần đạt mục tiêu";
   } else if (status === "major_adjustment") {
     shellClass = "border-orange-200 bg-orange-50 text-orange-900";
-    title = "Thực đơn cần điều chỉnh.";
+    title = "Cần điều chỉnh";
   } else if (status === "invalid") {
     shellClass = "border-slate-200 bg-slate-50 text-slate-900";
-    title = "Không thể tạo thực đơn.";
+    title = "Chưa tối ưu";
+  } else if (status === "fallback") {
+    shellClass = "border-slate-200 bg-slate-50 text-slate-900";
+    title = "Chưa tối ưu";
   }
 
   const showButton = status === "minor_adjustment" || status === "major_adjustment";
@@ -3766,8 +3790,9 @@ function sexLabel(value) {
 function dietLabel(value) {
   return {
     balanced: "Cân bằng",
-    vegetarian: "Chay",
-    low_carb: "Low-carb",
+    eat_clean: "Eat Clean",
+    high_protein: "Giàu Protein",
+    vegetarian: "Ăn chay",
   }[value] || "Cân bằng";
 }
 

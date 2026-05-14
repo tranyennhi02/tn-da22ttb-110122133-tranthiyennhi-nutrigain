@@ -1,10 +1,13 @@
 const ACTIVITY_FACTORS = {
   default: 1.3,
   sedentary: 1.2,
+  lightly_active: 1.375,
   light: 1.375,
+  light_active: 1.375,
   moderate: 1.55,
+  moderately_active: 1.55,
   active: 1.725,
-  very_active: 1.9,
+  very_active: 1.725,
 };
 
 function numberOrFallback(value, fallback) {
@@ -44,16 +47,17 @@ export function calculateNutritionTarget(user) {
   const age = numberOrFallback(user?.age, 25);
   const goal = normalizeGoal(user?.goal_type ?? user?.goal);
   const gainSpeed = String(user?.weight_gain_speed ?? user?.gain_speed ?? "slow").toLowerCase();
+  const targetWeight = numberOrFallback(user?.target_weight ?? user?.target_weight_kg, weight);
   const bmr = calculateBMR(user);
   const tdee = calculateTDEE(user);
   const bmi = weight / ((height / 100) ** 2);
   const surplusBySpeed = {
-    slow: 300,
+    slow: 250,
     medium: 400,
     moderate: 400,
-    fast: 500,
+    fast: 650,
   };
-  const surplus = Number(user?.surplus_kcal) || surplusBySpeed[gainSpeed] || 300;
+  const surplus = Number(user?.surplus_kcal) || surplusBySpeed[gainSpeed] || 400;
 
   let targetCalories = tdee;
   if (goal === "gain") targetCalories = Math.max(tdee + Math.abs(surplus), tdee);
@@ -61,9 +65,8 @@ export function calculateNutritionTarget(user) {
 
   if (goal !== "gain" && age >= 18) targetCalories = Math.max(targetCalories, 1200);
 
-  const proteinPerKg = bmi < 17.5 ? 1.8 : 1.7;
-  const proteinTarget = Math.min(Math.max(weight * 1.6, weight * proteinPerKg), weight * 2.2);
-  const fatTarget = Math.max(weight * 0.9, (targetCalories * 0.30) / 9);
+  const proteinTarget = Math.min(Math.max(targetWeight * 1.6, weight * 1.4), weight * 2.0);
+  const fatTarget = (targetCalories * 0.30) / 9;
   const carbTarget = Math.max((targetCalories - proteinTarget * 4 - fatTarget * 9) / 4, 0);
 
   return {

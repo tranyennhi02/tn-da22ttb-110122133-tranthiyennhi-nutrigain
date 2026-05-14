@@ -55,7 +55,8 @@ function persistSession(data) {
     user: data.user,
     email: data.user?.email || "",
     name: data.user?.full_name || data.user?.email || "",
-    role: data.user?.role || "user",
+    role: (data.user?.role || "USER").toUpperCase(),
+    status: (data.user?.status || "ACTIVE").toUpperCase(),
     loggedInAt: new Date().toISOString(),
   };
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));

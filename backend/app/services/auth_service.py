@@ -37,7 +37,8 @@ class AuthService:
             id=user.id,
             email=user.email,
             full_name=user.full_name,
-            role=user.role,
+            role=str(user.role or "USER").upper(),
+            status=str(getattr(user, "status", None) or ("ACTIVE" if user.is_active else "LOCKED")).upper(),
             is_active=user.is_active,
             created_at=user.created_at.isoformat(timespec="seconds"),
         )
@@ -59,12 +60,11 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
         try:
-            role = "admin" if repository.count_users() == 0 else "user"
             user = repository.create_user(
                 email=email,
                 password_hash=hash_password(payload.password),
                 full_name=payload.full_name,
-                role=role,
+                role="USER",
             )
         except IntegrityError as exc:
             db.rollback()
@@ -80,8 +80,8 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
             )
-        if not user.is_active:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+        if not user.is_active or str(getattr(user, "status", "") or "").upper() == "LOCKED":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa.")
         return self._token_payload(user)
 
     def google_login(self, id_token: str, db: Session) -> AuthTokenResponse:
@@ -135,12 +135,11 @@ class AuthService:
             password_hash = hash_password(dummy_password)
             
             try:
-                role = "admin" if repository.count_users() == 0 else "user"
                 user = repository.create_user(
                     email=email,
                     password_hash=password_hash,
                     full_name=name,
-                    role=role,
+                    role="USER",
                     auth_provider="google",
                 )
             except IntegrityError as exc:
@@ -150,11 +149,10 @@ class AuthService:
                     detail="Email đã được đăng ký bằng phương thức khác.",
                 ) from exc
 
-        if not user.is_active:
+        if not user.is_active or str(getattr(user, "status", "") or "").upper() == "LOCKED":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account is disabled",
+                detail="Tài khoản đã bị khóa.",
             )
 
         return self._token_payload(user)
-

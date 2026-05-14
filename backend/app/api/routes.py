@@ -8,11 +8,17 @@ from app.controllers.recommendation_controller import controller
 from app.core.database import get_db
 from app.models.entities import User
 from app.services.auth_service import AuthService
+from app.services.admin_service import AdminService
 from app.services.food_service import FoodService, InteractionService, UserService
 from app.services.weight_log_service import WeightLogService
 from app.views.schemas import (
     AccountStatusUpdate,
+    AdminCategorySummaryResponse,
+    AdminFoodListResponse,
+    AdminMealPlanListResponse,
+    AdminOverviewResponse,
     AdminStatsResponse,
+    AdminSystemErrorListResponse,
     AdminUserListResponse,
     AuthTokenResponse,
     CurrentUserView,
@@ -43,6 +49,7 @@ from app.views.schemas import (
     UserUpdate,
     UserView,
     WeightLogCreate,
+    WeightMilestoneResponse,
     WeightLogResponse,
     WeightLogSummary,
 )
@@ -54,6 +61,7 @@ food_service = FoodService()
 user_service = UserService()
 interaction_service = InteractionService()
 weight_log_service = WeightLogService()
+admin_service = AdminService()
 
 
 @router.get("/health", tags=["system"])
@@ -147,18 +155,30 @@ def upsert_weight_log(
     return WeightLogResponse(**weight_log_service.save_log(db, current_user, payload))
 
 
-@router.get("/weight-logs", response_model=list[WeightLogResponse], tags=["weight-logs"])
+@router.get("/weight-logs", response_model=list[WeightMilestoneResponse], tags=["weight-logs"])
 def list_weight_logs(
     range: str = Query("30", pattern="^(30|90|all)$"),
     mode: str = Query("milestones", pattern="^(milestones|all)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+) -> list[WeightMilestoneResponse]:
+    print("[WEIGHT CURRENT USER]", {
+        "endpoint": "/weight-logs",
+        "user_id": current_user.id,
+        "email": current_user.email,
+    })
+    range_days = None if range == "all" else int(range)
+    return [WeightMilestoneResponse(**item) for item in weight_log_service.list_logs(db, current_user, range_days, mode=mode)]
+
+
+@router.get("/weight-logs/raw", response_model=list[WeightLogResponse], tags=["weight-logs"])
+def list_raw_weight_logs(
+    range: str = Query("30", pattern="^(30|90|all)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> list[WeightLogResponse]:
     range_days = None if range == "all" else int(range)
-    return [
-        WeightLogResponse(**item)
-        for item in weight_log_service.list_logs(db, current_user, range_days, mode=mode)
-    ]
+    return [WeightLogResponse(**item) for item in weight_log_service.list_logs(db, current_user, range_days, mode="raw")]
 
 
 @router.get("/weight-logs/summary", response_model=WeightLogSummary, tags=["weight-logs"])
@@ -166,6 +186,11 @@ def weight_log_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WeightLogSummary:
+    print("[WEIGHT SUMMARY API USER]", {
+        "endpoint": "/weight-logs/summary",
+        "user_id": current_user.id,
+        "email": current_user.email,
+    })
     return WeightLogSummary(**weight_log_service.summary(db, current_user))
 
 
@@ -375,12 +400,32 @@ def admin_user_stats(
 
 @router.get("/admin/users", response_model=AdminUserListResponse, tags=["admin"])
 def admin_list_users(
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    bmi_category: str | None = Query(default=None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminUserListResponse:
-    return AdminUserListResponse(**user_service.list_users(db, limit, offset))
+    return AdminUserListResponse(**admin_service.list_users(db, q, status, bmi_category, limit, offset))
+
+
+@router.get("/admin/overview", response_model=AdminOverviewResponse, tags=["admin"])
+def admin_overview(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AdminOverviewResponse:
+    return AdminOverviewResponse(**admin_service.overview(db))
+
+
+@router.get("/admin/users/{user_id}", tags=["admin"])
+def admin_user_detail(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    return admin_service.user_detail(db, user_id)
 
 
 @router.patch("/admin/users/{user_id}/status", response_model=UserView, tags=["admin"])
@@ -390,4 +435,99 @@ def admin_update_user_status(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> UserView:
-    return UserView(**user_service.update_account_status(db, user_id, payload))
+    values = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    return UserView(**admin_service.update_user_status(db, user_id, values))
+
+
+@router.get("/admin/foods", response_model=AdminFoodListResponse, tags=["admin"])
+def admin_list_foods(
+    q: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    menu_eligible: bool | None = Query(default=None),
+    missing_image: bool = Query(False),
+    has_quality_flags: bool = Query(False),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AdminFoodListResponse:
+    return AdminFoodListResponse(
+        **admin_service.list_foods(db, q, category, menu_eligible, missing_image, has_quality_flags, limit, offset)
+    )
+
+
+@router.get("/admin/foods/{food_id}", tags=["admin"])
+def admin_get_food(
+    food_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    return admin_service.get_food(db, food_id)
+
+
+@router.patch("/admin/foods/{food_id}", tags=["admin"])
+def admin_patch_food(
+    food_id: str,
+    payload: FoodUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    return admin_service.update_food(db, food_id, payload)
+
+
+@router.get("/admin/food-categories/summary", response_model=AdminCategorySummaryResponse, tags=["admin"])
+def admin_food_category_summary(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AdminCategorySummaryResponse:
+    return AdminCategorySummaryResponse(**admin_service.category_summary(db))
+
+
+@router.post("/admin/recommendation-test", response_model=RecommendationOutput, tags=["admin"])
+def admin_recommendation_test(
+    payload: RecommendationInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> RecommendationOutput:
+    return RecommendationOutput(**admin_service.recommendation_test(db, current_user, payload))
+
+
+@router.get("/admin/meal-plans", response_model=AdminMealPlanListResponse, tags=["admin"])
+def admin_list_meal_plans(
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    only_errors: bool = Query(False),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AdminMealPlanListResponse:
+    return AdminMealPlanListResponse(**admin_service.list_meal_plans(db, q, status, only_errors, limit, offset))
+
+
+@router.get("/admin/meal-plans/{meal_plan_id}", tags=["admin"])
+def admin_meal_plan_detail(
+    meal_plan_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    return admin_service.meal_plan_detail(db, meal_plan_id)
+
+
+@router.get("/admin/system-errors", response_model=AdminSystemErrorListResponse, tags=["admin"])
+def admin_list_system_errors(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AdminSystemErrorListResponse:
+    return AdminSystemErrorListResponse(**admin_service.list_system_errors(db, limit, offset))
+
+
+@router.patch("/admin/system-errors/{error_id}/resolve", tags=["admin"])
+def admin_resolve_system_error(
+    error_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    return admin_service.resolve_error(db, error_id)

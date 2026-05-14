@@ -48,11 +48,10 @@ export function normalizeProfilePayload(form) {
       : (form.target_weight ? Number(form.target_weight) : null),
     weight_gain_speed: form.weight_gain_speed || form.gain_speed || null,
     activity_level: form.activity_level || form.activity || null,
-    diet_type: form.diet_type || form.diet_style || null,
-    budget_level: form.budget_level || null,
-    items_per_meal: form.items_per_meal
-      ? Number(form.items_per_meal)
-      : (form.meal_complexity === "simple" ? 3 : form.meal_complexity === "full" ? 5 : 4),
+    diet_type: form.diet_style || form.diet_type || "balanced",
+    diet_style: form.diet_style || form.diet_type || "balanced",
+    budget_level: form.budget_level || "standard",
+    items_per_meal: form.meal_complexity === "simple" ? 3 : form.meal_complexity === "full" ? 5 : (form.meal_complexity === "balanced" ? 4 : Number(form.items_per_meal || 3)),
     favorite_foods: normalizeFoodList(rawFav),
     disliked_foods: normalizeFoodList(rawDisliked),
     disliked_food_groups: normalizeFoodList(form.disliked_food_groups),
