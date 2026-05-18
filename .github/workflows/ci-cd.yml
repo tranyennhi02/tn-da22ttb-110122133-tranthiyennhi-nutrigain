@@ -88,6 +88,11 @@ jobs:
           GOOGLE_CLIENT_ID=test-google-client-id.apps.googleusercontent.com
           VITE_GOOGLE_CLIENT_ID=test-google-client-id.apps.googleusercontent.com
           EOF
+          
+          mkdir -p backend
+          cat > backend/.env << EOF
+          PEXELS_API_KEY=${{ secrets.PEXELS_API_KEY }}
+          EOF
 
       - name: Validate Docker Compose Configuration
         run: docker compose config
