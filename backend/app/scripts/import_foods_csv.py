@@ -401,6 +401,31 @@ def normalize_category(name: str, old_category: str) -> str:
     return fallback_map.get(fallback, fallback or "other")
 
 
+def _safe_str(value) -> str | None:
+    """Return None for NaN/empty, otherwise str."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text if text else None
+
+
+def _safe_bool(value, default: bool = False) -> bool:
+    """Convert CSV boolean values safely."""
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() in {"1", "true", "yes", "t"}
+
+
 def import_foods(csv_path: Path, truncate: bool = False, dry_run: bool = False) -> int:
     wait_for_database()
     Base.metadata.create_all(bind=engine)
@@ -409,31 +434,77 @@ def import_foods(csv_path: Path, truncate: bool = False, dry_run: bool = False) 
     if dry_run:
         return len(df)
 
-    rows = [
-        Food(
-            food_id=str(row.food_id),
-            name=str(row.name),
-            calories=float(row.calories),
-            protein=float(row.protein),
-            fat=float(row.fat),
-            carbs=float(row.carbs),
-            name_vi=None if pd.isna(row.name_vi) else str(row.name_vi),
-            category=str(row.category),
-            type=None if pd.isna(row.type) else str(row.type),
-        )
-        for row in df.itertuples(index=False)
-    ]
-
     db = SessionLocal()
     try:
         if truncate:
             db.execute(delete(Food))
-        db.add_all(rows)
+            db.commit()
+
+        # Build lookup of already-verified foods to protect them
+        verified_ids: set[str] = set()
+        if not truncate:
+            from sqlalchemy import select
+            verified_rows = db.execute(
+                select(Food.food_id).where(Food.image_verified.is_(True))
+            ).fetchall()
+            verified_ids = {str(r[0]) for r in verified_rows}
+
+        inserted = 0
+        for row in df.itertuples(index=False):
+            food_id = str(row.food_id)
+            is_verified = _safe_bool(getattr(row, "image_verified", None))
+
+            # Read image columns from CSV if present
+            csv_image_url = _safe_str(getattr(row, "image_url", None))
+            csv_image_alt_vi = _safe_str(getattr(row, "image_alt_vi", None))
+            csv_image_source_type = _safe_str(getattr(row, "image_source_type", None)) or "placeholder"
+            csv_image_verified = is_verified
+            csv_image_quality_note = _safe_str(getattr(row, "image_quality_note", None))
+
+            existing = db.get(Food, food_id)
+            if existing is not None:
+                # Update non-image fields always
+                existing.name = str(row.name)
+                existing.calories = float(row.calories)
+                existing.protein = float(row.protein)
+                existing.fat = float(row.fat)
+                existing.carbs = float(row.carbs)
+                existing.name_vi = _safe_str(getattr(row, "name_vi", None))
+                existing.category = str(row.category)
+                existing.type = _safe_str(getattr(row, "type", None))
+                # Only update image fields if the existing record is NOT already verified
+                if food_id not in verified_ids:
+                    existing.image_url = csv_image_url
+                    existing.image_alt_vi = csv_image_alt_vi
+                    existing.image_source_type = csv_image_source_type
+                    existing.image_verified = csv_image_verified
+                    existing.image_quality_note = csv_image_quality_note
+            else:
+                food = Food(
+                    food_id=food_id,
+                    name=str(row.name),
+                    calories=float(row.calories),
+                    protein=float(row.protein),
+                    fat=float(row.fat),
+                    carbs=float(row.carbs),
+                    name_vi=_safe_str(getattr(row, "name_vi", None)),
+                    category=str(row.category),
+                    type=_safe_str(getattr(row, "type", None)),
+                    image_url=csv_image_url,
+                    image_alt_vi=csv_image_alt_vi,
+                    image_source_type=csv_image_source_type,
+                    image_verified=csv_image_verified,
+                    image_quality_note=csv_image_quality_note,
+                )
+                db.add(food)
+                inserted += 1
+
         db.commit()
+        print(f"  [{inserted} new inserted, {len(df) - inserted} updated]")
     finally:
         db.close()
 
-    return len(rows)
+    return len(df)
 
 
 def main() -> None:

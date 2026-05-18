@@ -8,6 +8,15 @@ from sqlalchemy.orm import Session
 from app.models.entities import FoodLog, FoodLogItem, Meal, MealPlan, MealPlanItem, RecommendationRequest
 
 
+def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
+    excess_g = max(int(round(float(total_protein or 0.0) - float(target_protein or 0.0))), 0)
+    return (
+        f"Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau {excess_g}g. "
+        "N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng "
+        "b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t."
+    )
+
+
 class RecommendationRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -550,10 +559,13 @@ class RecommendationRepository:
             plan_status = "major_adjustment"
         is_valid = plan_status == "valid"
         warnings = []
-        if protein_ratio > 1.15:
-            warnings.append("Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt.")
+        protein_over_major = protein_ratio > 1.15
+        if protein_over_major:
+            warnings.append(_protein_excess_warning(float(meal_plan.total_protein or 0.0), target_protein))
         reason = None
-        if not is_valid:
+        if protein_over_major and warnings:
+            reason = warnings[0]
+        elif not is_valid:
             direction = "cao hơn" if kcal_diff > 0 else "thấp hơn"
             reason = (
                 f"Thực đơn hiện tại đạt {round(total_kcal)} kcal, {direction} mục tiêu "

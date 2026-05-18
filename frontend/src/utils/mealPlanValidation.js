@@ -119,6 +119,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
   const kcalDiffAbs = Math.abs(kcalDiff);
   const kcalDiffPct = targetKcal > 0 ? (kcalDiffAbs / targetKcal) * 100 : 100;
   const isKcalValid = targetKcal > 0 && totalCalories >= minKcal && totalCalories <= maxKcal;
+  const proteinTarget = Number(target?.proteinTarget ?? target?.protein_g ?? target?.protein ?? 0);
   const direction = kcalDiff > 0 ? "cao hơn" : "thấp hơn";
   const detailedReason = isKcalValid
     ? null
@@ -136,14 +137,15 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     messages.push("Tổng năng lượng dưới 1200 kcal, không nên dùng thực đơn này cho người trưởng thành.");
   }
 
-  if (totalProtein < target.proteinTarget * 0.8) {
+  if (proteinTarget > 0 && totalProtein < proteinTarget * 0.8) {
     if (level !== "error") level = "warning";
     messages.push("Bữa này còn thiếu đạm. Có thể thêm trứng, cá, thịt nạc, đậu hũ hoặc sữa chua Hy Lạp.");
   }
-  if (totalProtein > target.proteinTarget * 1.15) {
+  if (proteinTarget > 0 && totalProtein > proteinTarget * 1.15) {
     isValid = false;
     if (level !== "error") level = "warning";
-    messages.push("Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt.");
+    const proteinExcess = Math.max(Math.round(totalProtein - proteinTarget), 0);
+    messages.push(`Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau ${proteinExcess}g. N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t.`);
   }
 
   if (totalFat < target.fatTarget * 0.8) {
@@ -191,7 +193,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     messages.push("Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch tăng cân hôm nay.");
   }
 
-  const proteinRatio = target.proteinTarget > 0 ? totalProtein / target.proteinTarget : 1;
+  const proteinRatio = proteinTarget > 0 ? totalProtein / proteinTarget : 1;
   const fatRatio = target.fatTarget > 0 ? totalFat / target.fatTarget : 1;
   const carbRatio = target.carbTarget > 0 ? totalCarbs / target.carbTarget : 1;
   let status = "valid";
@@ -217,6 +219,8 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     kcalDiffPct,
     totalCalories,
     totalProtein,
+    targetProtein: proteinTarget,
+    proteinOverLimit: proteinTarget > 0 && totalProtein > proteinTarget * 1.15,
     totalFat,
     totalCarbs,
   };

@@ -103,6 +103,19 @@ export function logout() {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   }
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("profile") || key.startsWith("mealPlan") || key.startsWith("weightSummary") || key.startsWith("nutritionProfile"))) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const k of keysToRemove) {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    }
+  } catch {}
 }
 
 export function getSession() {

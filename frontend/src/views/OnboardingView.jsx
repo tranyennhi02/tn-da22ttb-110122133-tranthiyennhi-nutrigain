@@ -25,16 +25,47 @@ function getVietnamDateString() {
   }).format(new Date());
 }
 
-function buildRegeneratePayload(formData) {
-  const payload = normalizePayload({ ...formData, save_user_data: true });
+function mealComplexityFromItems(itemsPerMeal) {
+  const count = Number(itemsPerMeal);
+  if (count <= 3) return "simple";
+  if (count >= 5) return "full";
+  return "balanced";
+}
+
+function buildRegeneratePayload(formData, freshProfile = null) {
+  const source = freshProfile
+    ? {
+      ...formData,
+      weight: freshProfile.weight_kg ?? formData.weight,
+      height: freshProfile.height_cm ?? formData.height,
+      age: freshProfile.age ?? formData.age,
+      sex: freshProfile.sex || freshProfile.gender || formData.sex,
+      activity: freshProfile.activity_level || formData.activity,
+      gain_speed: freshProfile.weight_gain_speed || formData.gain_speed,
+      weight_gain_speed: freshProfile.weight_gain_speed || formData.weight_gain_speed,
+      target_weight: freshProfile.target_weight_kg ?? formData.target_weight,
+      diet_style: freshProfile.diet_type || formData.diet_style,
+      diet_type: freshProfile.diet_type || formData.diet_type,
+      budget_level: freshProfile.budget_level || formData.budget_level,
+      items_per_meal: freshProfile.items_per_meal ?? formData.items_per_meal,
+      meal_complexity: mealComplexityFromItems(freshProfile.items_per_meal ?? formData.items_per_meal),
+      favorite_foods: freshProfile.favorite_foods ?? formData.favorite_foods,
+      disliked_foods: freshProfile.disliked_foods ?? formData.disliked_foods,
+      unfavorite_foods: freshProfile.disliked_foods ?? formData.unfavorite_foods,
+      disliked_food_groups: freshProfile.disliked_food_groups ?? formData.disliked_food_groups,
+    }
+    : formData;
+  const payload = normalizePayload({ ...source, save_user_data: true });
   return {
     ...payload,
     date: getVietnamDateString(),
     excludePreviousItems: true,
     randomSeed: Date.now(),
-    favorite_foods: parseFoodList(formData.favorite_foods),
-    disliked_foods: parseFoodList(formData.unfavorite_foods || formData.disliked_foods),
-    disliked_food_groups: parseFoodList(formData.disliked_food_groups),
+    force_regenerate: true,
+    profile: freshProfile || undefined,
+    favorite_foods: parseFoodList(source.favorite_foods),
+    disliked_foods: parseFoodList(source.unfavorite_foods || source.disliked_foods),
+    disliked_food_groups: parseFoodList(source.disliked_food_groups),
   };
 }
 function fmt(n) { return Number.isFinite(n) ? Math.round(n) : "—"; }
@@ -544,8 +575,17 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   };
 
   function update(field, value) {
-    setData(p=>({...p,[field]:value}));
-    setErrors(p=>({...p,[field]:"",_step:""}));
+    setData(p => {
+      const next = { ...p, [field]: value };
+      if (field === "weight") next.weight_kg = value;
+      if (field === "weight_kg") next.weight = value;
+      if (field === "height") next.height_cm = value;
+      if (field === "height_cm") next.height = value;
+      if (field === "target_weight") next.target_weight_kg = value;
+      if (field === "target_weight_kg") next.target_weight = value;
+      return next;
+    });
+    setErrors(p => ({ ...p, [field]: "", _step: "" }));
   }
 
   function handleChange(e){ update(e.target.name, e.target.value); }
@@ -594,7 +634,20 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     try {
       // Convert form data to backend profile format
       const backendProfile = mapFormStateToBackendProfile(data);
-      console.log("[PROFILE SUBMIT] payload =", backendProfile);
+      console.log("[PROFILE SUBMIT WEIGHT DEBUG]", {
+        form_weight_kg: data.weight_kg ?? data.weight,
+        payload_weight_kg: backendProfile.weight_kg,
+        currentUser_weight_kg: user?.profile?.weight_kg,
+        payload: backendProfile,
+      });
+      console.log("[PROFILE SUBMIT PAYLOAD CHECK]", {
+        weight_kg: backendProfile.weight_kg,
+        target_weight_kg: backendProfile.target_weight_kg,
+        height_cm: backendProfile.height_cm,
+        diet_type: backendProfile.diet_type,
+        items_per_meal: backendProfile.items_per_meal,
+        payload: backendProfile,
+      });
       
       // Update user profile via API
       const result = await updateUserProfile(backendProfile);
@@ -604,9 +657,13 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       console.log("[PROFILE STATE AFTER SAVE]", {
         weight_kg: updatedUser?.profile?.weight_kg,
         target_weight_kg: updatedUser?.profile?.target_weight_kg,
+        height_cm: updatedUser?.profile?.height_cm,
+        diet_type: updatedUser?.profile?.diet_type,
+        items_per_meal: updatedUser?.profile?.items_per_meal,
         favorite_foods: updatedUser?.profile?.favorite_foods,
         disliked_foods: updatedUser?.profile?.disliked_foods,
       });
+      const freshProfile = updatedUser?.profile;
 
       const outOfScopeResult = buildAsianBmiOutOfScopeResult(data);
       if (outOfScopeResult) {
@@ -624,8 +681,17 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       // Regenerate meal plan (may fail) — handle regeneration errors separately
       let mealPlanResult = null;
       try {
+        console.log("[REGENERATE USING FRESH PROFILE]", {
+          user_id: updatedUser?.id,
+          email: updatedUser?.email,
+          weight_kg: freshProfile?.weight_kg,
+          target_weight_kg: freshProfile?.target_weight_kg,
+          height_cm: freshProfile?.height_cm,
+          diet_type: freshProfile?.diet_type,
+          items_per_meal: freshProfile?.items_per_meal,
+        });
         mealPlanResult = ensureValidMealPlanResult(
-          await postRegenerateMealPlan(buildRegeneratePayload(data))
+          await postRegenerateMealPlan(buildRegeneratePayload(data, freshProfile))
         );
       } catch (err) {
         console.error("Regenerate failed after profile save:", err);
@@ -662,10 +728,20 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     setFinishError("");
     setRegenerateFailed(false);
     try {
-      const mealPlanResult = ensureValidMealPlanResult(
-        await postRegenerateMealPlan(buildRegeneratePayload(data))
-      );
       const updatedUser = await fetchCurrentUser();
+      const freshProfile = updatedUser?.profile;
+      console.log("[REGENERATE USING FRESH PROFILE]", {
+        user_id: updatedUser?.id,
+        email: updatedUser?.email,
+        weight_kg: freshProfile?.weight_kg,
+        target_weight_kg: freshProfile?.target_weight_kg,
+        height_cm: freshProfile?.height_cm,
+        diet_type: freshProfile?.diet_type,
+        items_per_meal: freshProfile?.items_per_meal,
+      });
+      const mealPlanResult = ensureValidMealPlanResult(
+        await postRegenerateMealPlan(buildRegeneratePayload(data, freshProfile))
+      );
       if (onComplete) {
         onComplete({ ...data, _mealPlanResult: mealPlanResult, _updatedUser: updatedUser }, false);
       }

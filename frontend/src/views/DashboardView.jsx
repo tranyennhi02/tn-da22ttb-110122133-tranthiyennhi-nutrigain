@@ -191,42 +191,83 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       if (result?.validation) {
         const backendValidation = result.validation;
         const backendStatus = backendValidation.status || null;
-        const isValid = backendStatus ? backendStatus === "valid" : (backendValidation.is_valid ?? backendValidation.isValid ?? false);
         const totalCalories = round(backendValidation.totalKcal ?? backendValidation.total_kcal ?? result.meal_plan?.total_kcal ?? result.meal_plan?.total_calories ?? 0);
         const targetKcal = round(backendValidation.targetKcal ?? backendValidation.target_kcal ?? effectiveTarget.targetCalories);
         const kcalDiff = Number(backendValidation.kcalDiff ?? backendValidation.kcal_diff ?? totalCalories - targetKcal);
         const kcalDiffPct = Number(backendValidation.kcalDiffPct ?? backendValidation.kcal_diff_pct ?? (targetKcal > 0 ? (Math.abs(kcalDiff) / targetKcal) * 100 : 100));
+        const totalProtein = Number(result.meal_plan?.total_protein_g ?? result.meal_plan?.total_protein ?? 0);
+        const targetProtein = Number(effectiveTarget.proteinTarget ?? result.nutrition_target?.protein_g ?? result.target?.protein ?? 0);
+        const proteinOverLimit = targetProtein > 0 && totalProtein > targetProtein * 1.15;
+        const proteinWarning = proteinOverLimit ? buildProteinExcessMessage(totalProtein, targetProtein) : null;
+        const expectedCount = expectedItemsPerMeal(formState?.items_per_meal ?? formState?.meal_complexity);
+        const countWarnings = buildMealItemCountWarnings(
+          meals,
+          expectedCount,
+          backendValidation.meal_item_count_summary || result.meal_plan?.meal_item_count_summary,
+        );
+        const countStatus = deriveMealItemCountStatus(
+          backendValidation.meal_item_count_summary || result.meal_plan?.meal_item_count_summary,
+          expectedCount,
+          meals,
+        );
+        const effectiveStatus = proteinOverLimit
+          ? "major_adjustment"
+          : countStatus === "major_adjustment"
+          ? "major_adjustment"
+          : countStatus === "minor_adjustment" && backendStatus === "valid"
+            ? "minor_adjustment"
+            : backendStatus;
+        const isValid = effectiveStatus ? effectiveStatus === "valid" && countWarnings.length === 0 : (backendValidation.is_valid ?? backendValidation.isValid ?? false) && countWarnings.length === 0;
+        const backendWarnings = dedupeMessages(Array.isArray(backendValidation.warnings) ? backendValidation.warnings : []);
+        const backendInfos = Array.isArray(backendValidation.infos) ? backendValidation.infos : [];
+        const proteinWarningAlreadyPresent = backendWarnings.some((message) => {
+          const normalized = stripAccents(String(message || "")).toLowerCase();
+          return normalized.includes("protein") && normalized.includes("vuot");
+        });
         const reason =
+          proteinWarning ||
           backendValidation.message ||
           backendValidation.reason ||
+          countWarnings[0] ||
           buildKcalDeviationMessage(totalCalories, targetKcal);
+        const mergedWarnings = dedupeMessages([
+          ...backendWarnings,
+          ...(proteinWarning && !proteinWarningAlreadyPresent ? [proteinWarning] : []),
+          ...countWarnings.filter((message) => !backendWarnings.includes(message)),
+        ]);
         const backendMessages = backendValidation.errors?.length > 0
           ? backendValidation.errors
-          : backendValidation.warnings?.length > 0
-            ? ["Thực đơn gần đạt mục tiêu nhưng cần kiểm tra cảnh báo.", ...backendValidation.warnings]
+          : mergedWarnings.length > 0
+            ? dedupeMessages(["Thực đơn gần đạt mục tiêu nhưng cần kiểm tra cảnh báo.", ...mergedWarnings])
             : ["Thực đơn phù hợp với mục tiêu hôm nay."];
         return {
           isValid,
-          status: backendStatus || deriveEvaluationStatus({
+          status: effectiveStatus || deriveEvaluationStatus({
             totalCalories,
             targetKcal,
-            totalProtein: result.meal_plan?.total_protein_g || 0,
+            totalProtein,
             totalFat: result.meal_plan?.total_fat_g || 0,
             totalCarbs: result.meal_plan?.total_carbs_g || 0,
-            targetProtein: effectiveTarget.proteinTarget,
+            targetProtein,
             targetFat: effectiveTarget.fatTarget,
             targetCarbs: effectiveTarget.carbTarget,
             meals,
           }),
-          level: isValid ? (backendValidation.warnings?.length ? "warning" : "success") : "warning",
-          messages: isValid ? backendMessages : [reason, ...backendMessages.filter((message) => message && message !== reason)],
+          level: isValid ? (mergedWarnings.length ? "warning" : "success") : "warning",
+          messages: isValid ? backendMessages : dedupeMessages([reason, ...backendMessages.filter((message) => message && message !== reason)]),
           reason,
+          warnings: mergedWarnings,
+          infos: backendInfos,
+          errors: Array.isArray(backendValidation.errors) ? backendValidation.errors : [],
+          recommendationExplanations: backendValidation.recommendation_explanations || result.recommendation_explanations || [],
           targetKcal,
           totalKcal: totalCalories,
           kcalDiff,
           kcalDiffPct,
           totalCalories,
-          totalProtein: result.meal_plan?.total_protein_g || 0,
+          totalProtein,
+          targetProtein,
+          proteinOverLimit,
           totalFat: result.meal_plan?.total_fat_g || 0,
           totalCarbs: result.meal_plan?.total_carbs_g || 0,
         };
@@ -245,7 +286,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   );
   const eligibility = useMemo(() => buildEligibilityStatus(formState, summary), [formState, summary]);
   const dataWarnings = useMemo(
-    () => buildDataWarnings(formState, summary, mealPlanValidation, effectiveTarget),
+    () => dedupeMessages(buildDataWarnings(formState, summary, mealPlanValidation, effectiveTarget)),
     [formState, summary, mealPlanValidation, effectiveTarget],
   );
   const foodCatalog = useMemo(() => buildFoodCatalog(result, meals), [result, meals]);
@@ -253,10 +294,17 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
 
   function handleProfileChange(event) {
     const { name, value, type, checked } = event.target;
-    setFormState((current) => ({
-      ...current,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    const val = type === "checkbox" ? checked : value;
+    setFormState((current) => {
+      const next = { ...current, [name]: val };
+      if (name === "weight") next.weight_kg = val;
+      if (name === "weight_kg") next.weight = val;
+      if (name === "height") next.height_cm = val;
+      if (name === "height_cm") next.height = val;
+      if (name === "target_weight") next.target_weight_kg = val;
+      if (name === "target_weight_kg") next.target_weight = val;
+      return next;
+    });
     setSubmitError("");
     setFormErrors((current) => ({ ...current, [name]: "" }));
   }
@@ -322,17 +370,41 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       // 1. Lưu hồ sơ lên backend bằng PUT /api/v1/users/me/profile
       await saveUserProfile(formState);
 
+      const currentUser = await fetchCurrentUser();
+      try { await fetchWeightLogSummary(); } catch {}
+      const freshProfile = currentUser?.profile;
+      if (currentUser && typeof onProfileUpdate === "function") {
+        onProfileUpdate(currentUser);
+      }
+      if (freshProfile) {
+        setFormState((current) => ({
+          ...current,
+          ...mapUserProfileToFormState(freshProfile),
+        }));
+      }
+      console.log("[REGENERATE USING FRESH PROFILE]", {
+        user_id: currentUser?.id,
+        email: currentUser?.email,
+        weight_kg: freshProfile?.weight_kg,
+        target_weight_kg: freshProfile?.target_weight_kg,
+        height_cm: freshProfile?.height_cm,
+        diet_type: freshProfile?.diet_type,
+        items_per_meal: freshProfile?.items_per_meal,
+      });
+
       // 2. Tạo lại thực đơn bằng POST /api/v1/meal-plans/regenerate
-      const data = await regenerateMealPlan(formState, {
+      const data = await regenerateMealPlan(freshProfile ? mapUserProfileToFormState(freshProfile) : formState, {
         previousMealPlanId,
-        targetKcal: effectiveTarget.targetCalories,
+        targetKcal: freshProfile ? undefined : effectiveTarget.targetCalories,
         excludePreviousItems: true,
         randomSeed: Date.now(),
+        profile: freshProfile,
       });
 
       // 3. Reload thông tin user mới nhất
       try {
         const currentUser = await fetchCurrentUser();
+        try { await fetchWeightLogSummary(); } catch {}
         if (currentUser && typeof onProfileUpdate === "function") {
           onProfileUpdate(currentUser);
         }
@@ -381,15 +453,30 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   async function refreshProfileFromBackend() {
     try {
       const currentUser = await fetchCurrentUser();
+      try { await fetchWeightLogSummary(); } catch {}
       if (currentUser && typeof onProfileUpdate === "function") {
         onProfileUpdate(currentUser);
       }
-      const profile = currentUser?.profile;
-      if (profile) {
+      const freshProfile = currentUser?.profile;
+      if (freshProfile) {
         setFormState((current) => ({
           ...current,
-          ...mapUserProfileToFormState(profile),
+          ...mapUserProfileToFormState(freshProfile),
         }));
+        try {
+          const previousMealPlanId = result?.meal_plan?.id || result?.meal_plan?.meal_plan_id || null;
+          const newPlan = await regenerateMealPlan(mapUserProfileToFormState(freshProfile), {
+            previousMealPlanId,
+            excludePreviousItems: true,
+            randomSeed: Date.now(),
+            profile: freshProfile,
+          });
+          if (newPlan) {
+            setResult(newPlan);
+          }
+        } catch (regenErr) {
+          console.error("Failed to regenerate meal plan after weight update:", regenErr);
+        }
       }
     } catch (error) {
       console.error("Failed to reload profile after weight update:", error);
@@ -1123,6 +1210,22 @@ function OverviewPage({
   const progressPct = Math.min(Math.round((consumedNutrition.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
   const circumference = 2 * Math.PI * 54;
   const strokeOffset = circumference - (progressPct / 100) * circumference;
+  const validationStatus = validation?.status || (validation?.isValid ? "valid" : "major_adjustment");
+  const totalProteinForStatus = Number(validation?.totalProtein ?? consumedNutrition.protein ?? 0);
+  const targetProteinForStatus = Number(validation?.targetProtein ?? nutritionTarget.proteinTarget ?? 0);
+  const proteinOverLimit = Boolean(validation?.proteinOverLimit) || (targetProteinForStatus > 0 && totalProteinForStatus > targetProteinForStatus * 1.15);
+  const planNeedsAdjustment = proteinOverLimit || validation?.isValid === false || ["minor_adjustment", "major_adjustment", "invalid", "fallback"].includes(validationStatus);
+  const progressStroke = planNeedsAdjustment ? "#FB923C" : progressPct >= 90 ? "#10B981" : "#FB923C";
+  const progressLabel = proteinOverLimit
+    ? "C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh protein"
+    : planNeedsAdjustment
+      ? "C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh th\u1ef1c \u0111\u01a1n"
+      : progressPct >= 95
+        ? "\u0110\u1ea1t m\u1ee5c ti\u00eau"
+        : `C\u00f2n thi\u1ebfu ${remainingCalories.toLocaleString("vi-VN")} kcal`;
+  const overviewWarnings = dedupeMessages(proteinOverLimit
+    ? [buildProteinExcessMessage(totalProteinForStatus, targetProteinForStatus)]
+    : []);
 
   return (
     <div className="space-y-5">
@@ -1136,7 +1239,7 @@ function OverviewPage({
                 <circle cx="60" cy="60" r="54" fill="none" stroke="#E2E8F0" strokeWidth="8" />
                 <circle
                   cx="60" cy="60" r="54" fill="none"
-                  stroke={progressPct >= 90 ? "#10B981" : "#FB923C"}
+                  stroke={progressStroke}
                   strokeWidth="8" strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={strokeOffset}
@@ -1151,7 +1254,7 @@ function OverviewPage({
               </div>
             </div>
             <p className="mt-3 text-sm font-bold text-[#64748B]">
-              {progressPct >= 95 ? "Đạt mục tiêu! 🎉" : `Còn thiếu ${remainingCalories.toLocaleString("vi-VN")} kcal`}
+              {progressLabel}
             </p>
           </div>
 
@@ -1195,6 +1298,17 @@ function OverviewPage({
       </section>
 
       {/* ── Next Meal CTA ──────────────────────────────────── */}
+      {overviewWarnings.length ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font800 leading-6 text-amber-950">
+          <h3 className="text-base font-black text-amber-950">C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh macro</h3>
+          <ul className="mt-2 space-y-1">
+            {overviewWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="glass-panel overflow-hidden">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -1295,7 +1409,8 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
   });
   const mealRows = meals.map((meal) => buildJournalMealRow(meal, entries, manualItems));
   const actualTotals = sumJournalRows(mealRows);
-  const kcalPct = Math.min(Math.round((actualTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
+  const planTotals = sumItems(meals.flatMap((meal) => meal.items || []));
+  const planKcalPct = Math.min(Math.round((planTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
 
   function updateEntry(key, patch) {
     onMealLogChange((current) => ({
@@ -1370,31 +1485,34 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
         {/* 3 compact KPIs */}
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Kcal đã ăn</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">KCAL THỰC ĐƠN</p>
             <p className="mt-2 text-3xl font-black text-slate-900">
-              {round(actualTotals.calories).toLocaleString("vi-VN")}{" "}
+              {round(planTotals.calories).toLocaleString("vi-VN")}{" "}
               <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.targetCalories.toLocaleString("vi-VN")} kcal</span>
             </p>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E2E8F0]">
-              <div className={`h-full rounded-full transition-all duration-500 ${kcalPct >= 90 ? "bg-[#10B981]" : "bg-[#FB923C]"}`} style={{ width: `${kcalPct}%` }} />
+              <div className={`h-full rounded-full transition-all duration-500 ${planKcalPct >= 90 ? "bg-[#10B981]" : "bg-[#FB923C]"}`} style={{ width: `${planKcalPct}%` }} />
             </div>
           </div>
           
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Protein đã ăn</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">PROTEIN THỰC ĐƠN</p>
             <p className="mt-2 text-3xl font-black text-slate-900">
-              {round(actualTotals.protein)}g{" "}
+              {round(planTotals.protein)}g{" "}
               <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.proteinTarget}g</span>
             </p>
           </div>
           
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Mức độ hoàn thành</p>
-            <p className={`mt-2 text-3xl font-black ${kcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
-              {kcalPct}%
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">MỨC ĐỘ PHÙ HỢP</p>
+            <p className={`mt-2 text-3xl font-black ${planKcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
+              {planKcalPct}%
             </p>
           </div>
         </div>
+        <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+          Số liệu này được tính từ thực đơn được hệ thống gợi ý hôm nay.
+        </p>
 
         {/* Expandable macro details */}
         <button
@@ -1422,6 +1540,9 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
             + Thêm món khác
           </button>
         </div>
+        <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+          Số liệu đã ăn chỉ được cập nhật khi bạn đánh dấu món đã ăn.
+        </p>
 
         <div className="mt-5 grid gap-4">
           {mealRows.map((meal) => {
@@ -1497,7 +1618,11 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
                           className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                         />
                         <div className="min-w-0 flex-1">
-                          <span className={`block truncate text-sm font-bold ${isEaten ? "line-through text-slate-400" : "text-slate-900"}`}>
+                          <span
+                            className={`block text-sm font-bold ${isEaten ? "line-through text-slate-400" : "text-slate-900"}`}
+                            title={item.name}
+                            style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                          >
                             {item.name}
                           </span>
                           <span className="block text-xs font-semibold text-slate-500">
@@ -1729,6 +1854,7 @@ function MealsPage({
                 mealName={meal.title}
                 totalKcal={totals.calories}
                 itemCount={meal.items.length}
+                expectedCount={meal.expectedItems || expectedCount}
                 status={deriveMealPlanStatus(balance, totals, expectedCount)}
                 items={meal.items}
                 totals={totals}
@@ -1781,7 +1907,9 @@ function MealPlanHeader({
   );
 }
 
-function MealSection({ mealName, totalKcal, itemCount, status, items, totals, balance, accent }) {
+function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, items, totals, balance, accent }) {
+  const expected = Number(expectedCount || 0);
+  const isShort = expected > 0 && itemCount < expected;
   return (
     <section className="rounded-[32px] border border-slate-100 bg-white p-5 shadow-sm shadow-slate-900/5 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1790,7 +1918,7 @@ function MealSection({ mealName, totalKcal, itemCount, status, items, totals, ba
           <div>
             <h3 className="text-2xl font-black text-[#0F172A]">{mealName}</h3>
             <p className="mt-1 text-sm font-semibold text-[#64748B]">
-              {itemCount} món
+              {isShort ? `Đã tạo ${itemCount}/${expected} món phù hợp` : `${itemCount} món`}
             </p>
           </div>
         </div>
@@ -2242,7 +2370,7 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
   console.log("[WEIGHT SUMMARY MILESTONES JSON]", JSON.stringify(weightSummary?.milestone_points, null, 2));
   console.log("[WEIGHT LOGS JSON]", JSON.stringify(logs, null, 2));
   const chartPoints = useMemo(() => {
-    const points = Array.isArray(weightSummary?.milestone_points) ? weightSummary.milestone_points : [];
+    const points = Array.isArray(weightSummary?.chart_points) ? weightSummary.chart_points : (Array.isArray(weightSummary?.milestone_points) ? weightSummary.milestone_points : []);
     console.log("[CHART POINTS USED]", points);
     console.log("[CHART POINTS USED JSON]", JSON.stringify(points, null, 2));
     return points;
@@ -2342,7 +2470,11 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
 
       {hasInitialWeight && !summary.should_checkin ? (
         <section className="rounded-3xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font800 leading-6 text-emerald-900 shadow-sm">
-          Mốc tiếp theo: {formatDisplayDate(summary.next_checkin_date)}. Biểu đồ sẽ cập nhật khi bạn ghi nhận cân nặng mới sau mốc này.
+          {summary.latest_log_date && summary.latest_log_date > summary.start_date ? (
+            `Cân nặng hiện tại đã cập nhật. Biểu đồ xu hướng sẽ thêm mốc mới vào ngày ${formatDisplayDate(summary.next_milestone_date || summary.next_checkin_date)}.`
+          ) : (
+            `Mốc tiếp theo: ${formatDisplayDate(summary.next_milestone_date || summary.next_checkin_date)}. Biểu đồ sẽ cập nhật khi bạn ghi nhận cân nặng mới sau mốc này.`
+          )}
         </section>
       ) : null}
 
@@ -3544,7 +3676,7 @@ function MacroTarget({ label, value, target, tone }) {
 }
 
 function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) {
-  const status = validation.status || (validation.isValid ? "valid" : "major_adjustment");
+  const status = validation.proteinOverLimit ? "major_adjustment" : validation.status || (validation.isValid ? "valid" : "major_adjustment");
   
   let shellClass = "border-emerald-200 bg-emerald-50 text-emerald-900";
   let title = "Đạt mục tiêu";
@@ -3556,26 +3688,43 @@ function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) 
     shellClass = "border-orange-200 bg-orange-50 text-orange-900";
     title = "Cần điều chỉnh";
   } else if (status === "invalid") {
-    shellClass = "border-slate-200 bg-slate-50 text-slate-900";
-    title = "Chưa tối ưu";
+    shellClass = "border-red-200 bg-red-50 text-red-900";
+    title = "Cần kiểm tra";
   } else if (status === "fallback") {
     shellClass = "border-slate-200 bg-slate-50 text-slate-900";
     title = "Chưa tối ưu";
   }
 
   const showButton = status === "minor_adjustment" || status === "major_adjustment";
-  const messages = validation.errors || validation.warnings || validation.messages || [];
+  const messages = dedupeMessages(Array.isArray(validation.errors) && validation.errors.length > 0
+    ? validation.errors
+    : Array.isArray(validation.warnings) && validation.warnings.length > 0
+      ? validation.warnings
+      : validation.messages || []);
+  const infoMessages = dedupeMessages(Array.isArray(validation.infos) ? validation.infos : []);
 
   return (
     <section className={`rounded-2xl border px-5 py-4 ${shellClass}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h3 className="text-base font-black">{title}</h3>
-          <ul className={`mt-2 space-y-1 text-sm font800 leading-6 ${compact ? "max-h-24 overflow-y-auto pr-1" : ""}`}>
-            {messages.slice(0, compact ? 3 : 6).map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-          </ul>
+          {messages.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm font800 leading-6">
+              {messages.slice(0, compact ? 3 : 6).map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
+          ) : null}
+          {infoMessages.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-sm font800 leading-6 text-sky-900">
+              <p className="font-black">Thông tin gợi ý</p>
+              <ul className="mt-1 space-y-1">
+                {infoMessages.slice(0, compact ? 2 : 5).map((message) => (
+                  <li key={`info-${message}`}>{message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {status !== "valid" && !compact ? (
             <div className="mt-3 grid gap-2 text-xs font900 sm:grid-cols-4">
               <span>Target: {Math.round(validation.targetKcal || validation.target_kcal || 0).toLocaleString("vi-VN")} kcal</span>
@@ -4838,6 +4987,51 @@ function expectedItemsPerMeal(value) {
   return { simple: 3, balanced: 4, full: 5 }[value] || 4;
 }
 
+function buildMealItemCountWarnings(meals, expectedCount, summary) {
+  const warnings = [];
+  const summaryEntries = summary && typeof summary === "object" ? Object.entries(summary) : [];
+  if (summaryEntries.length) {
+    summaryEntries.forEach(([mealType, info]) => {
+      const expected = Number(info?.expected ?? expectedCount);
+      const actual = Number(info?.actual ?? 0);
+      if (expected > 0 && actual < expected) {
+        const label = mealLabels[mealType] || mealType || "bữa ăn";
+        warnings.push(`Đã tạo ${actual}/${expected} món phù hợp cho ${label}; hệ thống vẫn giữ chế độ ăn và danh sách loại trừ.`);
+      }
+    });
+    return warnings;
+  }
+  (meals || []).forEach((meal) => {
+    const expected = Number(meal.expectedItems || expectedCount);
+    const actual = Number(meal.items?.length || 0);
+    if (expected > 0 && actual < expected) {
+      warnings.push(`Đã tạo ${actual}/${expected} món phù hợp cho ${meal.title}; hệ thống vẫn giữ chế độ ăn và danh sách loại trừ.`);
+    }
+  });
+  return warnings;
+}
+
+function deriveMealItemCountStatus(summary, expectedCount, meals) {
+  let missingTotal = 0;
+  const entries = summary && typeof summary === "object" ? Object.values(summary) : [];
+  if (entries.length) {
+    entries.forEach((info) => {
+      const expected = Number(info?.expected ?? expectedCount);
+      const actual = Number(info?.actual ?? 0);
+      if (expected > 0 && actual < expected) missingTotal += expected - actual;
+    });
+  } else {
+    (meals || []).forEach((meal) => {
+      const expected = Number(meal.expectedItems || expectedCount);
+      const actual = Number(meal.items?.length || 0);
+      if (expected > 0 && actual < expected) missingTotal += expected - actual;
+    });
+  }
+  if (missingTotal > 1) return "major_adjustment";
+  if (missingTotal === 1) return "minor_adjustment";
+  return null;
+}
+
 function analyzeMealBalance(items, expectedCount) {
   const roles = { starch: false, protein: false, produce: false, energy: false };
   items.forEach((item) => {
@@ -5013,7 +5207,7 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
   const safeProgress = Number.isFinite(Number(progress)) ? Number(progress) : 0;
   const safeSummary = summary || fallbackSummary;
   const safeValidation = validation || { totalProtein: 0, totalCalories: 0, messages: [], isValid: false };
-  const safeWarnings = Array.isArray(dataWarnings) ? dataWarnings : [];
+  const safeWarnings = dedupeMessages(Array.isArray(dataWarnings) ? dataWarnings : []);
   const notices = [
     {
       id: "meal-reminder",
@@ -5068,6 +5262,28 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
       timeLabel: "Hôm nay",
     });
   }
+  const validationMessages = dedupeMessages([
+    ...(Array.isArray(safeValidation.messages) ? safeValidation.messages : []),
+    ...(Array.isArray(safeValidation.warnings) ? safeValidation.warnings : []),
+  ]);
+  const proteinExcessMessage = validationMessages.find((message) => {
+    const normalized = stripAccents(String(message || "")).toLowerCase();
+    return normalized.includes("protein") && normalized.includes("vuot");
+  });
+  if (safeValidation.proteinOverLimit || proteinExcessMessage) {
+    notices.push({
+      id: "high-protein",
+      type: "c\u1ea3nh b\u00e1o protein",
+      tone: "orange",
+      category: "warning",
+      icon: "alert",
+      title: "Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau",
+      text: proteinExcessMessage || buildProteinExcessMessage(safeValidation.totalProtein, safeValidation.targetProtein),
+      actionLabel: "Xem th\u1ef1c \u0111\u01a1n",
+      actionTarget: "meal-plan",
+      timeLabel: "H\u00f4m nay",
+    });
+  }
   safeWarnings.forEach((warning, index) => {
     const tone = /nghiem|nguy hiem|critical|error|bad/i.test(warning) ? "red" : "orange";
     notices.push({
@@ -5083,7 +5299,7 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
       timeLabel: "Hôm nay",
     });
   });
-  if (safeValidation.isValid && safeProgress >= 95) {
+  if (safeValidation.isValid && !safeValidation.proteinOverLimit && safeProgress >= 95) {
     notices.push({
       id: "goal-achievement",
       type: "thành tích đạt mục tiêu",
@@ -5164,6 +5380,11 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
   };
 }
 
+function buildProteinExcessMessage(totalProtein, targetProtein) {
+  const excess = Math.max(Math.round(Number(totalProtein || 0) - Number(targetProtein || 0)), 0);
+  return `Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau ${excess}g. N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t.`;
+}
+
 function buildKcalDeviationMessage(totalCalories, targetCalories) {
   const total = Number(totalCalories || 0);
   const target = Number(targetCalories || 0);
@@ -5216,6 +5437,7 @@ function adaptTodayMealPlanResponse(today, fallbackTarget) {
       total_protein_g: Number(today?.meal_plan?.total_protein_g ?? today?.meal_plan?.total_protein ?? 0),
       total_fat_g: Number(today?.meal_plan?.total_fat_g ?? today?.meal_plan?.total_fat ?? 0),
       total_carbs_g: Number(today?.meal_plan?.total_carbs_g ?? today?.meal_plan?.total_carbs ?? 0),
+      meal_item_count_summary: today?.validation?.meal_item_count_summary || today?.meal_plan?.meal_item_count_summary || null,
       meals,
     },
     validation: today?.validation || {
@@ -5226,6 +5448,7 @@ function adaptTodayMealPlanResponse(today, fallbackTarget) {
       kcalDiffPct: targetCalories > 0 ? (Math.abs(totalKcal - targetCalories) / targetCalories) * 100 : 100,
       errors: [],
       warnings: [],
+      infos: [],
     },
   };
 }
@@ -5274,6 +5497,7 @@ function buildWeeklyCalories(result, summary) {
 
 function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
   if (!mealPlan) return [];
+  const itemCountSummary = mealPlan.meal_item_count_summary || mealPlan.item_count_summary || {};
   
   if (Array.isArray(mealPlan.meals)) {
     return mealPlan.meals.filter((meal) => {
@@ -5281,10 +5505,15 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
       return key !== "snack" || profileSettings.enable_snack === true;
     }).map((meal) => {
       const items = Array.isArray(meal.items) ? meal.items : [];
+      const mealType = String(meal.meal_type || "").toLowerCase();
+      const countInfo = itemCountSummary[mealType] || {};
       if (!Array.isArray(meal.items)) console.warn("meal.items không phải là mảng:", meal);
       return {
         title: mealLabels[meal.meal_type] || meal.meal_type || "Bữa ăn",
+        mealType,
         accent: mealAccents[meal.meal_type] || "green",
+        expectedItems: Number(meal.expected_items ?? countInfo.expected ?? profileSettings.items_per_meal ?? 0) || null,
+        actualItems: Number(meal.actual_items ?? countInfo.actual ?? items.length) || items.length,
         items: filterFoodsByDietType(
           items
             .filter(isUiMenuEligible)
@@ -5300,10 +5529,14 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
     .filter(([key]) => key !== "snack" || profileSettings.enable_snack === true)
     .map(([mealKey, items]) => {
       const safeItems = Array.isArray(items) ? items : [];
+      const countInfo = itemCountSummary[mealKey] || {};
       if (!Array.isArray(items)) console.warn("items không phải là mảng:", items);
       return {
         title: mealLabels[mealKey] || mealKey,
+        mealType: mealKey,
         accent: mealAccents[mealKey] || "green",
+        expectedItems: Number(countInfo.expected ?? profileSettings.items_per_meal ?? 0) || null,
+        actualItems: Number(countInfo.actual ?? safeItems.length) || safeItems.length,
         items: filterFoodsByDietType(
           safeItems
             .filter(isUiMenuEligible)
@@ -5403,11 +5636,14 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
   const displayCategory = mapCategoryLabel(cleanCategory, item.food_group || item.foodGroup);
   const imageUrl = typeof item.image_url === "string" ? item.image_url.trim() : "";
   const id = item.food_id || item.id || fallbackId;
-  const imageSourceType = item.image_source_type
+  const rawImageSourceType = item.image_source_type
     || (imageUrl.includes("/images/placeholders/") ? "placeholder" : imageUrl ? "real_food_photo" : "placeholder");
+  const normalizedImageSourceType = String(rawImageSourceType || "placeholder").toLowerCase();
   const incomingImageBadge = String(item.image_badge || "").trim();
   const imageBadge = stripAccents(incomingImageBadge).toLowerCase() === "anh minh hoa" ? null : incomingImageBadge || null;
-  const imageVerified = item.image_verified === true || item.image_verified === "true";
+  const imageVerified = item.image_verified === true || item.image_verified === 1 || item.image_verified === "1" || item.image_verified === "true";
+  const canShowRealImage = Boolean(imageUrl) && imageVerified && normalizedImageSourceType === "real";
+  const imageSourceType = canShowRealImage ? rawImageSourceType : "placeholder";
   return {
     id,
     foodId: id,
@@ -5419,13 +5655,13 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
     mealRole: item.meal_role || item.culinary_role || "",
     reason: item.reason || "",
     status: item.status || "suggested",
-    image: imageUrl || defaultFoodImage,
+    image: canShowRealImage ? imageUrl : defaultFoodImage,
     fallbackImage: defaultFoodImage,
     imageAlt: item.image_alt || `Ảnh món ${name}`,
     imageSourceType,
     imageVerified,
     imageBadge,
-    imageMissing: imageSourceType === "placeholder",
+    imageMissing: !canShowRealImage,
     calories: round(item.calories ?? item.kcal ?? item.kcal_per_serving_clean),
     protein: round(item.protein ?? item.protein_g ?? item.protein_per_serving_clean),
     fat: round(item.fat ?? item.fat_g ?? item.fat_per_serving_clean),
@@ -5621,6 +5857,29 @@ function stripAccents(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D");
+}
+
+function normalizeMessageKey(value) {
+  return stripAccents(String(value || "").normalize("NFKC"))
+    .toLowerCase()
+    .replace(/[^a-z0-9%/]+/g, " ")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  const seen = new Set();
+  const result = [];
+  messages.forEach((message) => {
+    const text = String(message || "").replace(/\s+/g, " ").trim();
+    const key = normalizeMessageKey(text);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(text);
+  });
+  return result;
 }
 
 function sumMealPlan(mealPlan, key) {

@@ -97,18 +97,6 @@ class WeightLogService:
         recorded_at = now_vn()
 
         if existing:
-            if existing.source == "initial_profile" and source != "initial_profile":
-                action = "skip_initial_profile"
-                print("[WEIGHT LOG UPSERT FROM PROFILE]", {
-                    "user_id": user.id,
-                    "log_date": str(log_date),
-                    "new_weight": float(weight_kg),
-                    "existing_log_id": existing.id,
-                    "existing_source": existing.source,
-                    "action": action,
-                })
-                return self.to_payload(existing)
-
             existing.weight_kg = float(weight_kg)
             existing.updated_at = recorded_at
             existing.source = source
@@ -176,7 +164,7 @@ class WeightLogService:
         all_logs_sorted.sort(key=lambda l: (l.log_date, getattr(l, "created_at", None) or datetime.min, l.id))
         start_log = all_logs_sorted[0]
         start_date = start_log.log_date
-        milestone_points: list[dict] = []
+        chart_points: list[dict] = []
 
         milestone_date = start_date
         while milestone_date <= today:
@@ -191,7 +179,7 @@ class WeightLogService:
                     reverse=True
                 )
                 selected_log = matching_logs[0]
-                milestone_points.append(
+                chart_points.append(
                     {
                         "date": milestone_date.isoformat(),
                         "log_date": milestone_date,
@@ -206,9 +194,10 @@ class WeightLogService:
                 )
             milestone_date += timedelta(days=3)
 
-        print("[MILESTONE POINTS FINAL]", milestone_points)
+        chart_points.sort(key=lambda m: m["source_log_date"])
+        print("[MILESTONE POINTS FINAL]", chart_points)
         next_milestone_date = milestone_date
-        return milestone_points, next_milestone_date
+        return chart_points, next_milestone_date
 
     def sync_profile_weight(
         self,
@@ -251,17 +240,6 @@ class WeightLogService:
             })
 
             if existing:
-                if existing.source == "initial_profile" and source != "initial_profile":
-                    # Never overwrite the initial snapshot; keep chart history stable and only move the profile forward.
-                    profile = db.scalar(select(UserProfileEntity).where(UserProfileEntity.user_id == user_id))
-                    if profile:
-                        if abs(float(profile.weight_kg or 0) - weight_value) >= 0.05:
-                            print(f"[PROFILE WRITE SOURCE] weight_log_service.py:upsert_weight_log values={{'weight_kg': {weight_value}}}")
-                            profile.weight_kg = weight_value
-                    db.commit()
-                    return self.to_payload(existing)
-                
-                # Normal overwrite
                 existing.weight_kg = float(weight_value)
                 existing.log_date = recorded_date
                 existing.source = source
@@ -346,7 +324,7 @@ class WeightLogService:
         profile = user.profile or db.scalar(
             select(UserProfileEntity).where(UserProfileEntity.user_id == user.id)
         )
-        print("[WEIGHT CURRENT USER]", {
+        print("[WEIGHT SUMMARY SOURCE CHECK]", {
             "endpoint": "/weight-logs/summary",
             "user_id": user.id,
             "email": user.email,
@@ -356,7 +334,7 @@ class WeightLogService:
         rows_sorted = list(rows)
         rows_sorted.sort(key=lambda l: (l.log_date, getattr(l, "created_at", None) or datetime.min, l.id))
         start_log = rows_sorted[0] if rows_sorted else None
-        latest_log = rows[-1] if rows else None
+        latest_log = rows_sorted[-1] if rows_sorted else None
 
         print("[WEIGHT START LOG DEBUG]", {
             "user_id": user.id,
@@ -404,7 +382,7 @@ class WeightLogService:
             else: trend = "stable"
 
         today = today_vn()
-        milestone_points, next_milestone_date = self._milestone_points(rows, today, profile_weight=profile_weight)
+        chart_points, next_milestone_date = self._milestone_points(rows, today, profile_weight=profile_weight)
         last_log_date = latest_log.log_date if latest_log else None
 
         latest_milestone_date = next_milestone_date - timedelta(days=3) if start_log and next_milestone_date else today
@@ -415,7 +393,7 @@ class WeightLogService:
             "user_id": user.id,
             "profile_weight": profile.weight_kg if profile else None,
             "today": today,
-            "milestone_points": milestone_points,
+            "chart_points": chart_points,
         })
 
         print("[WEIGHT SUMMARY FINAL]", {
@@ -433,6 +411,7 @@ class WeightLogService:
         })
 
         return {
+            "initial_weight": _round_optional(start_weight),
             "start_date": start_date,
             "current_weight": _round_optional(current_weight),
             "start_weight": _round_optional(start_weight),
@@ -443,10 +422,14 @@ class WeightLogService:
             "progress_percent": round(progress_percent, 2),
             "trend": trend,
             "last_log_date": last_log_date,
+            "latest_log_date": last_log_date,
+            "latest_log_weight": _round_optional(latest_log_weight),
+            "all_logs_count": len(rows),
             "latest_milestone_date": latest_milestone_date,
             "next_checkin_date": next_milestone_date,
             "next_milestone_date": next_milestone_date,
-            "milestone_points": milestone_points,
+            "chart_points": chart_points,
+            "milestone_points": chart_points,
             "days_since_latest_milestone": days_since_latest_milestone,
             "should_checkin": should_checkin,
             "message": INITIAL_WEIGHT_MESSAGE if len(rows) <= 1 else TREND_MESSAGES.get(trend, "not_enough_data"),

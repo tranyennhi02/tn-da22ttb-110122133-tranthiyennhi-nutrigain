@@ -47,11 +47,26 @@ class FoodService:
     def food_to_payload(food: Food) -> dict:
         name = food.dish_name_vi or food.name_vi or food.display_name or food.name or food.original_name or str(food.food_id)
         category = food.clean_category or food.category or "other"
+        is_verified = bool(food.image_verified)
+        source_type = food.image_source_type or "placeholder"
+        is_placeholder = (source_type == "placeholder") or not is_verified
+        image_badge = (
+            "Cần duyệt"
+            if source_type == "pexels" and not is_verified
+            else "Ảnh thật"
+            if is_verified and not is_placeholder
+            else "Ảnh minh họa"
+        )
         return {
             "food_id": str(food.food_id),
             "name": name,
             "name_en": food.display_name or food.name or food.original_name,
             "image_url": food.image_url,
+            "image_alt_vi": food.image_alt_vi,
+            "image_source_type": source_type,
+            "image_verified": is_verified,
+            "image_quality_note": food.image_quality_note,
+            "image_badge": image_badge,
             "category": category,
             "type": food.type,
             "source": food.source,
@@ -185,9 +200,26 @@ class UserService:
             "updated_at": profile.updated_at.isoformat(timespec="seconds"),
         }
 
-    def get_me(self, user: User) -> dict:
+    def get_me(self, db: Session, user: User) -> dict:
+        db.expire_all()
+        profile = (
+            db.query(UserProfileEntity)
+            .filter(UserProfileEntity.user_id == user.id)
+            .populate_existing()
+            .first()
+        )
+        print("[USERS ME WEIGHT CHECK]", {
+            "current_user_id": user.id,
+            "email": user.email,
+            "profile_user_id": profile.user_id if profile else None,
+            "weight_kg": profile.weight_kg if profile else None,
+            "target_weight_kg": profile.target_weight_kg if profile else None,
+            "height_cm": profile.height_cm if profile else None,
+            "diet_type": profile.diet_type if profile else None,
+            "items_per_meal": profile.items_per_meal if profile else None,
+        })
         payload = self.user_to_payload(user)
-        payload["profile"] = self.profile_to_payload(user.profile)
+        payload["profile"] = self.profile_to_payload(profile)
         print("[GET /users/me RESPONSE]", payload)
         return payload
 
@@ -212,14 +244,29 @@ class UserService:
             update_values["password_hash"] = hash_password(str(values["password"]))
 
         user = UserRepository(db).update_user(user, update_values)
-        return self.get_me(user)
+        return self.get_me(db, user)
 
     def update_profile(self, db: Session, user: User, payload: UserProfileInput) -> dict:
         print("[PUT PROFILE] user_id=", user.id)
         print("[PUT PROFILE] raw payload=", payload)
         values = _dump_model(payload, exclude_unset=True)
+        if payload.weight_kg is not None:
+            values["weight_kg"] = payload.weight_kg
         print("[PUT PROFILE] update_data=", values)
-        current_profile = getattr(user, "profile", None)
+        db.expire_all()
+
+        print("[PROFILE UPDATE PAYLOAD WEIGHT]", {
+            "current_user_id": user.id,
+            "email": user.email,
+            "payload_weight_kg": payload.weight_kg,
+        })
+
+        current_profile = (
+            db.query(UserProfileEntity)
+            .filter(UserProfileEntity.user_id == user.id)
+            .populate_existing()
+            .first()
+        )
         
         target_weight = values.get("target_weight_kg")
         height = values.get("height_cm") or (getattr(current_profile, "height_cm", None) if current_profile else None)
@@ -233,7 +280,6 @@ class UserService:
                     detail=f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
                 )
 
-        old_weight = getattr(current_profile, "weight_kg", None)
         if "gender" in values and values["gender"] is not None:
             values["sex"] = values["gender"]
         elif "sex" in values and values["sex"] is not None:
@@ -257,10 +303,36 @@ class UserService:
             values["disliked_food_groups"] = _serialize_profile_list(grp_list)
 
         profile = UserRepository(db).upsert_profile(user.id, values)
-        if "weight_kg" in values and values.get("weight_kg") is not None:
+        if payload.weight_kg is not None:
+            profile.weight_kg = payload.weight_kg
+
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+
+        print("[PROFILE UPDATE SAVED WEIGHT]", {
+            "current_user_id": user.id,
+            "saved_profile_user_id": profile.user_id,
+            "saved_weight_kg": profile.weight_kg,
+            "saved_target_weight_kg": profile.target_weight_kg,
+            "updated_at": str(profile.updated_at) if profile.updated_at else None,
+        })
+
+        if profile.weight_kg is not None:
             WeightLogService().upsert_weight_log_from_profile_update(user, profile.weight_kg, db, source="profile_update")
-        refreshed_user = UserRepository(db).get_by_id(user.id)
-        refreshed_profile = getattr(refreshed_user, "profile", None) if refreshed_user else None
+            print("[WEIGHT LOG UPSERT FROM PROFILE]", {
+                "user_id": user.id,
+                "weight_kg": profile.weight_kg,
+                "source": "profile_update"
+            })
+
+        db.expire_all()
+        refreshed_profile = (
+            db.query(UserProfileEntity)
+            .filter(UserProfileEntity.user_id == user.id)
+            .populate_existing()
+            .first()
+        )
         print("[PUT PROFILE] weight_kg=", getattr(refreshed_profile, "weight_kg", None))
         print("[PUT PROFILE] target_weight_kg=", getattr(refreshed_profile, "target_weight_kg", None))
         print("[PROFILE UPDATE CHECK]", {

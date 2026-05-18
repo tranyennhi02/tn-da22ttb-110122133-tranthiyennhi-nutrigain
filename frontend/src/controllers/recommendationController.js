@@ -53,8 +53,40 @@ function getVietnamDateString() {
   }).format(new Date());
 }
 
+function mealComplexityFromItems(itemsPerMeal) {
+  const count = Number(itemsPerMeal);
+  if (count <= 3) return "simple";
+  if (count >= 5) return "full";
+  return "balanced";
+}
+
+function profileToRegenerateForm(profile, fallback = {}) {
+  if (!profile) return fallback;
+  return {
+    ...fallback,
+    weight: profile.weight_kg ?? fallback.weight,
+    height: profile.height_cm ?? fallback.height,
+    age: profile.age ?? fallback.age,
+    sex: profile.sex || profile.gender || fallback.sex,
+    activity: profile.activity_level || fallback.activity,
+    gain_speed: profile.weight_gain_speed || fallback.gain_speed,
+    weight_gain_speed: profile.weight_gain_speed || fallback.weight_gain_speed,
+    target_weight: profile.target_weight_kg ?? fallback.target_weight,
+    meal_complexity: mealComplexityFromItems(profile.items_per_meal ?? fallback.items_per_meal),
+    items_per_meal: profile.items_per_meal ?? fallback.items_per_meal,
+    diet_style: profile.diet_type || fallback.diet_style,
+    diet_type: profile.diet_type || fallback.diet_type,
+    budget_level: profile.budget_level || fallback.budget_level,
+    favorite_foods: profile.favorite_foods ?? fallback.favorite_foods,
+    unfavorite_foods: profile.disliked_foods ?? fallback.unfavorite_foods,
+    disliked_foods: profile.disliked_foods ?? fallback.disliked_foods,
+    disliked_food_groups: profile.disliked_food_groups ?? fallback.disliked_food_groups,
+  };
+}
+
 export async function regenerateMealPlan(formState, options = {}) {
-  const payload = normalizePayload(formState);
+  const freshProfile = options.profile || formState?.profile || null;
+  const payload = normalizePayload(profileToRegenerateForm(freshProfile, formState));
   const result = await postRegenerateMealPlan({
     ...payload,
     userId: options.userId || undefined,
@@ -63,6 +95,8 @@ export async function regenerateMealPlan(formState, options = {}) {
     targetKcal: options.targetKcal || payload.target_calories || undefined,
     excludePreviousItems: options.excludePreviousItems !== false,
     randomSeed: options.randomSeed || Date.now(),
+    force_regenerate: true,
+    profile: freshProfile || undefined,
   });
   return assertNonEmptyMealPlan(result);
 }

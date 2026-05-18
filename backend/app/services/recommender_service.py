@@ -242,6 +242,26 @@ FULL_FAT_DAIRY_TERMS = (
     "sua chua hy lap",
 )
 DAIRY_TERMS = ("milk", "sua", "yogurt", "sua chua", "cheese", "pho mai")
+BAD_MENU_FAT_SPREAD_TERMS = (
+    "margarine",
+    "bo thuc vat",
+    "vegetable oil spread",
+    "buttery spread",
+)
+VEGETARIAN_SAFE_FILL_CATEGORIES = {
+    "fruit",
+    "vegetable",
+    "starch_grain",
+    "starch_tuber",
+    "healthy_fat_nuts",
+    "dairy",
+    "plant_protein",
+}
+PROTEIN_EXCESS_WARNING_TEMPLATE = (
+    "Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau {excess_g}g. "
+    "N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng "
+    "b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t."
+)
 PROTEIN_EXCESS_WARNING = (
     "Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt."
 )
@@ -266,6 +286,7 @@ MEAT_TERMS = (
 )
 VEGETARIAN_BLOCKED_TERMS = MEAT_TERMS + tuple(term for term in FISH_TERMS if term != "ca") + SHELLFISH_TERMS + ("seafood", "hai san")
 PROCESSED_MEAT_TERMS = (
+    "biawurst",
     "bologna",
     "sausage",
     "hot dog",
@@ -280,6 +301,7 @@ PROCESSED_MEAT_TERMS = (
     "bacon",
     "smoked meat",
     "processed meat",
+    "processed",
     "thit nguoi",
     "thit che bien",
     "xuc xich",
@@ -299,8 +321,49 @@ DESSERT_SWEET_TERMS = (
     "sweet roll",
     "muffin",
     "candy",
+    "sweets",
+    "keo",
     "banh ngot",
     "banh sung bo",
+)
+REAL_BEEF_FAVORITE_TERMS = (
+    "thit bo",
+    "bo nac",
+    "bo nuong",
+    "bo xao",
+    "bo luoc",
+    "lean beef",
+    "beef lean",
+    "grilled beef",
+    "stir fried beef",
+    "boiled beef",
+)
+PROCESSED_FAVORITE_PENALTY_TERMS = (
+    "biawurst",
+    "xuc xich",
+    "sausage",
+    "processed",
+    "processed meat",
+    "thit che bien",
+)
+SWEET_LOW_PRIORITY_TERMS = (
+    "keo",
+    "candy",
+    "sweets",
+)
+NATURAL_FRUIT_TERMS = (
+    "dau",
+    "strawberry",
+    "chuoi",
+    "banana",
+    "tao",
+    "apple",
+    "cam",
+    "orange",
+    "viet quat",
+    "blueberry",
+    "mam xoi",
+    "raspberry",
 )
 HEALTHY_GAIN_ENERGY_TERMS = (
     "avocado",
@@ -426,10 +489,11 @@ def _valid_food_image_url(value: object) -> str:
 
 def _uses_verified_real_photo(food: pd.Series | dict) -> bool:
     image_url = _valid_food_image_url(food.get("image_url", ""))
+    source_type = str(food.get("image_source_type", "") or "").strip().lower()
     return bool(
         image_url
         and _truthy(food.get("image_verified", False))
-        and str(food.get("image_source_type", "") or "").strip().lower() == "real_food_photo"
+        and source_type == "real"
     )
 
 
@@ -545,6 +609,39 @@ def _safe_text(value: object) -> str:
     return str(value or "")
 
 
+def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
+    excess_g = max(int(round(float(total_protein or 0.0) - float(target_protein or 0.0))), 0)
+    return PROTEIN_EXCESS_WARNING_TEMPLATE.format(excess_g=excess_g)
+
+
+def _append_unique_message(messages: list[str], message: str | None) -> None:
+    if message and message not in messages:
+        messages.append(message)
+
+
+def _append_unique_explanation(
+    explanations: list[dict],
+    explanation_type: str,
+    food: str,
+    reason: str,
+) -> None:
+    for entry in explanations:
+        if entry.get("type") == explanation_type and entry.get("reason") == reason:
+            foods = entry.setdefault("foods", [])
+            if food not in foods:
+                foods.append(food)
+            if not entry.get("food"):
+                entry["food"] = food
+            return
+    entry = {"type": explanation_type, "food": food, "foods": [food], "reason": reason}
+    if entry not in explanations:
+        explanations.append(entry)
+
+
+def _format_food_terms_for_message(foods: list[str]) -> str:
+    return ", ".join(str(food).strip() for food in foods if str(food).strip())
+
+
 def _row_matches_terms(row: pd.Series | dict, terms: list[str]) -> bool:
     raw_text = _normalize_search_text(
         " ".join(
@@ -639,6 +736,99 @@ def _is_vegan_diet(value: object) -> bool:
     return normalized in {"vegan", "thuan chay"} or "vegan" in normalized or "thuan chay" in normalized
 
 
+def _favorite_term_conflicts_with_vegetarian(term: object) -> bool:
+    raw = str(term or "").strip().lower()
+    normalized = " ".join(_normalize_search_text(raw).split())
+    if not normalized:
+        return False
+
+    animal_phrases = (
+        "thit ga",
+        "thit bo",
+        "thit heo",
+        "thit lon",
+        "beef",
+        "chicken",
+        "turkey",
+        "pork",
+        "lamb",
+        "duck",
+        "fish",
+        "salmon",
+        "tuna",
+        "mackerel",
+        "sardine",
+        "shrimp",
+        "prawn",
+        "crab",
+        "seafood",
+        "meat",
+        "egg",
+        "trung",
+    )
+    if any(phrase in normalized for phrase in animal_phrases):
+        return True
+
+    accented_animal_terms = ("gà", "bò", "heo", "lợn", "cá", "tôm", "mực", "cua", "hải sản", "thịt", "trứng")
+    if any(term_text in raw for term_text in accented_animal_terms):
+        return True
+
+    # Keep "bo" ambiguous: users may mean "bơ" (avocado/butter). Exact "bò" is caught above.
+    return normalized in {"ga", "heo", "lon", "tom", "muc", "cua", "hai san", "trung", "egg"}
+
+
+def _favorite_term_is_protein_limited(term: object) -> bool:
+    raw = str(term or "").strip().lower()
+    normalized = " ".join(_normalize_search_text(raw).split())
+    if not normalized:
+        return False
+    protein_terms = (
+        "thit",
+        "meat",
+        "beef",
+        "chicken",
+        "turkey",
+        "pork",
+        "fish",
+        "salmon",
+        "tuna",
+        "shrimp",
+        "prawn",
+        "crab",
+        "seafood",
+        "egg",
+        "trung",
+        "milk",
+        "yogurt",
+        "dairy",
+        "tofu",
+        "dau hu",
+        "dau phu",
+        "soy",
+        "bean",
+    )
+    accented_terms = ("gà", "bò", "heo", "lợn", "cá", "tôm", "mực", "cua", "hải sản", "thịt", "trứng", "sữa", "đậu hũ", "đậu phụ")
+    return (
+        any(term_text in raw for term_text in accented_terms)
+        or any(term_text in normalized for term_text in protein_terms)
+        or normalized in {"ga", "heo", "lon", "tom", "muc", "cua", "hai san"}
+    )
+
+
+def _split_favorite_foods_by_diet(favorite_foods: list[str], diet_type: object) -> tuple[list[str], list[str]]:
+    if not _is_vegetarian_diet(diet_type):
+        return favorite_foods, []
+
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for favorite in favorite_foods:
+        if _favorite_term_conflicts_with_vegetarian(favorite):
+            blocked.append(favorite)
+        else:
+            allowed.append(favorite)
+    return allowed, blocked
+
+
 def _row_nutrient(row: pd.Series | dict, *keys: str) -> float:
     for key in keys:
         value = row.get(key, None)
@@ -684,6 +874,31 @@ def _is_full_fat_dairy_row(row: pd.Series | dict) -> bool:
     return _text_has_any(text, FULL_FAT_DAIRY_TERMS) or (fat >= 4.0 and calories >= 110.0)
 
 
+def _is_abnormal_fat_spread_row(row: pd.Series | dict) -> bool:
+    text = _row_search_text(row)
+    if not _text_has_any(text, BAD_MENU_FAT_SPREAD_TERMS):
+        return False
+
+    raw_category = _row_category(row)
+    clean_category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+    calories = _row_nutrient(row, "kcal_per_serving_clean", "calories_raw", "calories", "kcal")
+    serving_grams = _row_nutrient(row, "serving_grams", "quantity_g")
+    standalone_spread = (
+        raw_category in {"vegetable", "added_fat", "fat_spread", "margarine", "butter", "healthy_fat", "healthy_fat_nuts"}
+        or clean_category in {"vegetable", "healthy_fat_nuts"}
+    )
+    if not standalone_spread:
+        return False
+
+    if raw_category in {"vegetable", "fat_spread", "margarine"} or clean_category == "vegetable":
+        return True
+    if calories > 0 and calories < 25.0:
+        return True
+    if serving_grams >= 80.0 and 0 < calories < 120.0:
+        return True
+    return False
+
+
 def _is_processed_meat_row(row: pd.Series | dict) -> bool:
     category = _row_category(row)
     text = _row_search_text(row)
@@ -696,7 +911,45 @@ def _is_processed_meat_row(row: pd.Series | dict) -> bool:
 def _is_dessert_or_sweet_row(row: pd.Series | dict) -> bool:
     category = _row_category(row)
     text = _row_search_text(row)
-    return category in {"dessert_sweets", "sweet_spread"} or _text_has_any(text, DESSERT_SWEET_TERMS)
+    return category in {"dessert_sweets", "sweet_spread"} or _text_has_any(text, DESSERT_SWEET_TERMS + SWEET_LOW_PRIORITY_TERMS)
+
+
+def _favorite_foods_include_beef(favorite_foods: object) -> bool:
+    normalized = " ".join(_normalize_search_text(term) for term in _coerce_profile_terms(favorite_foods))
+    return _text_has_any(normalized, ("bo", "beef", "thit bo"))
+
+
+def _is_real_beef_preference_row(row: pd.Series | dict) -> bool:
+    category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+    if category != "protein_meat" or _is_processed_meat_row(row):
+        return False
+    return _text_has_any(_row_search_text(row), REAL_BEEF_FAVORITE_TERMS)
+
+
+def _is_processed_favorite_penalty_row(row: pd.Series | dict) -> bool:
+    return _is_processed_meat_row(row) or _text_has_any(_row_search_text(row), PROCESSED_FAVORITE_PENALTY_TERMS)
+
+
+def _is_natural_fruit_row(row: pd.Series | dict) -> bool:
+    category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+    return category == "fruit" and _text_has_any(_row_search_text(row), NATURAL_FRUIT_TERMS)
+
+
+def _healthy_favorite_score_adjustment(row: pd.Series | dict, favorite_foods: object) -> float:
+    adjustment = 0.0
+    if _favorite_foods_include_beef(favorite_foods):
+        if _is_real_beef_preference_row(row):
+            adjustment += 0.55
+        elif _is_processed_favorite_penalty_row(row):
+            adjustment -= 0.55
+
+    if _is_processed_favorite_penalty_row(row):
+        adjustment -= 0.20
+    if _is_dessert_or_sweet_row(row) or _text_has_any(_row_search_text(row), SWEET_LOW_PRIORITY_TERMS):
+        adjustment -= 0.24
+    if _is_natural_fruit_row(row):
+        adjustment += 0.14
+    return adjustment
 
 
 def _is_healthy_gain_energy_row(row: pd.Series | dict) -> bool:
@@ -752,11 +1005,23 @@ def _expand_food_terms(terms: list[str]) -> list[str]:
     for term in terms:
         if not term:
             continue
+        raw_lower = str(term).strip().lower()
         normalized = " ".join(_normalize_search_text(term).split())
         if not normalized:
             continue
 
-        candidates = synonym_map.get(normalized, [normalized])
+        if "bò" in raw_lower or normalized in {"beef", "thit bo"}:
+            candidates = ["bo", "thit bo", "beef"]
+        elif normalized in {"heo", "lon", "pork", "thit heo", "thit lon"} or "lợn" in raw_lower:
+            candidates = ["heo", "lon", "thit heo", "thit lon", "pork"]
+        elif normalized in {"meat", "thit"} or "thịt" in raw_lower:
+            candidates = list(MEAT_TERMS)
+        elif normalized in {"seafood", "hai san"} or "hải sản" in raw_lower:
+            candidates = list(FISH_TERMS) + list(SHELLFISH_TERMS) + ["seafood", "hai san"]
+        elif "mực" in raw_lower or normalized == "muc":
+            candidates = ["muc", "squid", "seafood", "hai san"]
+        else:
+            candidates = synonym_map.get(normalized, [normalized])
         for candidate in candidates:
             key = " ".join(_normalize_search_text(candidate).split())
             if key and key not in seen:
@@ -833,7 +1098,7 @@ def _serving_limits(category: object, name: object = "") -> tuple[float | None, 
 
 
 from app.core.config import settings
-from app.models.entities import Food, FoodRating, MealPlanItem, RecommendationRequest, User, UserFavoriteFood
+from app.models.entities import Food, FoodRating, MealPlanItem, RecommendationRequest, User, UserFavoriteFood, UserProfileEntity
 from app.repositories.interaction_repository import InteractionRepository
 from app.repositories.recommendation_repository import RecommendationRepository
 from app.repositories.user_repository import UserRepository
@@ -2449,7 +2714,16 @@ class RecommenderService:
             
             # Strictly validate length
             if len(selected_rows) < requested_slots:
-                raise ValueError(f"Không đủ món hợp lệ để tạo thực đơn theo cấu trúc {requested_slots} món/bữa.")
+                logger.warning(
+                    "[MEAL ITEM COUNT CHECK] user_id=%s meal_type=%s expected_items=%s actual_items=%s missing_count=%s reason=%s available_candidates_after_hard_filter=%s",
+                    target.get("user_id"),
+                    meal,
+                    requested_slots,
+                    len(selected_rows),
+                    requested_slots - len(selected_rows),
+                    "initial_slot_selection_incomplete",
+                    len(ranked),
+                )
             # ------------------------------------------------------------------
 
             if selected_rows:
@@ -2739,7 +3013,7 @@ class RecommenderService:
             "meal_role": meal_role,
             "image_url": image_url,
             "image_alt": image_alt,
-            "image_source_type": "real_food_photo" if uses_real_photo else "placeholder",
+            "image_source_type": "real" if uses_real_photo else "placeholder",
             "image_verified": bool(uses_real_photo),
             "image_badge": None,
             "image_query": image_query,
@@ -2813,6 +3087,7 @@ class RecommenderService:
         target: dict,
         errors: list[str] | None = None,
         warnings: list[str] | None = None,
+        infos: list[str] | None = None,
     ) -> dict:
         target_kcal = float(target.get("calorie_target") or target.get("calories") or 0.0)
         kcal_diff = total_kcal - target_kcal
@@ -2829,22 +3104,28 @@ class RecommenderService:
 
         next_errors = list(errors or [])
         next_warnings = list(warnings or [])
+        next_infos = list(infos or [])
+
+        protein_over_major = target_protein > 0 and total_protein > target_protein * 1.15
+        protein_over_minor = target_protein > 0 and total_protein > target_protein * 1.10
 
         status = "valid"
         if total_kcal <= 0:
             status = "invalid"
             next_errors.append("Không có dữ liệu thực đơn.")
-        elif kcal_diff_pct > 10 or protein_pct > 115 or fat_pct < 70 or carbs_pct > 130 or fat_pct > 150 or carbs_pct < 70:
+        elif kcal_diff_pct > 10 or protein_over_major or fat_pct < 70 or carbs_pct > 130 or fat_pct > 150 or carbs_pct < 70:
             status = "major_adjustment"
-        elif kcal_diff_pct > 5 or protein_pct > 110 or protein_pct < 90 or fat_pct < 80 or fat_pct > 135 or carbs_pct < 80 or carbs_pct > 115:
+        elif kcal_diff_pct > 5 or protein_over_minor or protein_pct < 90 or fat_pct < 80 or fat_pct > 135 or carbs_pct < 80 or carbs_pct > 115:
             status = "minor_adjustment"
         if next_errors and status == "valid":
             status = "major_adjustment"
 
+        if protein_over_major:
+            _append_unique_message(next_warnings, _protein_excess_warning(total_protein, target_protein))
+
         if status in ("minor_adjustment", "major_adjustment"):
             if protein_pct > 115:
-                if PROTEIN_EXCESS_WARNING not in next_warnings:
-                    next_warnings.append(PROTEIN_EXCESS_WARNING)
+                _append_unique_message(next_warnings, _protein_excess_warning(total_protein, target_protein))
             elif protein_pct > 110:
                 next_warnings.append(f"Protein đang cao hơn mục tiêu {round(total_protein - target_protein)}g. Bạn có thể giảm bớt món đạm hoặc đổi sang món giàu tinh bột/chất béo tốt.")
             elif protein_pct < 90:
@@ -2871,6 +3152,7 @@ class RecommenderService:
             "isValid": is_valid,
             "reason": next_errors[0] if next_errors else (next_warnings[0] if next_warnings else None),
             "warnings": next_warnings,
+            "infos": next_infos,
             "errors": next_errors,
             "targetKcal": target_kcal,
             "totalKcal": total_kcal,
@@ -3170,13 +3452,25 @@ class RecommenderService:
             except (TypeError, ValueError):
                 previous_id = None
 
-        # Always re-fetch the user from DB to pick up the latest profile
-        try:
-            from app.repositories.user_repository import UserRepository
-            saved_user = UserRepository(db).get_by_id(user.id)
-        except Exception:
-            saved_user = user
-        saved_profile = getattr(saved_user, "profile", None)
+        db.expire_all()
+        saved_user = UserRepository(db).get_by_id(user.id) or user
+        saved_profile = (
+            db.query(UserProfileEntity)
+            .filter(UserProfileEntity.user_id == user.id)
+            .populate_existing()
+            .first()
+        )
+        print("[REGENERATE FRESH DB PROFILE]", {
+            "current_user_id": user.id,
+            "email": user.email,
+            "profile_user_id": saved_profile.user_id if saved_profile else None,
+            "weight_kg": saved_profile.weight_kg if saved_profile else None,
+            "target_weight_kg": saved_profile.target_weight_kg if saved_profile else None,
+            "height_cm": saved_profile.height_cm if saved_profile else None,
+            "diet_type": saved_profile.diet_type if saved_profile else None,
+            "items_per_meal": saved_profile.items_per_meal if saved_profile else None,
+            "updated_at": str(saved_profile.updated_at) if saved_profile and saved_profile.updated_at else None,
+        })
 
         def meal_complexity_from_items(items_per_meal: object) -> str | None:
             try:
@@ -3189,26 +3483,28 @@ class RecommenderService:
                 return "full"
             return "balanced"
 
-        weight = payload.weight if payload.weight is not None else getattr(saved_profile, "weight_kg", None)
-        height = payload.height if payload.height is not None else getattr(saved_profile, "height_cm", None)
-        age = payload.age if payload.age is not None else getattr(saved_profile, "age", None)
-        sex = payload.sex if payload.sex is not None else (
-            getattr(saved_profile, "sex", None) or getattr(saved_profile, "gender", None)
+        weight = getattr(saved_profile, "weight_kg", None) if saved_profile else payload.weight
+        height = getattr(saved_profile, "height_cm", None) if saved_profile else payload.height
+        age = getattr(saved_profile, "age", None) if saved_profile else payload.age
+        sex = (
+            (getattr(saved_profile, "sex", None) or getattr(saved_profile, "gender", None))
+            if saved_profile
+            else payload.sex
         )
-        activity = payload.activity or getattr(saved_profile, "activity_level", None) or "moderate"
-        surplus = payload.surplus_kcal if payload.surplus_kcal is not None else getattr(saved_profile, "surplus_kcal", None)
+        activity = (getattr(saved_profile, "activity_level", None) if saved_profile else payload.activity) or "moderate"
+        surplus = getattr(saved_profile, "surplus_kcal", None) if saved_profile else payload.surplus_kcal
         gain_speed = (
-            payload.weight_gain_speed
+            (getattr(saved_profile, "weight_gain_speed", None) if saved_profile else None)
+            or payload.weight_gain_speed
             or payload.gain_speed
-            or getattr(saved_profile, "weight_gain_speed", None)
         )
-        diet_type = getattr(payload, "diet_type", None) or getattr(payload, "diet_style", None) or getattr(saved_profile, "diet_type", None)
-        diet_style = getattr(payload, "diet_style", None) or getattr(payload, "diet_type", None) or diet_type or "balanced"
-        budget_level = payload.budget_level or getattr(saved_profile, "budget_level", None) or "standard"
+        diet_type = (getattr(saved_profile, "diet_type", None) if saved_profile else None) or getattr(payload, "diet_type", None) or getattr(payload, "diet_style", None)
+        diet_style = diet_type or getattr(payload, "diet_style", None) or getattr(payload, "diet_type", None) or "balanced"
+        budget_level = (getattr(saved_profile, "budget_level", None) if saved_profile else None) or payload.budget_level or "standard"
         items_per_meal_val = (
-            getattr(payload, "items_per_meal", None)
+            (getattr(saved_profile, "items_per_meal", None) if saved_profile else None)
+            or getattr(payload, "items_per_meal", None)
             or (3 if getattr(payload, "meal_complexity", None) == "simple" else 5 if getattr(payload, "meal_complexity", None) == "full" else 4 if getattr(payload, "meal_complexity", None) == "balanced" else None)
-            or getattr(saved_profile, "items_per_meal", None)
         )
         meal_complexity = (
             payload.meal_complexity
@@ -3216,15 +3512,15 @@ class RecommenderService:
             or "balanced"
         )
         target_weight = (
-            payload.target_weight
-            if payload.target_weight is not None
-            else getattr(saved_profile, "target_weight_kg", None)
+            getattr(saved_profile, "target_weight_kg", None)
+            if saved_profile and getattr(saved_profile, "target_weight_kg", None) is not None
+            else payload.target_weight
         )
-        if target_weight is not None and payload.height is not None and float(payload.height) > 0:
-            target_bmi = float(target_weight) / ((float(payload.height) / 100.0) ** 2)
+        if target_weight is not None and height is not None and float(height) > 0:
+            target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
             if target_bmi >= 23.0:
-                min_normal_weight = round(18.5 * ((float(payload.height) / 100.0) ** 2), 1)
-                max_normal_weight = round(22.9 * ((float(payload.height) / 100.0) ** 2), 1)
+                min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
+                max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
                 raise ValueError(
                     f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. "
                     f"Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
@@ -3233,20 +3529,14 @@ class RecommenderService:
         # Determine disliked_foods, disliked_food_groups, and favorite_foods.
         # If explicitly passed in the request payload, we respect the request directly.
         # Otherwise, we pull from the saved profile.
-        if "favorite_foods" in payload.model_fields_set:
-            favorite_foods = self._parse_profile_list(payload.favorite_foods)
-        else:
+        if saved_profile is not None:
             favorite_foods = self._parse_profile_list(getattr(saved_profile, "favorite_foods", None))
-
-        if "disliked_foods" in payload.model_fields_set:
-            disliked_foods = self._parse_profile_list(payload.disliked_foods)
-        else:
             disliked_foods = self._parse_profile_list(getattr(saved_profile, "disliked_foods", None))
-
-        if "disliked_food_groups" in payload.model_fields_set:
-            disliked_food_groups = self._parse_profile_list(payload.disliked_food_groups)
-        else:
             disliked_food_groups = self._parse_profile_list(getattr(saved_profile, "disliked_food_groups", None))
+        else:
+            favorite_foods = self._parse_profile_list(payload.favorite_foods)
+            disliked_foods = self._parse_profile_list(payload.disliked_foods)
+            disliked_food_groups = self._parse_profile_list(payload.disliked_food_groups)
 
         if weight is None or height is None:
             detail = {
@@ -3300,7 +3590,18 @@ class RecommenderService:
         eligibility_check = self._build_eligibility_check(request_payload)
         if not eligibility_check.get("eligible"):
             logger.info("Regeneration skipped for out-of-scope BMI: %s", eligibility_check)
-            return self._ineligible_scope_response(eligibility_check)
+            result = self._ineligible_scope_response(eligibility_check)
+            result["profile_snapshot"] = {
+                "user_id": user.id,
+                "email": user.email,
+                "weight_kg": weight,
+                "target_weight_kg": target_weight,
+                "height_cm": height,
+                "diet_type": diet_type,
+                "items_per_meal": items_per_meal_val,
+                "updated_at": str(saved_profile.updated_at) if saved_profile and saved_profile.updated_at else None,
+            }
+            return result
 
         exclude_food_ids: list[str] = []
         if previous_id is not None:
@@ -3308,7 +3609,18 @@ class RecommenderService:
             if payload.excludePreviousItems:
                 exclude_food_ids = repository.meal_plan_food_ids(user.id, previous_id)
         request_payload.exclude_food_ids = exclude_food_ids
-        return self.generate_recommendations(request_payload, db, saved_user or user)
+        result = self.generate_recommendations(request_payload, db, saved_user or user)
+        result["profile_snapshot"] = {
+            "user_id": user.id,
+            "email": user.email,
+            "weight_kg": weight,
+            "target_weight_kg": target_weight,
+            "height_cm": height,
+            "diet_type": diet_type,
+            "items_per_meal": items_per_meal_val,
+            "updated_at": str(saved_profile.updated_at) if saved_profile and saved_profile.updated_at else None,
+        }
+        return result
 
     def _generate_recommendations_inner(
         self,
@@ -3382,6 +3694,19 @@ class RecommenderService:
             items_per_meal=getattr(payload, "items_per_meal", None),
             user_id=getattr(user, "id", None),
         )
+        print("[RECOMMENDER FINAL PROFILE USED]", {
+            "user_id": user.id,
+            "email": user.email,
+            "weight_kg": profile.weight_kg,
+            "target_weight_kg": getattr(payload, "target_weight", None),
+            "height_cm": profile.height_cm,
+            "age": profile.age,
+            "sex": profile.sex,
+            "activity_level": profile.activity_level,
+            "weight_gain_speed": profile.weight_gain_speed,
+            "diet_type": profile.diet_type,
+            "items_per_meal": profile.items_per_meal,
+        })
 
         calculated_targets = calculateNutritionTargets(
             {
@@ -3432,6 +3757,7 @@ class RecommenderService:
             "items_per_meal": payload.items_per_meal,
             "gain_energy_mode": gain_energy_mode,
             "disliked_foods": disliked_foods,
+            "user_id": getattr(user, "id", None),
         }
 
         history_preferences = self._train_category_preferences_from_sql(db, user_id=user.id)
@@ -3523,13 +3849,42 @@ class RecommenderService:
                 )
                 ranked = ranked[~allergen_mask].copy()
 
+        abnormal_fat_spread_mask = ranked.apply(_is_abnormal_fat_spread_row, axis=1).astype(bool)
+        if abnormal_fat_spread_mask.any():
+            sample_columns = [
+                column
+                for column in ("food_id", "name", "kcal_per_serving_clean")
+                if column in ranked.columns
+            ]
+            logger.warning(
+                "Filtered abnormal fat spread rows before meal picking: count=%s sample=%s",
+                int(abnormal_fat_spread_mask.sum()),
+                ranked.loc[abnormal_fat_spread_mask, sample_columns].head(5).to_dict(orient="records"),
+            )
+            ranked = ranked[~abnormal_fat_spread_mask].copy()
+
+        scoring_favorite_foods, favorite_food_diet_conflicts = _split_favorite_foods_by_diet(
+            favorite_foods,
+            payload.diet_type or payload.diet_style,
+        )
+        hard_exclusion_terms_for_favorites = _expand_food_terms(disliked_foods) + _expand_food_terms(payload.allergens)
+        if hard_exclusion_terms_for_favorites:
+            scoring_favorite_foods = [
+                favorite
+                for favorite in scoring_favorite_foods
+                if not _row_matches_terms(
+                    {"name": favorite, "original_name": favorite, "search_keywords": favorite, "category": ""},
+                    hard_exclusion_terms_for_favorites,
+                )
+            ]
+
         interaction_repository = InteractionRepository(db)
         favorite_food_ids = interaction_repository.favorite_food_ids(user.id)
         user_ratings = interaction_repository.ratings_by_user(user.id)
 
         # Boost favorites
-        if favorite_foods:
-            fav_terms = [f.strip().lower() for f in favorite_foods if f.strip()]
+        if scoring_favorite_foods:
+            fav_terms = [f.strip().lower() for f in scoring_favorite_foods if f.strip()]
             if fav_terms:
                 fav_boost = ranked.apply(
                     lambda row: 0.16 if _row_matches_terms(row, fav_terms) else 0.0,
@@ -3537,6 +3892,14 @@ class RecommenderService:
                 )
                 ranked = ranked.copy()
                 ranked["score"] = ranked["score"] + fav_boost
+
+        healthy_favorite_adjustment = ranked.apply(
+            lambda row: _healthy_favorite_score_adjustment(row, scoring_favorite_foods),
+            axis=1,
+        )
+        if healthy_favorite_adjustment.any():
+            ranked = ranked.copy()
+            ranked["score"] = ranked["score"] + healthy_favorite_adjustment
 
         if favorite_food_ids:
             ranked = ranked.copy()
@@ -3579,15 +3942,9 @@ class RecommenderService:
         )
         target_kcal = nutrition_target["calorie_target"]
 
-        if payload.exclude_food_ids:
-            excluded_ids = {str(food_id) for food_id in payload.exclude_food_ids if str(food_id).strip()}
-            if excluded_ids:
-                filtered_ranked = ranked[~ranked["food_id"].astype(str).isin(excluded_ids)].copy()
-                if len(filtered_ranked) >= max(meal_slots * 3, 20):
-                    ranked = filtered_ranked
-                else:
-                    ranked = ranked.copy()
-                    ranked["score"] = ranked["score"] - ranked["food_id"].astype(str).isin(excluded_ids).astype(float) * 0.5
+        hard_excluded_food_ids = {str(food_id) for food_id in payload.exclude_food_ids if str(food_id).strip()}
+        if hard_excluded_food_ids:
+            ranked = ranked[~ranked["food_id"].astype(str).isin(hard_excluded_food_ids)].copy()
 
         # --- Pre-filter Outliers (Trứng Cá + Seafood Carbs > 2) ---
         outlier_mask = ranked.apply(
@@ -3914,6 +4271,38 @@ class RecommenderService:
         def _is_animal_protein_row(row: pd.Series | dict) -> bool:
             return _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", "")) in {"protein_meat", "protein_seafood"} or _is_animal_meat_or_seafood_row(row)
 
+        protein_limited_categories = {"protein_meat", "protein_seafood", "egg", "dairy", "plant_protein"}
+        protein_limited_terms = (
+            "fish",
+            "ca",
+            "salmon",
+            "tuna",
+            "meat",
+            "thit",
+            "beef",
+            "pork",
+            "chicken",
+            "ga",
+            "egg",
+            "trung",
+            "milk",
+            "sua",
+            "yogurt",
+            "sua chua",
+            "soy",
+            "dau nanh",
+            "tofu",
+            "dau hu",
+            "dau phu",
+        )
+
+        def _is_protein_limited_food(row: pd.Series | dict) -> bool:
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            if category in protein_limited_categories:
+                return True
+            name_text = _normalize_search_text(row.get("name", ""))
+            return _text_has_any(name_text, protein_limited_terms)
+
         def _animal_protein_count() -> int:
             return sum(
                 1
@@ -4212,6 +4601,131 @@ class RecommenderService:
 
             return replacements
 
+        def _scale_item_payload_to_kcal(item: dict, desired_kcal: float) -> None:
+            current_kcal = float(item.get("calories") or item.get("kcal") or 0.0)
+            if desired_kcal <= 0 or current_kcal <= 0:
+                return
+            scale = float(np.clip(desired_kcal / current_kcal, 0.60, 1.80))
+            item_scale = scale
+            quantity_g = item.get("quantity_g") or item.get("serving_grams")
+            if quantity_g is not None:
+                old_q = float(quantity_g)
+                next_q = old_q * scale
+                min_q, max_q = _serving_limits(item.get("category", ""), item.get("name", ""))
+                if min_q is not None and max_q is not None:
+                    next_q = min(max(next_q, min_q), max_q)
+                item_scale = next_q / old_q if old_q > 0 else scale
+                item["quantity_g"] = next_q
+                item["serving_grams"] = next_q
+                _refresh_item_serving_display(item)
+            for key in ("calories", "kcal", "protein", "fat", "carbs"):
+                item[key] = float(item.get(key) or 0.0) * item_scale
+
+        def _row_is_low_protein_energy_replacement(row: pd.Series | dict, meal: dict, *, allow_second_starch: bool = False) -> bool:
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            if category not in {"starch_grain", "starch_tuber", "fruit", "healthy_fat_nuts", "vegetable"}:
+                return False
+            if _is_protein_limited_food(row):
+                return False
+            if category in {"starch_grain", "starch_tuber"} and _meal_has_primary_starch(meal) and not allow_second_starch:
+                return False
+            if _is_abnormal_fat_spread_row(row) or _is_dessert_or_sweet_row(row) or _is_processed_meat_row(row):
+                return False
+            return True
+
+        def _replace_excess_protein_items(max_changes: int = 3) -> int:
+            nonlocal preserved_item_count_note
+            replacements = 0
+
+            while replacements < max_changes and _protein_is_above_target(1.15):
+                existing_ids = {
+                    str(item.get("food_id"))
+                    for meal in meal_plan_payload
+                    for item in meal.get("items", [])
+                    if item.get("food_id") is not None
+                }
+                target_candidates: list[tuple[int, float, dict, int, dict]] = []
+                for meal in meal_plan_payload:
+                    for idx, item in enumerate(meal.get("items", [])):
+                        if not _is_protein_limited_food(item):
+                            continue
+                        protein_value = float(item.get("protein") or 0.0)
+                        category = _item_category(item)
+                        if _is_animal_protein_item(item):
+                            priority = 0
+                        elif category in {"egg", "dairy", "plant_protein"} or _is_dairy_or_soy_item(item):
+                            priority = 1
+                        else:
+                            continue
+                        target_candidates.append((priority, -protein_value, meal, idx, item))
+
+                if not target_candidates:
+                    break
+
+                _, _, target_meal, target_index, target_item = sorted(target_candidates, key=lambda item: (item[0], item[1]))[0]
+                target_item_id = str(target_item.get("food_id")) if target_item.get("food_id") is not None else ""
+                target_protein_item = float(target_item.get("protein") or 0.0)
+                target_kcal_item = float(target_item.get("calories") or target_item.get("kcal") or 0.0)
+                replacement_choices: list[tuple[float, float, float, float, dict]] = []
+
+                for allow_second_starch in (False, True):
+                    for _, row in ranked.iterrows():
+                        candidate_id = str(row.get("food_id", "")).strip()
+                        if not candidate_id or candidate_id == target_item_id:
+                            continue
+                        ids_without_target = {food_id for food_id in existing_ids if food_id != target_item_id}
+                        if not _row_passes_hard_constraints(row, target_meal.get("items", []), ids_without_target):
+                            continue
+                        if not _row_is_low_protein_energy_replacement(row, target_meal, allow_second_starch=allow_second_starch):
+                            continue
+                        candidate_family = HealthyWeightGainRecommender._food_family(row)
+                        if candidate_family and _current_family_count(candidate_family) >= HealthyWeightGainRecommender._daily_family_limit(candidate_family):
+                            continue
+                        candidate_item = self._to_food_item_payload(row)
+                        if _is_protein_limited_food(candidate_item):
+                            continue
+                        if target_kcal_item > 0:
+                            _scale_item_payload_to_kcal(candidate_item, target_kcal_item)
+                        candidate_protein = float(candidate_item.get("protein") or 0.0)
+                        candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
+                        current_total_protein = _current_payload_totals()[1]
+                        projected_protein = current_total_protein - target_protein_item + candidate_protein
+                        if target_protein > 0 and projected_protein < target_protein * 0.90:
+                            continue
+                        if candidate_protein >= max(target_protein_item - 3.0, target_protein_item * 0.70):
+                            continue
+                        if target_kcal_item > 0 and candidate_kcal < target_kcal_item * 0.45:
+                            continue
+                        category = _item_category(candidate_item)
+                        category_rank = {
+                            "starch_grain": 0.0,
+                            "starch_tuber": 0.0,
+                            "fruit": 1.0,
+                            "healthy_fat_nuts": 2.0,
+                            "vegetable": 3.0,
+                        }.get(category, 5.0)
+                        replacement_choices.append(
+                            (
+                                category_rank + (4.0 if allow_second_starch else 0.0),
+                                candidate_protein,
+                                abs(candidate_kcal - target_kcal_item),
+                                -float(candidate_item.get("score") or 0.0),
+                                candidate_item,
+                            )
+                        )
+                    if replacement_choices:
+                        break
+
+                if not replacement_choices:
+                    break
+
+                replacement_item = sorted(replacement_choices, key=lambda item: (item[0], item[1], item[2], item[3]))[0][4]
+                target_meal["items"][target_index] = replacement_item
+                preserved_item_count_note = True
+                replacements += 1
+
+            return replacements
+
         def _replace_low_quality_items(max_changes: int = 4) -> int:
             nonlocal preserved_item_count_note
             existing_ids = {
@@ -4286,6 +4800,376 @@ class RecommenderService:
                     preserved_item_count_note = True
 
             return replacements
+
+        def _meal_label_vi(meal_type: object) -> str:
+            labels = {"breakfast": "bữa sáng", "lunch": "bữa trưa", "dinner": "bữa tối", "snack": "bữa phụ"}
+            return labels.get(str(meal_type or "").lower(), "bữa ăn")
+
+        def _row_number(row: pd.Series | dict, *keys: str) -> float:
+            for key in keys:
+                value = row.get(key, None)
+                try:
+                    if value is None or pd.isna(value):
+                        continue
+                except (TypeError, ValueError):
+                    if value is None:
+                        continue
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+            return 0.0
+
+        hard_block_terms = _expand_food_terms(disliked_foods) + _expand_food_terms(payload.allergens)
+        meal_fill_debug: list[dict] = []
+
+        def _menu_eligible(row: pd.Series | dict) -> bool:
+            value = row.get("menu_eligible", True)
+            if isinstance(value, str):
+                return value.strip().lower() not in {"0", "false", "no", "n", "none", "null"}
+            return bool(value)
+
+        def _row_has_valid_macros(row: pd.Series | dict) -> bool:
+            calories = _row_number(row, "kcal_per_serving_clean", "calories_raw", "calories", "kcal")
+            protein = _row_number(row, "protein_per_serving_clean", "protein_raw", "protein")
+            fat = _row_number(row, "fat_per_serving_clean", "fat_raw", "fat")
+            carbs = _row_number(row, "carbs_per_serving_clean", "carbs_raw", "carbs", "carb")
+            return calories > 0 and protein >= 0 and fat >= 0 and carbs >= 0
+
+        def _row_passes_hard_constraints(row: pd.Series | dict, meal_items: list[dict], existing_ids: set[str]) -> bool:
+            candidate_id = str(row.get("food_id", "")).strip()
+            if not candidate_id or candidate_id in existing_ids:
+                return False
+            if candidate_id in hard_excluded_food_ids:
+                return False
+            if not _menu_eligible(row) or not _row_has_valid_macros(row):
+                return False
+            if _is_abnormal_fat_spread_row(row):
+                return False
+            meal_ids = {str(item.get("food_id")) for item in meal_items if item.get("food_id") is not None}
+            if candidate_id in meal_ids:
+                return False
+            if hard_block_terms and _row_matches_terms(row, hard_block_terms):
+                return False
+            if vegetarian_mode and _is_animal_protein_row(row):
+                return False
+            if _row_blocked_by_high_protein_fill(row):
+                return False
+            return True
+
+        def _current_payload_totals() -> tuple[float, float, float, float]:
+            current_kcal = 0.0
+            current_protein = 0.0
+            current_fat = 0.0
+            current_carbs = 0.0
+            for meal in meal_plan_payload:
+                for item in meal.get("items", []):
+                    current_kcal += float(item.get("calories") or item.get("kcal") or 0.0)
+                    current_protein += float(item.get("protein") or 0.0)
+                    current_fat += float(item.get("fat") or 0.0)
+                    current_carbs += float(item.get("carbs") or item.get("carb") or 0.0)
+            return current_kcal, current_protein, current_fat, current_carbs
+
+        def _protein_is_above_target(multiplier: float = 1.0) -> bool:
+            _, current_protein, _, _ = _current_payload_totals()
+            return target_protein > 0 and current_protein > target_protein * multiplier
+
+        def _protein_is_near_or_above_target(multiplier: float = 0.95) -> bool:
+            _, current_protein, _, _ = _current_payload_totals()
+            return target_protein > 0 and current_protein >= target_protein * multiplier
+
+        def _row_is_high_protein_fill(row: pd.Series | dict) -> bool:
+            protein = _row_number(row, "protein_per_serving_clean", "protein_raw", "protein")
+            if protein <= 0:
+                return False
+            calories = max(_row_number(row, "kcal_per_serving_clean", "calories_raw", "calories", "kcal"), 1.0)
+            protein_kcal_ratio = (protein * 4.0) / calories
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            if category in {"protein_meat", "protein_seafood"}:
+                return protein >= 8.0
+            if category in {"egg", "plant_protein"}:
+                return protein >= 10.0 or protein_kcal_ratio >= 0.26
+            if category == "dairy":
+                return protein >= 12.0 or protein_kcal_ratio >= 0.30
+            return protein >= 15.0 or protein_kcal_ratio >= 0.32
+
+        def _row_blocked_by_high_protein_fill(row: pd.Series | dict) -> bool:
+            return _protein_is_near_or_above_target(0.95) and _row_is_high_protein_fill(row)
+
+        normalized_favorite_text = " ".join(
+            _normalize_search_text(favorite)
+            for favorite in favorite_foods
+            if str(favorite or "").strip()
+        )
+        user_prefers_milk_fill = any(
+            _text_has_term(normalized_favorite_text, term)
+            for term in ("sua", "milk", "yogurt", "sua chua", "soy milk", "sua dau nanh")
+        )
+
+        def _row_is_preferred_milk_fill(row: pd.Series | dict) -> bool:
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            text = _row_search_text(row)
+            is_milk_or_yogurt = category == "dairy" and any(
+                _text_has_term(text, term)
+                for term in ("milk", "sua", "yogurt", "sua chua")
+            )
+            is_soy_milk = any(
+                term in text
+                for term in ("soy milk", "soymilk", "soy beverage", "sua dau nanh", "dau nanh beverage")
+            )
+            return is_milk_or_yogurt or is_soy_milk
+
+        def _candidate_fill_priority(row: pd.Series | dict) -> tuple[float, float, float]:
+            current_kcal, current_protein, _, _ = _current_payload_totals()
+            protein_near_or_above_target = target_protein > 0 and current_protein >= target_protein * 0.95
+            protein_high = target_protein > 0 and current_protein > target_protein * 1.15
+            kcal_gap = max(target_kcal - current_kcal, 0.0) if target_kcal > 0 else 0.0
+            missing_kcal = kcal_gap > 0
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            name_text = _normalize_search_text(row.get("name", ""))
+            kcal = _row_number(row, "kcal_per_serving_clean", "calories_raw", "calories", "kcal")
+            score = float(row.get("score", 0.0) or 0.0)
+
+            if protein_near_or_above_target and _row_is_high_protein_fill(row):
+                return (99.0, 0.0, 0.0)
+
+            energy_terms = ("oat", "yen mach", "rice", "com", "gao lut", "khoai", "potato", "bread", "banh mi", "banana", "chuoi", "avocado", "qua bo", "nuts", "hat", "olive", "dau olive", "peanut", "dau phong")
+            energy_bonus = -0.25 if any(term in name_text for term in energy_terms) else 0.0
+            quality_penalty = 0.0
+            if _is_processed_favorite_penalty_row(row):
+                quality_penalty += 2.0
+            if _is_dessert_or_sweet_row(row) or _text_has_any(name_text, SWEET_LOW_PRIORITY_TERMS):
+                quality_penalty += 2.0
+            natural_fruit_bonus = -0.35 if _is_natural_fruit_row(row) else 0.0
+            real_beef_bonus = (
+                -0.45
+                if _favorite_foods_include_beef(favorite_foods) and _is_real_beef_preference_row(row)
+                else 0.0
+            )
+            favorite_milk_bonus = (
+                -2.4
+                if user_prefers_milk_fill
+                and _row_is_preferred_milk_fill(row)
+                and not (protein_near_or_above_target and _row_is_high_protein_fill(row))
+                else 0.0
+            )
+
+            if protein_high:
+                category_order = {
+                    "starch_grain": 0.0,
+                    "starch_tuber": 0.0,
+                    "fruit": 1.0,
+                    "vegetable": 2.0,
+                    "healthy_fat_nuts": 3.0,
+                }
+            elif missing_kcal:
+                category_order = {
+                    "starch_grain": 0.0,
+                    "starch_tuber": 0.0,
+                    "fruit": 1.0,
+                    "vegetable": 2.0,
+                    "healthy_fat_nuts": 3.0,
+                    "plant_protein": 4.0 if vegetarian_mode else 5.0,
+                    "dairy": 5.0,
+                    "egg": 6.0,
+                }
+            else:
+                category_order = {
+                    "vegetable": 0.0,
+                    "fruit": 1.0,
+                    "starch_grain": 2.0,
+                    "starch_tuber": 2.0,
+                    "healthy_fat_nuts": 3.0,
+                    "plant_protein": 4.0,
+                    "dairy": 5.0,
+                    "egg": 6.0,
+                }
+
+            rank = (
+                category_order.get(category, 8.0)
+                + energy_bonus
+                + natural_fruit_bonus
+                + real_beef_bonus
+                + favorite_milk_bonus
+                + quality_penalty
+            )
+            if missing_kcal:
+                if 150.0 <= kcal_gap <= 250.0:
+                    target_item_kcal = kcal_gap
+                    moderate_kcal_bonus = -0.25 if 120.0 <= kcal <= 280.0 else 0.25
+                    kcal_sort = abs(kcal - target_item_kcal) + moderate_kcal_bonus
+                else:
+                    target_item_kcal = min(max(kcal_gap, 120.0), 280.0)
+                    kcal_sort = abs(kcal - target_item_kcal)
+            else:
+                kcal_sort = kcal
+            return (rank, kcal_sort, -score)
+
+        def _meal_has_primary_starch(meal: dict) -> bool:
+            return any(_is_primary_starch_item(item) for item in meal.get("items", []))
+
+        def _row_is_vegetarian_safe_fill_candidate(row: pd.Series | dict, meal: dict) -> bool:
+            category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+            if category not in VEGETARIAN_SAFE_FILL_CATEGORIES:
+                return False
+            if category in {"starch_grain", "starch_tuber"} and _meal_has_primary_starch(meal):
+                return False
+            if _is_abnormal_fat_spread_row(row) or _is_dessert_or_sweet_row(row) or _is_processed_meat_row(row):
+                return False
+            return True
+
+        def _row_is_soft_fill_candidate(row: pd.Series | dict, meal: dict) -> bool:
+            category_rank = _candidate_fill_priority(row)[0]
+            if category_rank >= 99.0:
+                return False
+            if vegetarian_mode and _expected_slots_for_meal(meal.get("meal_type", "meal")) >= 5:
+                return _row_is_vegetarian_safe_fill_candidate(row, meal)
+            return not _is_abnormal_fat_spread_row(row)
+
+        def _candidate_rows_for_meal(meal: dict) -> tuple[list[pd.Series | dict], list[pd.Series | dict]]:
+            meal_items = meal.get("items", [])
+            existing_ids = {
+                str(item.get("food_id"))
+                for payload_meal in meal_plan_payload
+                for item in payload_meal.get("items", [])
+                if item.get("food_id") is not None
+            }
+            hard_candidates: list[pd.Series | dict] = []
+            for _, row in ranked.iterrows():
+                if not _row_passes_hard_constraints(row, meal_items, existing_ids):
+                    continue
+                if vegetarian_mode and _expected_slots_for_meal(meal.get("meal_type", "meal")) >= 5:
+                    if not _row_is_vegetarian_safe_fill_candidate(row, meal):
+                        continue
+                hard_candidates.append(row)
+
+            soft_candidates = [
+                row
+                for row in hard_candidates
+                if _row_is_soft_fill_candidate(row, meal)
+            ]
+            return (
+                sorted(hard_candidates, key=_candidate_fill_priority),
+                sorted(soft_candidates, key=_candidate_fill_priority),
+            )
+
+        def fill_missing_items_for_meal(meal: dict, missing_count: int, reason: str) -> list[str]:
+            if missing_count <= 0:
+                return []
+            meal_type = str(meal.get("meal_type") or "meal").lower()
+            expected = _expected_slots_for_meal(meal_type)
+            before_count = len(meal.get("items", []))
+            hard_candidates, soft_candidates = _candidate_rows_for_meal(meal)
+            logger.warning(
+                "[MEAL ITEM COUNT CHECK] user_id=%s meal_type=%s expected_items=%s actual_items=%s missing_count=%s reason=%s candidate_count_after_hard_filter=%s candidate_count_after_soft_filter=%s",
+                user.id,
+                meal_type,
+                expected,
+                before_count,
+                missing_count,
+                reason,
+                len(hard_candidates),
+                len(soft_candidates),
+            )
+
+            added_names: list[str] = []
+            no_item_added_reason = "not_attempted"
+            candidates_to_try = soft_candidates or hard_candidates
+            if not candidates_to_try:
+                no_item_added_reason = "no_candidate_after_hard_filter"
+
+            for row in candidates_to_try:
+                if len(added_names) >= missing_count:
+                    break
+                item = self._to_food_item_payload(row)
+                if not _row_passes_hard_constraints(item, meal.get("items", []), {
+                    str(existing.get("food_id"))
+                    for payload_meal in meal_plan_payload
+                    for existing in payload_meal.get("items", [])
+                    if existing.get("food_id") is not None
+                }):
+                    no_item_added_reason = "candidate_rejected_after_payload_conversion"
+                    continue
+                if vegetarian_mode and expected >= 5 and not _row_is_vegetarian_safe_fill_candidate(row, meal):
+                    no_item_added_reason = "candidate_not_in_vegetarian_safe_fill_groups"
+                    continue
+                meal.setdefault("items", []).append(item)
+                added_names.append(str(item.get("name") or item.get("food_id") or "item"))
+                no_item_added_reason = ""
+
+            logger.warning(
+                "[MEAL FILL RESULT] meal_type=%s added_items=%s final_count=%s",
+                meal_type,
+                added_names,
+                len(meal.get("items", [])),
+            )
+            final_count = len(meal.get("items", []))
+            if final_count < expected:
+                if added_names and not no_item_added_reason:
+                    no_item_added_reason = "not_enough_candidates_after_partial_fill"
+                elif not added_names and not no_item_added_reason:
+                    no_item_added_reason = "no_item_added"
+                logger.warning(
+                    "[MEAL FILL FAIL] meal_type=%s expected_items=%s actual_items=%s candidate_count_after_hard_filter=%s candidate_count_after_soft_filter=%s reason_no_item_added=%s",
+                    meal_type,
+                    expected,
+                    final_count,
+                    len(hard_candidates),
+                    len(soft_candidates),
+                    no_item_added_reason,
+                )
+            meal_fill_debug.append(
+                {
+                    "meal_type": meal_type,
+                    "expected_items": expected,
+                    "actual_items_before": before_count,
+                    "actual_items": final_count,
+                    "missing_requested": missing_count,
+                    "added_count": len(added_names),
+                    "added_items": added_names,
+                    "candidate_count_after_hard_filter": len(hard_candidates),
+                    "candidate_count_after_soft_filter": len(soft_candidates),
+                    "reason_no_item_added": no_item_added_reason if final_count < expected else "",
+                }
+            )
+            return added_names
+
+        def _fill_missing_items_for_all_meals(reason: str) -> int:
+            added_total = 0
+            for meal in meal_plan_payload:
+                meal_type = str(meal.get("meal_type") or "meal").lower()
+                expected = _expected_slots_for_meal(meal_type)
+                actual = len(meal.get("items", []))
+                missing = max(expected - actual, 0)
+                if missing <= 0:
+                    continue
+                added_total += len(fill_missing_items_for_meal(meal, missing, reason))
+            return added_total
+
+        def _build_item_count_summary() -> tuple[dict[str, dict[str, int]], list[str], int]:
+            summary: dict[str, dict[str, int]] = {}
+            warnings_for_counts: list[str] = []
+            missing_total = 0
+            for meal in meal_plan_payload:
+                meal_type = str(meal.get("meal_type") or "meal").lower()
+                expected = _expected_slots_for_meal(meal_type)
+                actual = len(meal.get("items", []))
+                meal["expected_items"] = expected
+                meal["actual_items"] = actual
+                summary[meal_type] = {"expected": expected, "actual": actual}
+                if actual >= expected:
+                    continue
+                missing_total += expected - actual
+                label = _meal_label_vi(meal_type)
+                if expected >= 5:
+                    warnings_for_counts.append(
+                        f"Bạn chọn {expected} món/bữa nhưng hệ thống chỉ tìm được {actual} món phù hợp cho {label} sau khi áp dụng chế độ ăn, danh sách loại trừ và giới hạn dinh dưỡng."
+                    )
+                else:
+                    warnings_for_counts.append(
+                        f"Không đủ món phù hợp để tạo đủ {expected} món cho {label}. Hệ thống đã ưu tiên không vi phạm món loại trừ và chế độ ăn."
+                    )
+            return summary, warnings_for_counts, missing_total
 
         meal_types_present = {str(meal.get("meal_type", "")).lower() for meal in meal_plan_payload}
 
@@ -4401,6 +5285,11 @@ class RecommenderService:
             _scale_protein_items(scale_p)
             logger.warning("DEBUG_FINAL_PROTEIN_SCALE_DOWN applied scale=%s", scale_p)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            if total_protein > target_protein * 1.15:
+                protein_replacements = _replace_excess_protein_items(max_changes=3)
+                if protein_replacements:
+                    logger.warning("DEBUG_PROTEIN_HIGH_REPLACED items=%s", protein_replacements)
+                    meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
             if target_kcal > 0 and total_kcal < min_kcal and total_kcal > 0:
                 catchup_scale = target_kcal / total_kcal
                 if 1.0 <= catchup_scale <= 1.25:
@@ -4408,11 +5297,132 @@ class RecommenderService:
                     logger.warning("DEBUG_FINAL_ENERGY_CATCHUP applied scale=%s", catchup_scale)
                     meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
 
+        fill_added_count = _fill_missing_items_for_all_meals("post_macro_adjustment")
+        if fill_added_count:
+            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        if target_protein > 0 and total_protein > target_protein * 1.15:
+            protein_replacements = _replace_excess_protein_items(max_changes=3)
+            if protein_replacements:
+                logger.warning("DEBUG_POST_FILL_PROTEIN_HIGH_REPLACED items=%s", protein_replacements)
+                meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                if target_kcal > 0 and total_kcal < min_kcal and total_kcal > 0:
+                    catchup_scale = target_kcal / total_kcal
+                    if 1.0 <= catchup_scale <= 1.25:
+                        _scale_preferred_energy_items(catchup_scale)
+                        logger.warning("DEBUG_POST_FILL_ENERGY_CATCHUP applied scale=%s", catchup_scale)
+                        meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        meal_item_count_summary, meal_item_count_warnings, missing_item_count_total = _build_item_count_summary()
+
         delta_pct = abs(total_kcal - target_kcal) / target_kcal if target_kcal > 0 else 0.0
 
         errors = []
         warnings = []
-            
+        infos = []
+        recommendation_explanations: list[dict] = []
+        warnings.extend(meal_item_count_warnings)
+        is_vegetarian_plan = _is_vegetarian_diet(payload.diet_type or payload.diet_style or "")
+
+        def _favorite_is_selected(favorite: str) -> bool:
+            raw_favorite = str(favorite or "").strip().lower()
+            normalized_favorite = " ".join(_normalize_search_text(raw_favorite).split())
+            beef_favorite = raw_favorite == "b\u00f2" or normalized_favorite in {"beef", "thit bo"}
+            favorite_terms = _expand_food_terms([favorite])
+            for meal in meal_plan_payload:
+                for item in meal.get("items", []):
+                    if beef_favorite:
+                        item_text = _normalize_search_text(
+                            f"{item.get('name', '')} {item.get('original_name', '')} {item.get('category', '')} {item.get('normalized_category', '')}"
+                        )
+                        if _item_category(item) == "protein_meat" and (
+                            "beef" in item_text or "thit bo" in item_text or _text_has_term(item_text, "bo")
+                        ):
+                            return True
+                    elif favorite_terms and _row_matches_terms(item, favorite_terms):
+                        return True
+            return False
+
+        disliked_terms_for_favorites = hard_exclusion_terms_for_favorites
+        favorite_skip_groups = {
+            "excluded": [],
+            "vegetarian": [],
+            "protein": [],
+            "macro": [],
+        }
+        for favorite in favorite_foods:
+            favorite_label = str(favorite or "").strip()
+            if not favorite_label:
+                continue
+            if _favorite_is_selected(favorite_label):
+                continue
+            favorite_row = {"name": favorite_label, "original_name": favorite_label, "search_keywords": favorite_label, "category": ""}
+            if disliked_terms_for_favorites and _row_matches_terms(favorite_row, disliked_terms_for_favorites):
+                favorite_skip_groups["excluded"].append(favorite_label)
+                _append_unique_explanation(
+                    recommendation_explanations,
+                    "favorite_skipped",
+                    favorite_label,
+                    "excluded_by_disliked_or_allergy",
+                )
+            elif is_vegetarian_plan and (
+                favorite_label in favorite_food_diet_conflicts
+                or _favorite_term_conflicts_with_vegetarian(favorite_label)
+            ):
+                favorite_skip_groups["vegetarian"].append(favorite_label)
+                _append_unique_explanation(
+                    recommendation_explanations,
+                    "favorite_skipped",
+                    favorite_label,
+                    "conflicts_with_vegetarian",
+                )
+            elif (
+                target_protein > 0
+                and total_protein >= target_protein * 0.95
+                and _favorite_term_is_protein_limited(favorite_label)
+            ):
+                favorite_skip_groups["protein"].append(favorite_label)
+                _append_unique_explanation(
+                    recommendation_explanations,
+                    "favorite_skipped",
+                    favorite_label,
+                    "protein_near_or_above_target",
+                )
+            elif _favorite_foods_include_beef([favorite_label]):
+                favorite_skip_groups["macro"].append(favorite_label)
+                _append_unique_explanation(
+                    recommendation_explanations,
+                    "favorite_skipped",
+                    favorite_label,
+                    "macro_balance_preferred",
+                )
+
+        excluded_favorites = _format_food_terms_for_message(favorite_skip_groups["excluded"])
+        if excluded_favorites:
+            _append_unique_message(
+                infos,
+                f"Món yêu thích '{excluded_favorites}' nằm trong danh sách loại trừ nên không được ưu tiên.",
+            )
+
+        vegetarian_favorites = _format_food_terms_for_message(favorite_skip_groups["vegetarian"])
+        if vegetarian_favorites:
+            _append_unique_message(
+                infos,
+                f"Món yêu thích '{vegetarian_favorites}' không phù hợp với chế độ ăn chay nên không được ưu tiên.",
+            )
+
+        protein_limited_favorites = _format_food_terms_for_message(favorite_skip_groups["protein"])
+        if protein_limited_favorites:
+            _append_unique_message(
+                infos,
+                f"Món yêu thích '{protein_limited_favorites}' chưa được ưu tiên vì protein trong thực đơn đã gần hoặc vượt mục tiêu.",
+            )
+
+        macro_balanced_favorites = _format_food_terms_for_message(favorite_skip_groups["macro"])
+        if macro_balanced_favorites:
+            _append_unique_message(
+                infos,
+                f"M\u00f3n y\u00eau th\u00edch '{macro_balanced_favorites}' ch\u01b0a \u0111\u01b0\u1ee3c \u01b0u ti\u00ean v\u00ec h\u1ec7 th\u1ed1ng ch\u1ecdn ph\u01b0\u01a1ng \u00e1n c\u00e2n b\u1eb1ng kcal/protein t\u1ed1t h\u01a1n.",
+            )
+
         normalized_diet_for_validation = _normalize_search_text(payload.diet_type or payload.diet_style or "")
         is_clean_diet = any(term in normalized_diet_for_validation for term in EAT_CLEAN_DIET_TERMS)
         is_vegetarian_plan = _is_vegetarian_diet(payload.diet_type or payload.diet_style or "")
@@ -4484,13 +5494,45 @@ class RecommenderService:
             target=nutrition_target,
             errors=errors,
             warnings=warnings,
+            infos=infos,
         )
+        validation_result["meal_item_count_summary"] = meal_item_count_summary
+        validation_result["meal_fill_debug"] = meal_fill_debug
+        validation_result["recommendation_explanations"] = recommendation_explanations
+        macro_only_major = (
+            validation_result["status"] == "major_adjustment"
+            and not errors
+            and missing_item_count_total == 0
+        )
+        kcal_major = target_kcal > 0 and abs(total_kcal - target_kcal) / target_kcal > 0.10
+        protein_major = target_protein > 0 and total_protein > target_protein * 1.15
+        if macro_only_major and not kcal_major and not protein_major:
+            validation_result["status"] = "minor_adjustment"
+            validation_result["is_valid"] = False
+            validation_result["isValid"] = False
+            validation_result["errors"] = []
+            validation_result["reason"] = (
+                validation_result["warnings"][0]
+                if validation_result.get("warnings")
+                else None
+            )
+        if missing_item_count_total > 0:
+            if missing_item_count_total == 1 and validation_result["status"] == "valid":
+                validation_result["status"] = "minor_adjustment"
+            elif missing_item_count_total > 1 or validation_result["status"] == "valid":
+                validation_result["status"] = "major_adjustment" if missing_item_count_total > 1 else "minor_adjustment"
+            validation_result["is_valid"] = False
+            validation_result["isValid"] = False
+            if not validation_result.get("reason") and meal_item_count_warnings:
+                validation_result["reason"] = meal_item_count_warnings[0]
         is_valid = validation_result["is_valid"]
-        if is_vegetarian_plan and not is_valid:
+        if is_vegetarian_plan and not is_valid and errors:
             validation_result["status"] = "major_adjustment"
             validation_result["message"] = "Chưa đủ món chay phù hợp để đạt tối ưu dinh dưỡng. Hệ thống đã tạo phương án gần nhất từ các món chay hiện có."
             if validation_result["message"] not in warnings:
                 warnings.append(validation_result["message"])
+            if validation_result["message"] not in validation_result["warnings"]:
+                validation_result["warnings"].append(validation_result["message"])
         else:
             validation_result["message"] = (
                 "Bữa ăn đã đủ nhóm chính và phù hợp với kế hoạch tăng cân hôm nay."
@@ -4538,13 +5580,16 @@ class RecommenderService:
                 "total_fat_g": round(total_fat),
                 "total_carbs_g": round(total_carbs),
                 "status": validation_result["status"],
+                "meal_item_count_summary": meal_item_count_summary,
                 "meals": meal_plan_payload
             },
             "validation": validation_result,
+            "recommendation_explanations": recommendation_explanations,
+            "meal_item_count_summary": meal_item_count_summary,
             "target": target
         }
 
-        if persist:
+        if persist and meal_items_for_db:
             repository = RecommendationRepository(db)
             logger.warning("Sample meal_items_for_db (first 10): %s", meal_items_for_db[:10])
             created_request = repository.create_request_with_items(
@@ -4582,6 +5627,8 @@ class RecommenderService:
                 response_payload["validation"]["totalKcal"] = inserted_total_kcal
                 response_payload["validation"]["total_kcal"] = inserted_total_kcal
                 logger.warning("DEBUG_INSERTED_TOTAL_KCAL=%s inserted_count=%s", inserted_total_kcal, len(inserted_items))
+        elif persist:
+            logger.error("Skip persisting empty meal plan for user_id=%s to avoid 422.", user.id)
 
         if payload.save_user_data:
             # Log what recommender attempted to save but DO NOT persist favorite/disliked lists

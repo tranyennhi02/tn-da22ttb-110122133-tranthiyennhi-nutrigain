@@ -75,6 +75,16 @@ class AdminService:
 
     @staticmethod
     def _food_payload(food: Food) -> dict:
+        is_verified = bool(food.image_verified)
+        source_type = food.image_source_type or "placeholder"
+        is_placeholder = (source_type == "placeholder") or not is_verified
+        image_badge = (
+            "Cần duyệt"
+            if source_type == "pexels" and not is_verified
+            else "Ảnh thật"
+            if is_verified and not is_placeholder
+            else "Ảnh minh họa"
+        )
         return {
             "food_id": str(food.food_id),
             "name": food.dish_name_vi or food.name_vi or food.display_name or food.name or food.original_name or str(food.food_id),
@@ -87,6 +97,11 @@ class AdminService:
             "recommended_serving_g": food.recommended_serving_g,
             "menu_eligible": bool(food.menu_eligible),
             "image_url": food.image_url,
+            "image_alt_vi": food.image_alt_vi,
+            "image_source_type": source_type,
+            "image_verified": is_verified,
+            "image_quality_note": food.image_quality_note,
+            "image_badge": image_badge,
             "quality_flags": food.quality_flags,
         }
 
@@ -193,7 +208,18 @@ class AdminService:
         db.refresh(user)
         return self._user_payload(user)
 
-    def list_foods(self, db: Session, q: str | None, category: str | None, menu_eligible: bool | None, missing_image: bool, has_quality_flags: bool, limit: int, offset: int) -> dict:
+    def list_foods(
+        self,
+        db: Session,
+        q: str | None,
+        category: str | None,
+        menu_eligible: bool | None,
+        missing_image: bool,
+        has_quality_flags: bool,
+        image_status: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict:
         statement = select(Food)
         count_statement = select(func.count(Food.food_id))
         filters = []
@@ -208,6 +234,12 @@ class AdminService:
             filters.append(or_(Food.image_url.is_(None), Food.image_url == ""))
         if has_quality_flags:
             filters.append(Food.quality_flags.is_not(None), Food.quality_flags != "")
+        if image_status == "pexels_pending":
+            filters.append(Food.image_source_type == "pexels")
+            filters.append(or_(Food.image_verified.is_(False), Food.image_verified.is_(None)))
+        elif image_status == "verified_real":
+            filters.append(Food.image_source_type == "real")
+            filters.append(Food.image_verified.is_(True))
         for item in filters:
             statement = statement.where(item)
             count_statement = count_statement.where(item)

@@ -1,27 +1,87 @@
-const defaultFoodImage = "/images/placeholders/food-default.svg";
+const PLACEHOLDER_SVG_DEFAULT = "/images/placeholders/food-default.svg";
+
+/**
+ * Xác định có nên hiển thị ảnh thật không:
+ *  - image_verified phải là 1/true
+ *  - image_source_type phải là "real" (không phải "placeholder")
+ *  - image_url phải tồn tại
+ */
+function shouldShowRealImage(item) {
+  const verified = item.image_verified === true || item.image_verified === 1 || item.image_verified === "1" || item.image_verified === "true" || item.imageVerified === true;
+  const sourceType = String(item.image_source_type || item.imageSourceType || "placeholder").toLowerCase();
+  const isReal = sourceType === "real";
+  const hasUrl = Boolean(item.image_url || item.image);
+  return verified && isReal && hasUrl;
+}
+
+/**
+ * FoodImageArea — Component ảnh 2 lớp an toàn:
+ *  • Nếu ảnh thật hợp lệ → <img> với lazy load + fallback
+ *  • Ngược lại → placeholder icon (SVG inline hoặc ảnh placeholder)
+ */
+function FoodImageArea({ item }) {
+  const useReal = shouldShowRealImage(item);
+  const imageUrl = item.image_url || item.image;
+  const altText = item.image_alt_vi || item.image_alt || item.imageAlt || item.name;
+
+  if (useReal) {
+    return (
+      <img
+        src={imageUrl}
+        alt={altText}
+        loading="lazy"
+        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        onError={(event) => {
+          const img = event.currentTarget;
+          if (img.dataset.usedFallback === "true") return;
+          img.dataset.usedFallback = "true";
+          // Fallback về placeholder — không bao giờ để trắng
+          img.style.display = "none";
+          const parent = img.parentElement;
+          if (parent && !parent.querySelector(".meal-card-placeholder")) {
+            const icon = document.createElement("div");
+            icon.className = "meal-card-placeholder h-full w-full flex items-center justify-center bg-brand-cream";
+            icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+            parent.appendChild(icon);
+          }
+        }}
+      />
+    );
+  }
+
+  // Placeholder — hiển thị icon món ăn hoặc SVG placeholder
+  const placeholderSrc = item.fallbackImage || PLACEHOLDER_SVG_DEFAULT;
+  return (
+    <img
+      src={placeholderSrc}
+      alt={altText}
+      loading="lazy"
+      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+      onError={(event) => {
+        // Nếu cả placeholder cũng lỗi → ẩn img, không trắng trang
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
 
 export default function MealCard({ item, favorite, rating, onFavorite, onRate }) {
+  // imageBadge: ưu tiên từ item (do server trả về), fallback tính lại client-side
+  const badgeLabel = item.imageBadge || item.image_badge || (shouldShowRealImage(item) ? "Ảnh thật" : null);
+
   return (
     <article className="group overflow-hidden rounded-3xl border border-brand-border bg-brand-surface shadow-xl shadow-brand-navy/7 transition duration-300 hover:-translate-y-1 hover:shadow-2xl">
       <div className="relative aspect-[16/10] overflow-hidden bg-brand-cream">
-        <img
-          src={item.image}
-          alt={item.imageAlt || item.name}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-          onError={(event) => {
-            const image = event.currentTarget;
-            if (image.dataset.usedFallback === "true") return;
-            image.dataset.usedFallback = "true";
-            image.src = item.fallbackImage || defaultFoodImage;
-          }}
-        />
+        <FoodImageArea item={item} />
+
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/70 to-transparent" />
         <div className="absolute left-4 top-4 rounded-full bg-brand-surface/92 px-3 py-1.5 text-xs font900 uppercase tracking-[0.1em] text-brand-text-main backdrop-blur">
           {item.type}
         </div>
-        {item.imageBadge ? (
-          <div className="absolute right-4 top-4 rounded-full bg-amber-50 px-3 py-1.5 text-xs font900 text-amber-800 ring-1 ring-amber-100">
-            {item.imageBadge}
+        {/* Chỉ hiển thị badge "Ảnh thật" — không gọi placeholder là ảnh thật */}
+        {badgeLabel === "Ảnh thật" ? (
+          <div className="absolute right-4 top-4 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font900 text-emerald-700 ring-1 ring-emerald-100">
+            {badgeLabel}
           </div>
         ) : null}
         <div className="absolute bottom-4 right-4 rounded-2xl bg-brand-orange px-3 py-2 text-sm font-black text-white shadow-lg shadow-brand-orange/20">
@@ -36,7 +96,13 @@ export default function MealCard({ item, favorite, rating, onFavorite, onRate })
 
       <div className="space-y-4 p-4">
         <div>
-          <h4 className="text-lg font-black leading-snug text-brand-text-main">{item.name}</h4>
+          <h4
+            className="min-h-[3.1rem] text-lg font-black leading-snug text-brand-text-main"
+            title={item.name}
+            style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+          >
+            {item.name}
+          </h4>
           <p className="mt-1 text-sm font800 leading-6 text-brand-text-sub">
             {item.category || item.type}{item.subCategory ? ` · ${item.subCategory}` : ""}
           </p>

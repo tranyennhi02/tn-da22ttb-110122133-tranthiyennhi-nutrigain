@@ -131,6 +131,7 @@ class WeightMilestoneResponse(BaseModel):
 
 
 class WeightLogSummary(BaseModel):
+    initial_weight: float | None = None
     start_date: date | None = None
     current_weight: float | None = None
     start_weight: float | None = None
@@ -141,10 +142,14 @@ class WeightLogSummary(BaseModel):
     progress_percent: float = 0.0
     trend: str = "not_enough_data"
     last_log_date: date | None = None
+    latest_log_date: date | None = None
+    latest_log_weight: float | None = None
+    all_logs_count: int = 0
     latest_milestone_date: date | None = None
     next_checkin_date: date | None = None
     next_milestone_date: date | None = None
     milestone_points: list[dict] | None = None
+    chart_points: list[dict] | None = None
     days_since_latest_milestone: int | None = None
     should_checkin: bool = False
     message: str
@@ -221,6 +226,10 @@ class FoodCreate(BaseModel):
     name_vi: str | None = None
     type: str | None = None
     image_url: str | None = None
+    image_alt_vi: str | None = None
+    image_source_type: str | None = None
+    image_verified: bool = False
+    image_quality_note: str | None = None
     source: str | None = None
 
 
@@ -234,6 +243,10 @@ class FoodUpdate(BaseModel):
     name_vi: str | None = None
     type: str | None = None
     image_url: str | None = None
+    image_alt_vi: str | None = None
+    image_source_type: str | None = None
+    image_verified: bool | None = None
+    image_quality_note: str | None = None
     source: str | None = None
     clean_category: str | None = None
     recommended_serving_g: float | None = Field(default=None, ge=0)
@@ -247,6 +260,11 @@ class FoodView(BaseModel):
     name: str
     name_en: str | None = None
     image_url: str | None = None
+    image_alt_vi: str | None = None
+    image_source_type: str | None = None
+    image_verified: bool = False
+    image_quality_note: str | None = None
+    image_badge: str | None = None
     category: str
     type: str | None = None
     source: str | None = None
@@ -557,6 +575,8 @@ class MealPlanMealSchema(BaseModel):
     meal_type: str
     target_kcal: float | None = None
     actual_kcal: int | None = None
+    expected_items: int | None = None
+    actual_items: int | None = None
     items: list[FoodItemView] = Field(default_factory=list)
 
 class MealPlanSchema(BaseModel):
@@ -567,6 +587,7 @@ class MealPlanSchema(BaseModel):
     total_protein_g: float | None = None
     total_fat_g: float | None = None
     total_carbs_g: float | None = None
+    meal_item_count_summary: dict | None = None
     meals: list[MealPlanMealSchema] = Field(default_factory=list)
 
 class ValidationSchema(BaseModel):
@@ -574,6 +595,7 @@ class ValidationSchema(BaseModel):
     is_valid: bool
     isValid: bool | None = None
     warnings: list[str] = Field(default_factory=list)
+    infos: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     reason: str | None = None
     targetKcal: float | None = None
@@ -584,6 +606,9 @@ class ValidationSchema(BaseModel):
     total_kcal: float | None = None
     kcal_diff: float | None = None
     kcal_diff_pct: float | None = None
+    meal_item_count_summary: dict | None = None
+    meal_fill_debug: list[dict] = Field(default_factory=list)
+    recommendation_explanations: list[dict] = Field(default_factory=list)
 
 class RecommendationOutput(BaseModel):
     eligible: bool | None = None
@@ -605,6 +630,9 @@ class RecommendationOutput(BaseModel):
     items_per_meal: int | None = None
     kcal_delta: float | None = None
     macro_delta: dict | None = None
+    profile_snapshot: dict | None = None
+    meal_item_count_summary: dict | None = None
+    recommendation_explanations: list[dict] = Field(default_factory=list)
     
     # Old fields for compatibility
     eligibility_check: EligibilityCheckView | None = None

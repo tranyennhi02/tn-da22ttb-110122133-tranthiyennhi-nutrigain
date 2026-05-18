@@ -26,6 +26,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - ./backend/.env
     environment:
       APP_NAME: NutriGain API
       APP_ENV: ${APP_ENV:-production}

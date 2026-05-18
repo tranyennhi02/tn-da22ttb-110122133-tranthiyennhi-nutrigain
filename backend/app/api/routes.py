@@ -124,8 +124,11 @@ def google_login(payload: GoogleLoginInput, db: Session = Depends(get_db)) -> Au
 
 
 @router.get("/users/me", response_model=CurrentUserView, tags=["users"])
-def get_me(current_user: User = Depends(get_current_user)) -> CurrentUserView:
-    return CurrentUserView(**user_service.get_me(current_user))
+def get_me(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CurrentUserView:
+    return CurrentUserView(**user_service.get_me(db, current_user))
 
 
 @router.put("/users/me", response_model=CurrentUserView, tags=["users"])
@@ -446,13 +449,14 @@ def admin_list_foods(
     menu_eligible: bool | None = Query(default=None),
     missing_image: bool = Query(False),
     has_quality_flags: bool = Query(False),
+    image_status: str | None = Query(default=None, pattern="^(pexels_pending|verified_real)$"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminFoodListResponse:
     return AdminFoodListResponse(
-        **admin_service.list_foods(db, q, category, menu_eligible, missing_image, has_quality_flags, limit, offset)
+        **admin_service.list_foods(db, q, category, menu_eligible, missing_image, has_quality_flags, image_status, limit, offset)
     )
 
 

@@ -117,7 +117,9 @@ export async function postRegenerateMealPlan(payload) {
     body: JSON.stringify(normalizeRegeneratePayload(payload)),
   });
 
-  return parseResponse(response, "Cannot regenerate meal plan");
+  const data = await parseResponse(response, "Cannot regenerate meal plan");
+  console.log("[REGENERATE RESPONSE PROFILE SNAPSHOT]", data?.profile_snapshot);
+  return data;
 }
 
 export async function fetchHistory(limit = 10, period = "week") {
@@ -149,7 +151,13 @@ export async function fetchCurrentUser() {
 }
 
 export async function updateUserProfile(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile`, {
+  const url = `${API_BASE_URL}/api/v1/users/me/profile`;
+  console.log("[UPDATE PROFILE REQUEST]", {
+    url,
+    payload_weight_kg: payload.weight_kg,
+    payload,
+  });
+  const response = await fetch(url, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -157,7 +165,9 @@ export async function updateUserProfile(payload) {
     },
     body: JSON.stringify(payload),
   });
-  return parseResponse(response, "Cannot update user profile");
+  const res = await parseResponse(response, "Cannot update user profile");
+  console.log("[PROFILE PUT RESULT WEIGHT]", res?.weight_kg || res?.profile?.weight_kg);
+  return res;
 }
 
 export async function fetchWeightLogs(range = "30") {
