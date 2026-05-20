@@ -61,6 +61,13 @@ def ensure_database_schema(engine: Engine) -> None:
     _add_column_if_missing(engine, "foods", "image_verified", "image_verified BOOLEAN NOT NULL DEFAULT 0")
     _add_column_if_missing(engine, "foods", "image_quality_note", "image_quality_note TEXT NULL")
     _add_column_if_missing(engine, "foods", "search_keywords", "search_keywords TEXT NULL")
+    _add_column_if_missing(engine, "foods", "is_common_food", "is_common_food BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "foods", "is_budget_friendly", "is_budget_friendly BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "foods", "is_premium", "is_premium BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "foods", "is_processed", "is_processed BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "foods", "is_natural_food", "is_natural_food BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "foods", "budget_tier", "budget_tier VARCHAR(20) NOT NULL DEFAULT 'standard'")
+    _add_column_if_missing(engine, "foods", "natural_priority_score", "natural_priority_score FLOAT NOT NULL DEFAULT 0.5")
 
     _add_column_if_missing(engine, "recommendation_requests", "user_id", "user_id INTEGER NULL")
     _add_column_if_missing(engine, "recommendation_requests", "bmr", "bmr FLOAT NULL")

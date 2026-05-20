@@ -163,6 +163,13 @@ class Food(Base):
     image_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     image_quality_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     search_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_common_food: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_budget_friendly: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_natural_food: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    budget_tier: Mapped[str] = mapped_column(String(20), default="standard", nullable=False)
+    natural_priority_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
 
 
 class UserFavoriteFood(Base):

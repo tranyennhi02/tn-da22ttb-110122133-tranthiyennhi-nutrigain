@@ -1091,6 +1091,158 @@ def case_b_high_protein_fill(state: SmokeState) -> str:
     return f"high-protein scenario ok; protein={total_protein:.1f}/{protein_target:.1f}; missing_total={missing_total}; shortages={shortages or 'none'}"
 
 
+def case_food_quality_dataset_fields(state: SmokeState) -> str:
+    state.require_setup()
+    from sqlalchemy import inspect, text
+
+    required_columns = {
+        "is_common_food",
+        "is_budget_friendly",
+        "is_premium",
+        "is_processed",
+        "is_natural_food",
+        "budget_tier",
+        "natural_priority_score",
+    }
+    inspector = inspect(state.db.bind)
+    columns = {column["name"] for column in inspector.get_columns("foods")}
+    missing = sorted(required_columns - columns)
+    assert not missing, f"foods table missing quality columns: {missing}"
+
+    row = state.db.execute(
+        text(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_common_food = 1 THEN 1 ELSE 0 END) AS common_count,
+                SUM(CASE WHEN is_budget_friendly = 1 THEN 1 ELSE 0 END) AS budget_count,
+                SUM(CASE WHEN is_premium = 1 THEN 1 ELSE 0 END) AS premium_count,
+                SUM(CASE WHEN is_processed = 1 THEN 1 ELSE 0 END) AS processed_count,
+                SUM(CASE WHEN is_natural_food = 1 THEN 1 ELSE 0 END) AS natural_count
+            FROM foods
+            """
+        )
+    ).mappings().one()
+    assert int(row["total"] or 0) > 0, "foods table is empty"
+    for key in ("common_count", "budget_count", "premium_count", "processed_count", "natural_count"):
+        assert int(row[key] or 0) > 0, f"{key} is still all default/empty: {dict(row)}"
+    return (
+        "quality fields populated; "
+        f"total={int(row['total'])}, common={int(row['common_count'] or 0)}, "
+        f"budget={int(row['budget_count'] or 0)}, premium={int(row['premium_count'] or 0)}, "
+        f"processed={int(row['processed_count'] or 0)}, natural={int(row['natural_count'] or 0)}"
+    )
+
+
+AFFORDABLE_BUDGET_TERMS = (
+    "rice", "com", "gao", "gao lut", "potato", "khoai", "khoai lang",
+    "egg", "trung", "bean", "dau", "soy", "soybean", "dau nanh",
+    "tofu", "dau hu", "dau phu", "vegetable", "rau", "banana", "chuoi",
+    "milk", "sua", "oat", "yen mach",
+)
+PREMIUM_BUDGET_TERMS = (
+    "salmon", "ca hoi", "tenderloin", "sirloin", "ribeye", "wagyu",
+    "bo than", "than lung", "greek yogurt", "sua chua hy lap",
+    "raspberry", "mam xoi", "cranberry", "nam viet quat", "blueberry",
+    "viet quat", "strawberry", "dau tay", "berry", "almond", "walnut",
+    "macadamia", "pistachio", "imported", "nhap khau", "premium", "cao cap",
+)
+NATURAL_BUDGET_TERMS = (
+    "rice", "com", "gao", "oat", "yen mach", "potato", "khoai",
+    "egg", "trung", "milk", "sua", "bean", "dau", "tofu", "dau phu",
+    "vegetable", "rau", "banana", "chuoi", "apple", "tao", "orange",
+    "cam", "papaya", "du du", "chicken", "ga", "fish", "ca",
+)
+UNNATURAL_BUDGET_TERMS = (
+    "mix", "juice mix", "nuoc ep mix", "nuoc buoi do mix", "snack",
+    "fancy", "imported", "nhap khau", "processed", "che bien san",
+    "cream soup", "sup kem", "dessert", "sweet", "cake", "cookie",
+)
+
+
+def budget_item_tendency(items: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
+    affordable = 0
+    premium = 0
+    natural = 0
+    unnatural = 0
+    for item in items:
+        normalized = normalized_item_text(item)
+        if any(term in normalized for term in AFFORDABLE_BUDGET_TERMS):
+            affordable += 1
+        if any(term in normalized for term in PREMIUM_BUDGET_TERMS):
+            premium += 1
+        if any(term in normalized for term in NATURAL_BUDGET_TERMS):
+            natural += 1
+        if any(term in normalized for term in UNNATURAL_BUDGET_TERMS):
+            unnatural += 1
+    return affordable, premium, natural, unnatural, affordable + natural - (2 * premium) - unnatural
+
+
+def budget_field_tendency(state: SmokeState, items: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
+    from sqlalchemy import select
+
+    from app.models.entities import Food
+
+    ids = [str(item.get("food_id")) for item in items if item.get("food_id") is not None]
+    if not ids:
+        return (0, 0, 0, 0, 0)
+    rows = list(state.db.scalars(select(Food).where(Food.food_id.in_(ids))))
+    budget = sum(1 for row in rows if row.is_budget_friendly)
+    premium = sum(1 for row in rows if row.is_premium)
+    common = sum(1 for row in rows if row.is_common_food)
+    processed = sum(1 for row in rows if row.is_processed)
+    natural = sum(1 for row in rows if row.is_natural_food)
+    return budget + common, premium, natural, processed, budget + common + natural - (2 * premium) - processed
+
+
+def case_budget_soft_scoring_trend(state: SmokeState) -> str:
+    state.require_setup()
+    base_profile = {
+        "weight_kg": 46,
+        "height_cm": 178,
+        "age": 22,
+        "sex": "female",
+        "gender": "female",
+        "activity_level": "moderate",
+        "target_weight_kg": 69,
+        "weight_gain_speed": "moderate",
+        "diet_type": "balanced",
+        "items_per_meal": 5,
+        "favorite_foods": ["g\u00e0", "b\u00f2"],
+        "disliked_foods": [],
+    }
+    results: dict[str, tuple[int, int, int, int, int]] = {}
+    for budget in ("low", "standard", "flexible"):
+        put_profile(state, {**base_profile, "budget_level": budget})
+        response = regenerate(state, {"randomSeed": 2026052001, "excludePreviousItems": False})
+        missing_total, shortages = assert_item_count_contract(response, expected=5)
+        assert missing_total == 0, f"{budget} budget returned shortages: {shortages}"
+        _, items = flatten_meals(response)
+        text_tendency = budget_item_tendency(items)
+        field_tendency = budget_field_tendency(state, items)
+        results[budget] = tuple(max(text_tendency[index], field_tendency[index]) for index in range(5))
+
+    low_affordable, low_premium, low_natural, low_unnatural, low_score = results["low"]
+    standard_affordable, standard_premium, _, _, standard_score = results["standard"]
+    flexible_affordable, flexible_premium, _, _, flexible_score = results["flexible"]
+    assert low_affordable > low_premium, f"low budget affordable signal should beat premium signal: {results}"
+    assert low_natural >= low_unnatural + 3, f"low budget should favor natural/common foods over mix/fancy foods: {results}"
+    assert low_affordable >= 12 and low_affordable >= low_premium + 5, (
+        f"low budget did not contain enough affordable/common items: {results}"
+    )
+    assert low_premium <= min(standard_premium, flexible_premium) + 1, (
+        f"low budget had unexpectedly more premium items: {results}"
+    )
+    assert low_score >= flexible_score - 1, (
+        f"low budget weighted tendency is weak: {results}"
+    )
+    return (
+        "budget trend ok; "
+        f"low affordable/premium/score={results['low']}; "
+        f"standard={results['standard']}; flexible={results['flexible']}"
+    )
+
+
 def case_balanced_beef_profile_protein_guard(state: SmokeState) -> str:
     state.require_setup()
     put_profile(
@@ -1567,6 +1719,8 @@ def main() -> int:
         ("Case A vegetarian favorite conflict info", case_a_vegetarian_five_items),
         ("Case B favorite disliked exclusion info", case_b_favorite_disliked_exclusion),
         ("Vegetarian high-protein fill contract", case_b_high_protein_fill),
+        ("Food quality dataset fields", case_food_quality_dataset_fields),
+        ("Budget soft scoring trend", case_budget_soft_scoring_trend),
         ("Case C balanced beef protein guard", case_balanced_beef_profile_protein_guard),
         ("Balanced milk five-item fill", case_balanced_milk_five_item_fill),
         ("High-protein healthy protein priority", case_high_protein_quality_priority),

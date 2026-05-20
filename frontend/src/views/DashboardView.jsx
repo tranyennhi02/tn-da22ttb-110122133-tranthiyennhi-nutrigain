@@ -1264,10 +1264,14 @@ function OverviewPage({
       }
     : baseUserStatus;
   const scoreLabel = getMealPlanScoreLabel(validation, planTotals, nutritionTarget);
-  const visiblePoints = dedupeMessages(userStatus.points).slice(0, 3);
+  const visiblePoints = dedupeMessages(userStatus.points).map(toFriendlyStatusPoint).filter(Boolean).slice(0, 3);
   const adjustmentMessages = isSubmitting
     ? []
     : buildDashboardAdjustmentMessages(validation, dataWarnings, visiblePoints, { totals: planTotals, targets: nutritionTarget, meals, missingItems }).slice(0, 2);
+  const planScore = getMealPlanScore(validation, planTotals, nutritionTarget);
+  const missingTotal = getMissingItemCount(validation, missingItems);
+  const showAdjustmentBox = adjustmentMessages.length > 0
+    && !(planScore >= 95 && missingTotal === 0 && userStatus.actionKind === "view");
   const detailMessages = isSubmitting
     ? []
     : buildDashboardDetailMessages(validation, dataWarnings, { totals: planTotals, targets: nutritionTarget, meals });
@@ -1343,7 +1347,7 @@ function OverviewPage({
         </p>
       </section>
 
-      {adjustmentMessages.length ? (
+      {showAdjustmentBox ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font800 leading-6 text-amber-950">
           <h3 className="text-base font-black text-amber-950">Gợi ý điều chỉnh</h3>
           <ul className="mt-2 space-y-1">
@@ -1905,7 +1909,7 @@ function MealsPage({
     <div className="space-y-5">
       {summary.medicalWarning ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font800 leading-6 text-amber-900">
-          {summary.medicalWarning}
+          {friendlyMedicalWarning(summary.medicalWarning)}
         </section>
       ) : null}
       <MealPlanHeader
@@ -3850,7 +3854,8 @@ function getMealPlanUserStatus(validation, totals, targets, missingItems, meals 
   const proteinDelta = round(totalProtein - targetProtein);
   const proteinDiff = Math.max(proteinDelta, 0);
   const proteinMissing = Math.max(round(targetProtein - totalProtein), 0);
-  const proteinHigh = targetProtein > 0 && totalProtein > targetProtein * 1.15;
+  const proteinHighSevere = targetProtein > 0 && totalProtein > targetProtein * 1.25;
+  const proteinHighModerate = targetProtein > 0 && totalProtein > targetProtein * 1.10 && !proteinHighSevere;
   const proteinLowSevere = targetProtein > 0 && totalProtein < targetProtein * 0.8;
   const proteinLowLight = targetProtein > 0 && totalProtein < targetProtein && !proteinLowSevere;
   const missingTotal = getMissingItemCount(validation, missingItems);
@@ -3874,7 +3879,9 @@ function getMealPlanUserStatus(validation, totals, targets, missingItems, meals 
     }
   }
 
-  if (proteinHigh && proteinDiff > 0) {
+  if (proteinHighSevere && proteinDiff > 0) {
+    points.push(`Protein đang quá cao so với mục tiêu (${proteinDiff.toLocaleString("vi-VN")}g).`);
+  } else if (proteinHighModerate && proteinDiff > 0) {
     points.push(`Protein đang cao hơn mục tiêu ${proteinDiff.toLocaleString("vi-VN")}g.`);
   } else if (proteinLowLight) {
     points.push("Protein còn thiếu nhẹ.");
@@ -3904,7 +3911,7 @@ function getMealPlanUserStatus(validation, totals, targets, missingItems, meals 
     || missingMany
     || hardConstraintViolation
     || kcalFarOff
-    || proteinHigh
+    || proteinHighSevere
     || proteinLowSevere;
   const hasLightAdjustment = proteinLowLight
     || kcalOffTarget
@@ -3912,6 +3919,7 @@ function getMealPlanUserStatus(validation, totals, targets, missingItems, meals 
     || rawStatus === "minor_adjustment"
     || rawStatus === "fallback"
     || hasAnimalProteinIssue
+    || proteinHighModerate
     || (isValidFlag && !["valid", ""].includes(rawStatus));
 
   if (score >= 95 && missingTotal === 0 && !shouldRegenerate) {
@@ -4062,6 +4070,20 @@ function hasFavoriteSkipped(validation) {
   });
 }
 
+function toFriendlyStatusPoint(message) {
+  const key = normalizeMessageKey(decodeUnicodeEscapes(message));
+  if (!key) return "";
+  if (isProteinExcessMessageKey(key)) return "Protein hơi cao hơn mục tiêu.";
+  if (isProteinLowMessageKey(key) && key.includes("nhe")) return "Protein còn thiếu nhẹ.";
+  if (key.includes("mon yeu thich") && (key.includes("khong") || key.includes("chua"))) {
+    return "Một số món yêu thích không được chọn để giữ thực đơn cân bằng hơn.";
+  }
+  if (key.includes("bmi") && (key.includes("rat thap") || key.includes("qua thap") || key.includes("thap"))) {
+    return "Bạn đang ở mức cân nặng thấp, nên theo dõi cân nặng định kỳ trong quá trình tăng cân.";
+  }
+  return toFriendlyDashboardMessage(message);
+}
+
 function buildDashboardAdjustmentMessages(validation, dataWarnings, mainPoints = [], context = {}) {
   const pointKeys = mainPoints.map((point) => normalizeMessageKey(point));
   return dedupeMessages([
@@ -4104,12 +4126,38 @@ function buildContextualAdjustmentMessages(context = {}) {
   const animalProteinLoad = getAnimalProteinLoad(context.meals || [], targetProtein);
   const missingTotal = Number(context.missingItems?.total || 0);
 
+  if (missingTotal === 0 && targetProtein > 0 && totalProtein > targetProtein * 1.1) {
+    return ["Protein hơi cao hơn mục tiêu.", "Có thể giảm nhẹ món đạm trong bữa kế tiếp."];
+  }
+
+  if (missingTotal === 0 && targetProtein > 0 && totalProtein < targetProtein && proteinRatio >= 0.85) {
+    const targetCalories = Number(totals.targetCalories || targets.targetCalories || 0);
+    const totalCalories = Number(totals.calories || 0);
+    const kcalShort = targetCalories > 0 && totalCalories < targetCalories * 0.92;
+    if (kcalShort) {
+      // Kcal is the main issue; protein is nearly met – suggest energy foods
+      return [
+        "Năng lượng còn thiếu nhẹ.",
+        "Có thể tăng nhẹ khẩu phần cơm, khoai, yến mạch, sữa hoặc chuối.",
+      ];
+    }
+    return ["Protein còn thiếu nhẹ.", "Có thể thêm trứng, sữa, đậu hoặc thịt nạc nếu muốn cân bằng hơn."];
+  }
+
+  if (missingTotal === 1) {
+    return ["Thực đơn gần phù hợp. Bạn có thể tạo lại nếu muốn bữa tối đủ món hơn.", ...(totalProtein > targetProtein * 1.1 ? ["Có thể giảm nhẹ món đạm trong bữa kế tiếp."] : [])];
+  }
+
   if (missingTotal > 0) {
     return ["Thực đơn gần phù hợp. Bạn có thể tạo lại nếu muốn đầy đủ hơn."];
   }
 
   if (targetProtein > 0 && totalProtein > targetProtein * 1.15) {
     return [buildProteinExcessMessage(totalProtein, targetProtein)];
+  }
+
+  if (targetProtein > 0 && totalProtein > targetProtein * 1.1) {
+    return ["Có thể giảm nhẹ món đạm trong bữa kế tiếp."];
   }
 
   if (targetProtein > 0 && totalProtein < targetProtein && proteinRatio >= 0.85) {
@@ -4190,6 +4238,16 @@ function toShortAdjustmentMessage(message, context = {}) {
   const targetProtein = Number(totals.targetProtein || targets.proteinTarget || 0);
   const totalProtein = Number(totals.protein || 0);
   const animalProteinLoad = getAnimalProteinLoad(context.meals || [], targetProtein);
+  if (isProteinLowMessageKey(key) && targetProtein > 0 && totalProtein < targetProtein) {
+    const targetCalories = Number(totals.targetCalories || targets?.targetCalories || 0);
+    const totalCalories = Number(totals.calories || 0);
+    const kcalShort = targetCalories > 0 && totalCalories < targetCalories * 0.92;
+    if (kcalShort && targetProtein > 0 && totalProtein >= targetProtein * 0.85) {
+      // Protein only slightly low; kcal is the main gap – suggest energy foods
+      return "Có thể tăng nhẹ khẩu phần cơm, khoai, yến mạch, sữa hoặc chuối.";
+    }
+    return "Có thể thêm trứng, sữa, đậu hoặc thịt nạc nếu muốn cân bằng hơn.";
+  }
   if (isProteinExcessMessageKey(key)) {
     return targetProtein > 0 && totalProtein > targetProtein * 1.15
       ? buildProteinExcessMessage(totalProtein, targetProtein)
@@ -4203,6 +4261,9 @@ function toShortAdjustmentMessage(message, context = {}) {
   if (isAnimalProteinMessageKey(key)) {
     if (!(targetProtein > 0 && totalProtein >= targetProtein && animalProteinLoad.mealOverLimit)) return "";
     return "Một số bữa có nhiều hơn một món đạm chính. Có thể thay bớt bằng đậu, ngũ cốc hoặc rau củ.";
+  }
+  if (key.includes("mon yeu thich") && (key.includes("khong") || key.includes("chua"))) {
+    return "Một số món yêu thích không được chọn để giữ thực đơn cân bằng hơn.";
   }
   if ((key.includes("da tao") || key.includes("chi tao duoc")) && key.includes("mon phu hop")) {
     return "Bạn có thể tạo lại nếu muốn thực đơn đầy đủ hơn.";
@@ -4412,6 +4473,14 @@ function formatTagValue(tags) {
 function bmiStatusLabel(bmi) {
   if (!Number.isFinite(Number(bmi))) return "Đang theo dõi";
   return asianBmiLabel(Number(bmi));
+}
+
+function friendlyMedicalWarning(message) {
+  const key = normalizeMessageKey(decodeUnicodeEscapes(message));
+  if (key.includes("bmi") || key.includes("thieu can") || key.includes("can nang thap")) {
+    return "Bạn đang ở mức cân nặng thấp, nên theo dõi cân nặng định kỳ trong quá trình tăng cân.";
+  }
+  return toFriendlyDashboardMessage(message);
 }
 
 function ProfileField({ label, name, type = "text", value, error, helperText, onChange, ...props }) {
@@ -6034,6 +6103,7 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
 }
 
 function buildProteinExcessMessage(totalProtein, targetProtein) {
+  return "Protein hơi cao hơn mục tiêu. Có thể giảm nhẹ món đạm trong bữa kế tiếp.";
   const excess = Math.max(Math.round(Number(totalProtein || 0) - Number(targetProtein || 0)), 0);
   return `Protein đang cao hơn mục tiêu ${excess}g. Nên giảm bớt món đạm.`;
 }

@@ -464,6 +464,47 @@ HEALTHY_GAIN_ENERGY_TERMS = (
     "sua chua hy lap",
 )
 
+# ── Starch/calorie-dense foods to boost when kcal deficit but protein near target ──
+ENERGY_STARCH_BOOST_TERMS = (
+    "com", "gao", "gao lut", "rice", "brown rice",
+    "yen mach", "oat", "oatmeal",
+    "khoai lang", "khoai tay", "khoai", "sweet potato", "potato",
+    "chuoi", "banana",
+    "sua tuoi", "sua nguyen chat", "whole milk", "sua bo", "fresh milk",
+    "bo dau phong", "peanut butter",
+    "dau", "bean", "dau nanh", "soybean",
+    "dau olive", "olive oil",
+)
+
+# ── Berry terms that should be reduced when already appearing in the day ──
+COMMON_BERRY_TERMS = (
+    "viet quat", "blueberry",
+    "mam xoi", "raspberry",
+    "dau tay", "strawberry",
+    "berry", "berries",
+)
+
+# ── Common familiar Vietnamese foods – boost for all users ──
+FAMILIAR_VN_FOOD_TERMS = (
+    "com", "gao lut", "yen mach",
+    "khoai lang", "khoai tay",
+    "trung", "trung ga",
+    "sua tuoi", "sua chua",
+    "chuoi", "cam", "tao", "du du",
+    "dau phu", "dau hu", "dau nanh",
+    "rau cai", "ca rot", "bi do", "ca chua", "bong cai",
+    "thit ga", "uc ga", "ga luoc", "ga nuong",
+    "ca ro", "ca basa", "ca loc", "ca ngu", "ca thu",
+)
+
+# ── Less-familiar / unusual names for VN general users (soft penalty only) ──
+LESS_FAMILIAR_VN_TERMS = (
+    "ca mang",          # cá măng – uncommon to most users
+    "sup ngheu",        # súp nghêu – clam soup
+    "ngheu",            # nghêu – clams
+    "sop ngheu",
+)
+
 BMI_NOT_UNDERWEIGHT = "BMI_NOT_UNDERWEIGHT"
 BMI_OVERWEIGHT_NOT_SUPPORTED = "BMI_OVERWEIGHT_NOT_SUPPORTED"
 BMI_OBESE_NOT_SUPPORTED = "BMI_OBESE_NOT_SUPPORTED"
@@ -1475,6 +1516,13 @@ class RecommenderService:
             "image_alt_vi",
             "image_quality_note",
             "search_keywords",
+            "is_common_food",
+            "is_budget_friendly",
+            "is_premium",
+            "is_processed",
+            "is_natural_food",
+            "budget_tier",
+            "natural_priority_score",
             "original_name",
         ]
         select_parts = [f"CAST({id_column} AS CHAR) AS food_id"]
@@ -1624,6 +1672,30 @@ class RecommenderService:
             if "original_name" in clean_df.columns
             else name_en_series
         )
+        bool_quality_series = {
+            column: (
+                clean_df[column]
+                if column in clean_df.columns
+                else pd.Series(False, index=clean_df.index)
+            )
+            for column in (
+                "is_common_food",
+                "is_budget_friendly",
+                "is_premium",
+                "is_processed",
+                "is_natural_food",
+            )
+        }
+        budget_tier_series = (
+            clean_df["budget_tier"]
+            if "budget_tier" in clean_df.columns
+            else pd.Series("standard", index=clean_df.index)
+        )
+        natural_priority_series = (
+            clean_df["natural_priority_score"]
+            if "natural_priority_score" in clean_df.columns
+            else pd.Series(0.5, index=clean_df.index)
+        )
         bad_image_debug = clean_df.loc[
             image_url_series.fillna("").astype(str).str.strip().eq(""),
             ["food_id", "dish_name_vi", "clean_category"],
@@ -1664,6 +1736,13 @@ class RecommenderService:
                 "image_verified": image_verified_series.where(image_verified_series.notna(), False),
                 "image_quality_note": image_quality_note_series.where(image_quality_note_series.notna(), "").astype(str).str.strip(),
                 "quality_flags": clean_df["quality_flags"].where(clean_df["quality_flags"].notna(), "").astype(str),
+                "is_common_food": bool_quality_series["is_common_food"].fillna(False).astype(bool),
+                "is_budget_friendly": bool_quality_series["is_budget_friendly"].fillna(False).astype(bool),
+                "is_premium": bool_quality_series["is_premium"].fillna(False).astype(bool),
+                "is_processed": bool_quality_series["is_processed"].fillna(False).astype(bool),
+                "is_natural_food": bool_quality_series["is_natural_food"].fillna(False).astype(bool),
+                "budget_tier": budget_tier_series.where(budget_tier_series.notna(), "standard").astype(str).str.strip(),
+                "natural_priority_score": pd.to_numeric(natural_priority_series, errors="coerce").fillna(0.5).clip(lower=0.0, upper=1.0),
                 "source": "mysql:foods",
             }
         )
@@ -1872,6 +1951,303 @@ class RecommenderService:
         if goal_type in {"muscle", "muscle_gain", "gain_muscle"}:
             return "gain", gain_surplus or 300.0
         return "gain", gain_surplus
+
+    @staticmethod
+    def _normalize_budget_level(value: object) -> str:
+        normalized = _normalize_search_text(str(value or "standard")).strip()
+        if normalized in {"low", "saving", "savings", "cheap", "budget", "economy", "tiet kiem"}:
+            return "low"
+        if normalized in {"high", "premium", "flexible", "linh hoat", "linh hoat hon"}:
+            return "high"
+        return "standard"
+
+    @staticmethod
+    def _budget_score_adjustment(row: pd.Series | dict, budget_level: object) -> float:
+        budget = RecommenderService._normalize_budget_level(budget_level)
+        if budget not in {"low", "standard", "high"}:
+            return 0.0
+
+        text = _normalize_search_text(
+            " ".join(
+                str(row.get(column, "") or "")
+                for column in (
+                    "name",
+                    "name_en",
+                    "display_name",
+                    "display_name_en",
+                    "original_name",
+                    "search_keywords",
+                    "category",
+                    "clean_category",
+                    "food_group",
+                    "quality_flags",
+                )
+            )
+        )
+        category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+        is_common_field = _truthy(row.get("is_common_food", False))
+        is_budget_field = _truthy(row.get("is_budget_friendly", False))
+        is_premium_field = _truthy(row.get("is_premium", False))
+        is_processed_field = _truthy(row.get("is_processed", False))
+        is_natural_field = _truthy(row.get("is_natural_food", False))
+        budget_tier = _normalize_search_text(str(row.get("budget_tier", "") or "standard")).strip()
+        try:
+            natural_priority = float(row.get("natural_priority_score", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            natural_priority = 0.5
+        natural_priority = float(np.clip(natural_priority, 0.0, 1.0))
+
+        affordable_terms = (
+            "rice", "com", "gao", "gao lut", "brown rice",
+            "oat", "oatmeal", "yen mach",
+            "potato", "khoai", "khoai lang", "khoai tay", "khoai mon", "sweet potato",
+            "egg", "trung",
+            "bean", "dau", "soy", "soybean", "dau nanh", "tofu", "dau hu", "dau phu", "lentil",
+            "vegetable", "rau", "cabbage", "cai", "carrot", "ca rot", "tomato", "ca chua",
+            "banana", "chuoi",
+            "milk", "sua", "soy milk", "sua dau nanh",
+            "chicken", "ga luoc", "ga nuong", "uc ga", "thit ga",
+            "fish", "ca ro", "ca basa", "ca loc", "ca thu", "ca ngu",
+        )
+        basic_dairy_terms = ("milk", "sua tuoi", "soy milk", "sua dau nanh")
+        premium_terms = (
+            "salmon", "ca hoi", "shrimp", "tom",
+            "tenderloin", "sirloin", "ribeye", "wagyu", "beef loin", "bo than", "than lung",
+            "premium", "fancy", "imported", "nhap khau", "cao cap",
+            "greek yogurt", "sua chua hy lap",
+            "raspberry", "mam xoi", "red raspberry", "cranberry", "nam viet quat", "blueberry", "viet quat",
+            "strawberry", "dau tay",
+            "blackberry", "berry", "berries",
+            "almond", "walnut", "macadamia", "pistachio", "hazelnut", "cashew",
+            "caviar", "brie", "camembert", "emmental", "gruyere", "raclette",
+            "mix", "mixed juice", "juice mix", "nuoc ep mix", "nuoc buoi do mix", "grapefruit mix",
+        )
+        mix_or_drink_terms = (
+            "mix", "mixed", "juice mix", "nuoc ep mix", "nuoc buoi do mix", "grapefruit mix",
+            "smoothie mix", "beverage mix",
+        )
+        lean_regular_beef_terms = (
+            "lean beef", "beef lean", "thit bo nac", "bo nac", "bo xao", "bo luoc", "bo nuong",
+        )
+        common_chicken_or_fish_terms = (
+            "chicken", "thit ga", "ga luoc", "ga nuong", "uc ga",
+            "fish", "ca ro", "ca basa", "ca loc", "ca thu",
+        )
+
+        # ── Less-common-for-VN-budget terms (soft penalty, not a hard filter) ─
+        less_common_vn_budget_terms = (
+            "turkey", "ga tay",                        # gà tây
+            "burrito", "taquito", "taco",              # western fusion
+            "wild plum", "man hoang da",               # mận hoang dã
+            "apricot", "qua mo",                       # quả mơ
+            "dried fig", "sung say",                   # sung sấy
+            "ca bo", "avocado fish",                   # cá bơ
+            "fig",                                     # quả sung tươi
+            "blue cheese", "pho mai xanh",
+            "smoked salmon", "ca hoi xong khoi",
+            "bechamel", "cream sauce",
+        )
+
+        # ── Common affordable Vietnamese everyday foods (extra boost for low budget) ─
+        extra_affordable_vn_terms = (
+            "com", "gao", "gao lut", "khoai lang", "khoai tay",
+            "trung", "dau phu", "dau hu", "dau nanh",
+            "rau", "ca rot", "bi", "chuoi", "cam", "du du",
+            "thit ga", "uc ga", "ga luoc", "ga nuong",
+            "ca ro", "ca basa", "ca loc",
+            "sua tuoi", "sua dau nanh",
+        )
+
+        is_affordable = (
+            category in {"starch_grain", "starch_tuber", "egg", "plant_protein", "vegetable"}
+            or any(term in text for term in affordable_terms)
+        )
+        is_basic_dairy = category == "dairy" and any(term in text for term in basic_dairy_terms) and "greek" not in text
+        is_premium = any(term in text for term in premium_terms)
+        is_mix_or_drink = any(term in text for term in mix_or_drink_terms)
+        is_regular_beef = category == "protein_meat" and any(term in text for term in lean_regular_beef_terms)
+        is_beef = category == "protein_meat" and any(term in text for term in ("beef", "thit bo", " bo "))
+        is_fish_or_seafood = category == "protein_seafood"
+        is_common_chicken_or_fish = any(term in text for term in common_chicken_or_fish_terms) and not is_premium
+        is_expensive_nut_category = category == "healthy_fat_nuts" and not any(term in text for term in ("peanut", "dau phong"))
+
+        if is_basic_dairy:
+            is_affordable = True
+        if is_expensive_nut_category:
+            is_premium = True
+
+        if budget == "low":
+            adjustment = 0.0
+            adjustment += 0.28 * float(is_budget_field)
+            adjustment += 0.16 * float(is_common_field)
+            adjustment += 0.12 * float(is_natural_field)
+            adjustment += 0.18 if budget_tier == "low" else 0.0
+            adjustment += (natural_priority - 0.5) * 0.26
+            if is_affordable:
+                adjustment += 0.46
+            if is_basic_dairy:
+                adjustment += 0.14
+            if is_common_chicken_or_fish:
+                adjustment += 0.16
+            if is_regular_beef:
+                adjustment -= 0.05
+            elif is_beef or is_fish_or_seafood:
+                adjustment -= 0.24
+            if is_premium:
+                adjustment -= 0.95
+            if is_mix_or_drink:
+                adjustment -= 0.45
+            adjustment -= 0.58 * float(is_premium_field)
+            adjustment -= 0.42 * float(is_processed_field)
+            if budget_tier == "premium":
+                adjustment -= 0.48
+            elif budget_tier == "flexible":
+                adjustment -= 0.18
+            if natural_priority < 0.35:
+                adjustment -= 0.22
+            # Extra boost: common everyday Vietnamese foods
+            if any(term in text for term in extra_affordable_vn_terms):
+                adjustment += 0.22
+            # Soft penalty: less-common / Western foods unfamiliar in VN budget cooking
+            if any(term in text for term in less_common_vn_budget_terms):
+                adjustment -= 0.38
+            return adjustment
+
+        if budget == "standard":
+            adjustment = 0.0
+            adjustment += 0.08 * float(is_budget_field)
+            adjustment += 0.08 * float(is_common_field)
+            adjustment += 0.06 * float(is_natural_field)
+            adjustment += (natural_priority - 0.5) * 0.12
+            if is_affordable:
+                adjustment += 0.10
+            if is_regular_beef or (is_fish_or_seafood and not is_premium):
+                adjustment += 0.04
+            if is_premium:
+                adjustment -= 0.26
+            if is_mix_or_drink:
+                adjustment -= 0.18
+            adjustment -= 0.12 * float(is_premium_field)
+            adjustment -= 0.20 * float(is_processed_field)
+            return adjustment
+
+        adjustment = 0.0
+        adjustment += 0.04 * float(is_common_field)
+        adjustment += 0.05 * float(is_natural_field)
+        adjustment += 0.12 * float(is_premium_field)
+        adjustment += (natural_priority - 0.5) * 0.08
+        if is_premium:
+            adjustment += 0.16
+        if is_regular_beef or is_fish_or_seafood:
+            adjustment += 0.08
+        if is_affordable:
+            adjustment += 0.04
+        adjustment -= 0.16 * float(is_processed_field)
+        return adjustment
+
+    @staticmethod
+    def _natural_food_score_adjustment(row: pd.Series | dict) -> float:
+        text = _normalize_search_text(
+            " ".join(
+                str(row.get(column, "") or "")
+                for column in (
+                    "name",
+                    "name_en",
+                    "display_name",
+                    "display_name_en",
+                    "original_name",
+                    "search_keywords",
+                    "category",
+                    "clean_category",
+                    "food_group",
+                    "quality_flags",
+                )
+            )
+        )
+        category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+        is_common_field = _truthy(row.get("is_common_food", False))
+        is_processed_field = _truthy(row.get("is_processed", False))
+        is_natural_field = _truthy(row.get("is_natural_food", False))
+        try:
+            natural_priority = float(row.get("natural_priority_score", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            natural_priority = 0.5
+        natural_priority = float(np.clip(natural_priority, 0.0, 1.0))
+        everyday_terms = (
+            "rice", "com", "gao", "gao lut", "brown rice",
+            "oat", "oatmeal", "yen mach",
+            "potato", "khoai", "khoai lang", "khoai tay", "khoai mon", "sweet potato",
+            "egg", "trung",
+            "milk", "sua tuoi", "sua nguyen chat", "whole milk", "soy milk", "sua dau nanh",
+            "soy", "soybean", "dau nanh", "tofu", "dau hu", "dau phu", "bean", "lentil",
+            "vegetable", "rau", "cabbage", "cai", "carrot", "ca rot", "tomato", "ca chua", "pumpkin", "bi do",
+            "banana", "chuoi", "apple", "tao", "orange", "cam", "papaya", "du du",
+            "lean chicken", "chicken breast", "uc ga", "ga luoc", "ga nuong", "thit ga",
+            "lean beef", "thit bo nac", "bo nac",
+            "fish", "ca ro", "ca basa", "ca loc", "ca thu",
+            "peanut butter", "bo dau phong",
+        )
+        low_natural_terms = (
+            "mix", "mixed", "juice mix", "nuoc ep mix", "nuoc buoi do mix", "grapefruit mix",
+            "snack", "fancy", "premium", "imported", "nhap khau", "cao cap",
+            "processed", "che bien san", "canned", "dong hop", "sausage", "xuc xich", "bacon", "ham",
+            "cream soup", "cream of mushroom", "soup cream", "sup kem", "sup kem nam",
+            "dessert", "sweet", "cake", "cookie", "candy", "keo", "pastry", "donut", "ice cream",
+            "blue cornmeal", "bot ngo xanh", "prickly pear", "qua le gai", "surstromming", "caviar",
+        )
+        adjustment = 0.0
+        adjustment += 0.18 * float(is_natural_field)
+        adjustment += 0.12 * float(is_common_field)
+        adjustment += (natural_priority - 0.5) * 0.38
+        if category in {"starch_grain", "starch_tuber", "egg", "plant_protein", "vegetable"}:
+            adjustment += 0.16
+        if any(term in text for term in everyday_terms):
+            adjustment += 0.22
+        if category in {"fruit", "dairy"} and any(term in text for term in ("banana", "chuoi", "apple", "tao", "orange", "cam", "papaya", "du du", "milk", "sua tuoi", "soy milk", "sua dau nanh")):
+            adjustment += 0.10
+        if any(term in text for term in low_natural_terms):
+            adjustment -= 0.42
+        if is_processed_field:
+            adjustment -= 0.46
+        if _is_processed_meat_row(row) or _is_dessert_or_sweet_row(row):
+            adjustment -= 0.30
+        return adjustment
+
+    @staticmethod
+    def _apply_budget_score_adjustments(
+        ranked: pd.DataFrame,
+        budget_level: object,
+        *,
+        strength: float = 1.0,
+    ) -> pd.DataFrame:
+        if ranked.empty:
+            return ranked
+        adjusted = ranked.copy()
+        budget = RecommenderService._normalize_budget_level(budget_level)
+        if budget not in {"low", "standard", "high"}:
+            return adjusted
+        budget_adjustment = adjusted.apply(
+            lambda row: RecommenderService._budget_score_adjustment(row, budget) * float(strength),
+            axis=1,
+        )
+        adjusted["score"] = adjusted["score"].astype(float) + budget_adjustment.astype(float)
+        return adjusted.sort_values("score", ascending=False)
+
+    @staticmethod
+    def _apply_natural_food_score_adjustments(
+        ranked: pd.DataFrame,
+        *,
+        strength: float = 1.0,
+    ) -> pd.DataFrame:
+        if ranked.empty:
+            return ranked
+        adjusted = ranked.copy()
+        natural_adjustment = adjusted.apply(
+            lambda row: RecommenderService._natural_food_score_adjustment(row) * float(strength),
+            axis=1,
+        )
+        adjusted["score"] = adjusted["score"].astype(float) + natural_adjustment.astype(float)
+        return adjusted.sort_values("score", ascending=False)
 
     @staticmethod
     def _apply_diet_and_budget_preferences(
@@ -2094,19 +2470,47 @@ class RecommenderService:
 
         # ── Budget level scoring ───────────────────────────────────────────────
         if budget_level in {"low", "saving", "cheap", "tiết kiệm", "tiet kiem"}:
-            affordable_terms = ("rice", "oat", "egg", "tofu", "bean", "lentil", "banana", "potato", "milk")
-            premium_terms = ("salmon", "tuna", "shrimp", "almond", "walnut", "cheese", "avocado")
-            affordable_mask: pd.Series = _name_contains_any(affordable_terms)   # bool
-            premium_mask: pd.Series = _name_contains_any(premium_terms)          # bool
+            # Common budget-friendly Vietnamese foods
+            affordable_terms = (
+                "rice", "com", "gao", "gao lut",
+                "oat", "oatmeal", "yen mach",
+                "egg", "trung",
+                "tofu", "bean", "dau phu", "dau hu", "dau nanh", "lentil",
+                "banana", "chuoi", "cam", "orange", "du du", "papaya", "tao", "apple",
+                "potato", "khoai", "khoai lang", "khoai tay",
+                "milk", "sua tuoi", "sua dau nanh",
+                "chicken", "thit ga", "uc ga", "ga luoc", "ga nuong",
+                "ca ro", "ca basa", "ca loc",
+                "rau", "ca rot", "bi", "vegetable",
+            )
+            # Less-common / Western foods that rarely appear in VN budget meals
+            less_common_budget_terms = (
+                "turkey", "ga tay",
+                "burrito", "taquito", "taco",
+                "wild plum", "man hoang da",
+                "apricot", "qua mo",
+                "dried fig", "sung say", "fig",
+                "ca bo", "avocado fish",
+                "blue cheese", "pho mai xanh",
+                "smoked salmon", "ca hoi xong khoi",
+                "bechamel", "cream sauce",
+            )
+            affordable_mask: pd.Series = _name_contains_any(affordable_terms)          # bool
+            less_common_mask: pd.Series = _name_contains_any(less_common_budget_terms) # bool
+            premium_terms_base = ("salmon", "tuna", "shrimp", "almond", "walnut", "cheese", "avocado")
+            premium_mask: pd.Series = _name_contains_any(premium_terms_base)           # bool
             next_df["score"] = (
                 next_df["score"]
-                + 0.08 * affordable_mask.astype(float)
-                - 0.08 * premium_mask.astype(float)
+                + 0.12 * affordable_mask.astype(float)
+                - 0.10 * premium_mask.astype(float)
+                - 0.28 * less_common_mask.astype(float)
             )
         elif budget_level in {"high", "premium"}:
             premium_terms = ("salmon", "tuna", "avocado", "almond", "walnut", "yogurt")
             premium_boost_mask: pd.Series = _name_contains_any(premium_terms)    # bool
             next_df["score"] = next_df["score"] + 0.04 * premium_boost_mask.astype(float)
+        next_df = RecommenderService._apply_budget_score_adjustments(next_df, budget_level, strength=1.0)
+        next_df = RecommenderService._apply_natural_food_score_adjustments(next_df, strength=1.0)
 
         # ── Universal exotic / hard-to-find food penalty ──────────────────────
         _exotic_terms = (
@@ -2283,6 +2687,34 @@ class RecommenderService:
             bmi16_penalty_mask: pd.Series = _name_contains_any(_bmi16_penalty_terms)
             next_df["score"] = next_df["score"] - 0.25 * bmi16_penalty_mask.astype(float)
 
+        # ── PHẦN 1: Boost tinh bột/sữa/chuối khi kcal còn thiếu nhưng protein gần đủ ──
+        # Khi protein đã đạt >= 85% target nhưng kcal vẫn còn thiếu nhiều,
+        # ưu tiên thêm năng lượng từ tinh bột, sữa, trái cây thay vì thêm đạm.
+        _plan_kcal = float(target.get("calories") or target_kcal or 0.0)
+        _plan_protein_target = float(target.get("protein") or target.get("protein_g") or target_protein or 0.0)
+        if _plan_kcal > 0 and _plan_protein_target > 0:
+            _protein_ratio = (target.get("current_protein") or 0.0)
+            # Use payload-level signals if available; otherwise fall back to heuristic
+            _protein_near_target = bool(target.get("protein_near_target", False))
+            if not _protein_near_target:
+                # Heuristic: high-protein diet with gain mode => assume protein likely near target
+                _hp_diet = "high protein" in _normalize_search_text(target.get("diet_type", "") or "")
+                _protein_near_target = _hp_diet and gain_energy_mode
+            if _protein_near_target or gain_energy_mode:
+                energy_starch_mask: pd.Series = _name_contains_any(ENERGY_STARCH_BOOST_TERMS)
+                next_df["score"] = next_df["score"] + 0.20 * energy_starch_mask.astype(float)
+
+        # ── PHẦN 2 & 3: Boost món Việt quen, giảm nhẹ tên lạ và quả mọng thừa ──
+        familiar_vn_mask: pd.Series = _name_contains_any(FAMILIAR_VN_FOOD_TERMS)
+        less_familiar_mask: pd.Series = _name_contains_any(LESS_FAMILIAR_VN_TERMS)
+        berry_mask: pd.Series = _name_contains_any(COMMON_BERRY_TERMS)
+        next_df["score"] = (
+            next_df["score"]
+            + 0.12 * familiar_vn_mask.astype(float)
+            - 0.30 * less_familiar_mask.astype(float)
+            - 0.18 * berry_mask.astype(float)  # reduce but don't hard-block berries
+        )
+
         return next_df.sort_values("score", ascending=False)
 
     @staticmethod
@@ -2374,6 +2806,7 @@ class RecommenderService:
         current_day_protein = 0.0
         is_eat_clean = any(term in _normalize_search_text(target.get("diet_type", "") or "balanced") for term in EAT_CLEAN_DIET_TERMS)
         vegetarian_mode = _is_vegetarian_diet(target.get("diet_type", ""))
+        budget_level = RecommenderService._normalize_budget_level(target.get("budget_level", "standard"))
         max_animal_protein_count = 0 if vegetarian_mode else (2 if target_protein <= 95 else 3)
 
         def _row_clean_category(row: pd.Series | dict) -> str:
@@ -2525,6 +2958,8 @@ class RecommenderService:
                 if category in STARCH_CATEGORIES and not _row_is_dessert(row):
                     score_delta += 0.15
 
+            score_delta += RecommenderService._budget_score_adjustment(row, budget_level) * 0.85
+            score_delta += RecommenderService._natural_food_score_adjustment(row) * 0.75
             return score_delta
 
         for meal, requested_slots in meal_structure.items():
@@ -4152,6 +4587,7 @@ class RecommenderService:
             "goal": payload.goal_type or profile_goal,
             "weight_gain_speed": effective_gain_speed,
             "diet_type": payload.diet_type or payload.diet_style,
+            "budget_level": payload.budget_level,
             "items_per_meal": payload.items_per_meal,
             "gain_energy_mode": gain_energy_mode,
             "disliked_foods": disliked_foods,
@@ -4376,6 +4812,8 @@ class RecommenderService:
                 ml_metadata = ml_food_eligibility_service.get_metadata()
                 ml_score_used = False
                 logger.warning("Food eligibility ML scoring skipped; using rule-based ranking: %s", exc)
+        ranked = self._apply_budget_score_adjustments(ranked, payload.budget_level, strength=0.45)
+        ranked = self._apply_natural_food_score_adjustments(ranked, strength=0.35)
 
         # Retry logic: try multiple seeded variants and keep the closest kcal plan.
         best_meal_plan = None
@@ -4688,6 +5126,7 @@ class RecommenderService:
 
         vegetarian_mode = _is_vegetarian_diet(payload.diet_type or payload.diet_style or "")
         max_animal_protein_items = 0 if vegetarian_mode else (2 if target_protein <= 95 else 3)
+        budget_level = RecommenderService._normalize_budget_level(payload.budget_level)
 
         def _is_animal_protein_item(item: dict) -> bool:
             return _item_category(item) in {"protein_meat", "protein_seafood"} or _row_matches_terms(item, list(VEGETARIAN_BLOCKED_TERMS)) or is_non_vegetarian_food(item)
@@ -4726,6 +5165,12 @@ class RecommenderService:
                 return True
             name_text = _normalize_search_text(row.get("name", ""))
             return _text_has_any(name_text, protein_limited_terms)
+
+        def _budget_rank_delta(row: pd.Series | dict, strength: float = 1.0) -> float:
+            return -RecommenderService._budget_score_adjustment(row, budget_level) * float(strength)
+
+        def _natural_rank_delta(row: pd.Series | dict, strength: float = 1.0) -> float:
+            return -RecommenderService._natural_food_score_adjustment(row) * float(strength)
 
         def _animal_protein_count() -> int:
             return sum(
@@ -5151,7 +5596,10 @@ class RecommenderService:
                         replacement_choices.append(
                             (
                                 semantic_duplicate_penalty,
-                                category_rank + (4.0 if allow_second_starch else 0.0),
+                                category_rank
+                                + (4.0 if allow_second_starch else 0.0)
+                                + _budget_rank_delta(row, strength=1.0)
+                                + _natural_rank_delta(row, strength=0.8),
                                 candidate_protein,
                                 abs(candidate_kcal - target_kcal_item),
                                 -float(candidate_item.get("score") or 0.0),
@@ -5452,6 +5900,8 @@ class RecommenderService:
                 + real_beef_bonus
                 + favorite_milk_bonus
                 + quality_penalty
+                + _budget_rank_delta(row, strength=1.35)
+                + _natural_rank_delta(row, strength=1.0)
             )
             if missing_kcal:
                 if 150.0 <= kcal_gap <= 250.0:
@@ -5560,7 +6010,7 @@ class RecommenderService:
                 if len(added_names) >= missing_count:
                     break
                 item = self._to_food_item_payload(row)
-                if not _row_passes_hard_constraints(item, meal.get("items", []), {
+                if not _row_passes_hard_constraints(row, meal.get("items", []), {
                     str(existing.get("food_id"))
                     for payload_meal in meal_plan_payload
                     for existing in payload_meal.get("items", [])
@@ -5568,7 +6018,7 @@ class RecommenderService:
                 }):
                     no_item_added_reason = "candidate_rejected_after_payload_conversion"
                     continue
-                if _row_has_meal_semantic_duplicate(item, meal.get("items", [])):
+                if _row_has_meal_semantic_duplicate(row, meal.get("items", [])):
                     semantic_duplicate_relaxed_note = True
                 meal.setdefault("items", []).append(item)
                 added_names.append(str(item.get("name") or item.get("food_id") or "item"))
