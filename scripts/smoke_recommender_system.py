@@ -84,9 +84,24 @@ def text_blob(value: object) -> str:
 
 
 REAL_BEEF_TERMS = ("thit bo", "bo nac", "bo nuong", "bo xao", "bo luoc", "lean beef", "grilled beef", "stir fried beef", "boiled beef")
+LEAN_CHICKEN_TERMS = ("thit ga nac", "uc ga", "ga nuong", "ga luoc", "lean chicken", "chicken breast", "grilled chicken", "boiled chicken")
+HEALTHY_HIGH_PROTEIN_TERMS = ("fish", "ca", "salmon", "tuna", "egg", "trung", "milk", "sua", "yogurt", "sua chua", "bean", "dau", "tofu", "dau hu", "dau phu", "tempeh")
 PROCESSED_TERMS = ("biawurst", "xuc xich", "sausage", "processed", "thit che bien")
 SWEET_TERMS = ("keo", "candy", "sweets")
 NATURAL_FRUIT_TERMS = ("dau", "strawberry", "chuoi", "banana", "tao", "apple", "cam", "orange", "viet quat", "blueberry", "mam xoi", "raspberry")
+SEMANTIC_GROUPS = (
+    ("egg", ("trung", "egg", "yolk", "long do trung")),
+    ("milk_dairy", ("sua", "milk", "dairy", "cream", "kem", "cheese", "pho mai", "yogurt", "sua chua")),
+    ("beef", ("thit bo", "bo nac", "bo xay", "beef", "lean beef")),
+    ("chicken", ("thit ga", "uc ga", "ga nac", "chicken", "turkey")),
+    ("fish_salmon", ("ca hoi", "salmon")),
+    ("sweet_potato", ("khoai lang", "sweet potato")),
+    ("rice", ("com", "gao", "gao lut", "rice")),
+    ("potato", ("khoai tay", "potato")),
+    ("tofu", ("dau hu", "dau phu", "tofu")),
+    ("soy", ("dau nanh", "soy", "soybean")),
+    ("fruit_berry", ("dau tay", "strawberry", "viet quat", "blueberry", "mam xoi", "raspberry", "berry")),
+)
 
 
 def normalized_item_text(item: dict[str, Any]) -> str:
@@ -122,6 +137,48 @@ def item_is_processed_or_sweet(item: dict[str, Any]) -> bool:
 def item_is_natural_fruit(item: dict[str, Any]) -> bool:
     normalized = normalized_item_text(item)
     return "fruit" in normalized and item_has_any(item, NATURAL_FRUIT_TERMS)
+
+
+def semantic_similarity_key(item: dict[str, Any]) -> str:
+    normalized = normalized_item_text(item)
+    for key, terms in SEMANTIC_GROUPS:
+        if any(term in normalized for term in terms):
+            return key
+    return ""
+
+
+def assert_no_meal_semantic_duplicates(response: dict[str, Any]) -> None:
+    meals, _ = flatten_meals(response)
+    duplicates: list[str] = []
+    for meal in meals:
+        seen: dict[str, str] = {}
+        for item in meal.get("items") or []:
+            key = semantic_similarity_key(item)
+            if not key:
+                continue
+            name = str(item.get("name") or item.get("food_id") or "item")
+            if key in seen:
+                duplicates.append(f"{meal.get('meal_type')}: {seen[key]} / {name} ({key})")
+            else:
+                seen[key] = name
+    assert not duplicates, "semantic duplicate items found: " + "; ".join(duplicates)
+
+
+def item_is_healthy_high_protein(item: dict[str, Any]) -> bool:
+    normalized = normalized_item_text(item)
+    if item_has_any(item, PROCESSED_TERMS):
+        return False
+    if item_is_real_beef(item):
+        return True
+    if "protein_meat" in normalized and item_has_any(item, LEAN_CHICKEN_TERMS):
+        return True
+    return (
+        "protein_seafood" in normalized
+        or "egg" in normalized
+        or "dairy" in normalized
+        or "plant_protein" in normalized
+        or item_has_any(item, HEALTHY_HIGH_PROTEIN_TERMS)
+    )
 
 
 def parse_profile_list(value: object) -> list[str]:
@@ -234,6 +291,19 @@ def disliked_rules() -> list[tuple[str, Callable[[str, str], bool]]]:
     ]
 
 
+def dairy_disliked_rules() -> list[tuple[str, Callable[[str, str], bool]]]:
+    return [
+        (
+            "sữa/dairy",
+            lambda raw, normalized: not any(term in normalized for term in ("sua dau nanh", "soy milk", "soymilk"))
+            and any(
+                term in normalized
+                for term in ("sua", "sua chua", "milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem")
+            ),
+        )
+    ]
+
+
 def put_profile(state: SmokeState, payload: dict[str, Any]) -> None:
     code, response = api_request(
         "PUT",
@@ -294,6 +364,7 @@ def assert_item_count_contract(response: dict[str, Any], expected: int) -> tuple
         if isinstance(entry, dict)
     }
     shortages: list[str] = []
+    shortage_details: list[str] = []
     missing_total = 0
     for meal_type in ("breakfast", "lunch", "dinner"):
         info = summary.get(meal_type) or {"expected": expected, "actual": 0}
@@ -301,23 +372,30 @@ def assert_item_count_contract(response: dict[str, Any], expected: int) -> tuple
         exp = int(info.get("expected") or expected)
         assert actual <= exp, f"{meal_type} has {actual}/{exp} items, more than requested"
         if actual < exp:
+            missing = exp - actual
             shortages.append(f"{meal_type}={actual}/{exp}")
             missing_total += exp - actual
             debug_entry = fill_debug_by_meal.get(meal_type)
             assert debug_entry is not None, f"{meal_type} missing items but fill debug is absent; validation={validation}"
             hard_count = int(debug_entry.get("candidate_count_after_hard_filter") or 0)
+            shortage_details.append(
+                f"{meal_type} thiếu {missing} món ({actual}/{exp}); "
+                f"reason={debug_entry.get('reason_no_item_added') or 'unknown'}; "
+                f"hard_candidates={hard_count}"
+            )
             assert hard_count == 0, (
                 f"{meal_type} still has {hard_count} hard-filter fill candidates but returned {actual}/{exp}; "
+                f"shortage_details={shortage_details}; "
                 f"debug={debug_entry}; validation={validation}"
             )
     if shortages:
         has_warning = any(term in warning_text for term in ("mon", "phu hop", "khong du", "chi tim duoc", "loai tru"))
-        assert has_warning, f"missing items without clear warning: {shortages}; validation={validation}"
-        assert status != "valid", f"missing items but status is valid: {shortages}; validation={validation}"
+        assert has_warning, f"missing items without clear warning: {shortage_details}; validation={validation}"
+        assert status != "valid", f"missing items but status is valid: {shortage_details}; validation={validation}"
         if missing_total == 1:
-            assert status in {"minor_adjustment", "major_adjustment"}, f"missing one item should adjust status, got {status}"
+            assert status in {"minor_adjustment", "major_adjustment"}, f"missing one item should adjust status, got {status}; {shortage_details}"
         else:
-            assert status == "major_adjustment", f"missing multiple items should be major_adjustment, got {status}"
+            assert status == "major_adjustment", f"missing multiple items should be major_adjustment, got {status}; {shortage_details}"
     return missing_total, shortages
 
 
@@ -394,6 +472,136 @@ def assert_hard_rules(state: SmokeState, response: dict[str, Any], *, vegetarian
         fail_if_forbidden_items(items, vegetarian_forbidden_rules())
     fail_if_forbidden_items(items, disliked_rules())
     assert_menu_eligible_items(state, items)
+
+
+def assert_ml_validation_metadata(response: dict[str, Any], *, expected_enabled: bool, expected_used: bool) -> None:
+    validation = response.get("validation") or {}
+    assert validation.get("ml_enabled") is expected_enabled, f"unexpected ml_enabled metadata: {validation}"
+    assert validation.get("ml_score_used") is expected_used, f"unexpected ml_score_used metadata: {validation}"
+    assert_close(validation.get("ml_score_weight"), 0.2, tolerance=0.0001)
+
+
+def ml_contract_payload():
+    from app.views.schemas import RecommendationInput
+
+    return RecommendationInput(
+        weight=48,
+        height=167,
+        age=22,
+        sex="male",
+        activity="moderate",
+        goal_type="gain",
+        diet_type="high_protein",
+        diet_style="high_protein",
+        budget_level="flexible",
+        items_per_meal=5,
+        favorite_foods=["bò", "gà", "trứng"],
+        disliked_foods=["sữa"],
+        top_n=10,
+        random_seed=2026051803,
+        save_user_data=False,
+    )
+
+
+def run_recommender_with_ml_service(state: SmokeState, ml_service: Any) -> dict[str, Any]:
+    from app.services import recommender_service as recommender_module
+
+    original_service = recommender_module.ml_food_eligibility_service
+    try:
+        recommender_module.ml_food_eligibility_service = ml_service
+        service = recommender_module.RecommenderService()
+        return service.generate_recommendations(
+            ml_contract_payload(),
+            state.db,
+            state.user,
+            persist=False,
+        )
+    finally:
+        recommender_module.ml_food_eligibility_service = original_service
+
+
+def create_temp_ml_model(model_path: Path, metadata_path: Path) -> None:
+    import pickle
+
+    import pandas as pd
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder
+
+    categorical_columns = ["clean_category", "food_group_vi", "meal_role"]
+    numeric_columns = [
+        "recommended_serving_g",
+        "kcal_per_100g_clean",
+        "protein_per_100g_clean",
+        "fat_per_100g_clean",
+        "carbs_per_100g_clean",
+        "kcal_per_serving_clean",
+        "protein_per_serving_clean",
+        "fat_per_serving_clean",
+        "carbs_per_serving_clean",
+    ]
+    frame = pd.DataFrame(
+        [
+            ["starch_grain", "Ngũ cốc", "staple", 120, 130, 3, 1, 28, 156, 3.6, 1.2, 33.6],
+            ["dessert_sweets", "Món ngọt", "dessert", 60, 420, 4, 18, 56, 252, 2.4, 10.8, 33.6],
+            ["plant_protein", "Đạm thực vật", "protein", 100, 160, 12, 6, 14, 160, 12, 6, 14],
+            ["drink_natural", "Đồ uống", "drink", 240, 40, 0, 0, 10, 96, 0, 0, 24],
+        ],
+        columns=categorical_columns + numeric_columns,
+    )
+    labels = [1, 0, 1, 0]
+    try:
+        one_hot = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        one_hot = OneHotEncoder(handle_unknown="ignore", sparse=False)
+    pipeline = Pipeline(
+        steps=[
+            (
+                "preprocessor",
+                ColumnTransformer(
+                    transformers=[
+                        (
+                            "categorical",
+                            Pipeline(
+                                steps=[
+                                    ("imputer", SimpleImputer(strategy="constant", fill_value="unknown")),
+                                    ("onehot", one_hot),
+                                ]
+                            ),
+                            categorical_columns,
+                        ),
+                        ("numeric", Pipeline(steps=[("imputer", SimpleImputer(strategy="median"))]), numeric_columns),
+                    ]
+                ),
+            ),
+            ("model", RandomForestClassifier(n_estimators=12, random_state=42, class_weight="balanced")),
+        ]
+    )
+    pipeline.fit(frame, labels)
+    with model_path.open("wb") as model_file:
+        pickle.dump(
+            {
+                "model": pipeline,
+                "feature_columns": categorical_columns + numeric_columns,
+                "trained_at": "smoke-test",
+            },
+            model_file,
+        )
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "model_type": "RandomForestClassifier",
+                "label_column": "menu_eligible",
+                "feature_columns": categorical_columns + numeric_columns,
+                "metrics": {"accuracy": 1.0, "precision": 1.0, "recall": 1.0, "f1": 1.0},
+                "trained_at": "smoke-test",
+                "dataset_row_count": len(frame),
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def setup_state(state: SmokeState) -> None:
@@ -1022,6 +1230,10 @@ def case_balanced_milk_five_item_fill(state: SmokeState) -> str:
         ],
     )
     missing_total, shortages = assert_item_count_contract(response, expected=5)
+    assert missing_total == 0, (
+        f"balanced milk 5-item case must fill breakfast/lunch/dinner to 5/5; "
+        f"shortages={shortages}; validation={response.get('validation')}"
+    )
 
     validation = response.get("validation") or {}
     meal_plan = response.get("meal_plan") or {}
@@ -1085,6 +1297,132 @@ def case_balanced_milk_five_item_fill(state: SmokeState) -> str:
     )
 
 
+def case_high_protein_quality_priority(state: SmokeState) -> str:
+    state.require_setup()
+    from sqlalchemy import select
+
+    from app.models.entities import Food
+
+    put_profile(
+        state,
+        {
+            "weight_kg": 48,
+            "height_cm": 167,
+            "age": 22,
+            "sex": "male",
+            "gender": "male",
+            "activity_level": "moderate",
+            "target_weight_kg": 56,
+            "weight_gain_speed": "moderate",
+            "diet_type": "high_protein",
+            "budget_level": "flexible",
+            "items_per_meal": 5,
+            "favorite_foods": ["bò", "gà", "trứng"],
+            "disliked_foods": [],
+        },
+    )
+    response = regenerate(state, {"randomSeed": 2026051802, "excludePreviousItems": False})
+    meals, items = flatten_meals(response)
+    missing_total, shortages = assert_item_count_contract(response, expected=5)
+
+    processed_items = [str(item.get("name") or item.get("food_id")) for item in items if item_has_any(item, PROCESSED_TERMS)]
+    healthy_protein_items = [str(item.get("name") or item.get("food_id")) for item in items if item_is_healthy_high_protein(item)]
+    selected_processed_beef = any(item_is_beef(item) and item_has_any(item, PROCESSED_TERMS) for item in items)
+    selected_real_beef = any(item_is_real_beef(item) for item in items)
+
+    eligible_real_beef_available = False
+    eligible_healthy_protein_available = False
+    for food in state.db.scalars(select(Food).where(Food.menu_eligible.is_(True))):
+        food_item = {
+            "food_id": food.food_id,
+            "name": food.name or food.display_name or food.name_vi or "",
+            "original_name": food.original_name or "",
+            "category": food.clean_category or food.category or "",
+            "normalized_category": food.clean_category or "",
+            "search_keywords": food.search_keywords or "",
+            "quality_flags": food.quality_flags or "",
+        }
+        calories = float(food.kcal_per_serving_clean or food.calories or food.kcal_per_100g_clean or 0)
+        protein = float(food.protein_per_serving_clean or food.protein or food.protein_per_100g_clean or 0)
+        macro_ok = calories > 0 and protein >= 0
+        if macro_ok and item_is_real_beef(food_item):
+            eligible_real_beef_available = True
+        if macro_ok and item_is_healthy_high_protein(food_item):
+            eligible_healthy_protein_available = True
+        if eligible_real_beef_available and eligible_healthy_protein_available:
+            break
+
+    if eligible_healthy_protein_available:
+        assert len(healthy_protein_items) >= 3, f"high-protein menu did not prioritize healthy proteins enough: items={items}"
+        assert len(processed_items) <= 1, f"processed meat appears too often in high-protein menu: {processed_items}"
+    if selected_processed_beef and eligible_real_beef_available:
+        assert selected_real_beef, f"processed beef selected while real beef candidate exists: items={items}"
+
+    counts = {
+        str(meal.get("meal_type") or ""): len(meal.get("items") or [])
+        for meal in meals
+        if str(meal.get("meal_type") or "") in {"breakfast", "lunch", "dinner"}
+    }
+    return (
+        f"high-protein quality ok; healthy_protein={len(healthy_protein_items)}; "
+        f"processed={processed_items or 'none'}; real_beef={selected_real_beef}; "
+        f"missing_total={missing_total}; shortages={shortages or 'none'}; counts={counts}"
+    )
+
+
+def case_high_protein_no_semantic_duplicates_with_dairy_dislike(state: SmokeState) -> str:
+    state.require_setup()
+    put_profile(
+        state,
+        {
+            "weight_kg": 48,
+            "height_cm": 167,
+            "age": 22,
+            "sex": "male",
+            "gender": "male",
+            "activity_level": "moderate",
+            "target_weight_kg": 58,
+            "weight_gain_speed": "moderate",
+            "diet_type": "high_protein",
+            "budget_level": "flexible",
+            "items_per_meal": 5,
+            "favorite_foods": ["bò", "gà", "trứng"],
+            "disliked_foods": ["sữa"],
+        },
+    )
+    response = regenerate(state, {"randomSeed": 2026051803, "excludePreviousItems": False})
+    meals, items = flatten_meals(response)
+    fail_if_forbidden_items(items, dairy_disliked_rules())
+    assert_no_meal_semantic_duplicates(response)
+    missing_total, shortages = assert_item_count_contract(response, expected=5)
+
+    validation = response.get("validation") or {}
+    meal_plan = response.get("meal_plan") or {}
+    target = response.get("nutrition_target") or {}
+    target_kcal = float(validation.get("targetKcal") or validation.get("target_kcal") or target.get("calorie_target") or 0)
+    total_kcal = float(validation.get("totalKcal") or validation.get("total_kcal") or meal_plan.get("total_kcal") or 0)
+    assert target_kcal > 0 and abs(total_kcal - target_kcal) / target_kcal <= 0.15, (
+        f"kcal outside +/-15% target: total={total_kcal}, target={target_kcal}, validation={validation}"
+    )
+    target_protein = float(target.get("protein_g") or response.get("target_protein") or 0)
+    total_protein = float(meal_plan.get("total_protein_g") or 0)
+    if target_protein > 0 and total_protein < target_protein * 0.85:
+        assert str(validation.get("status") or "") != "valid", (
+            f"protein too low but status is valid: total={total_protein}, target={target_protein}, validation={validation}"
+        )
+
+    counts = {
+        str(meal.get("meal_type") or ""): len(meal.get("items") or [])
+        for meal in meals
+        if str(meal.get("meal_type") or "") in {"breakfast", "lunch", "dinner"}
+    }
+    return (
+        f"high-protein dairy-dislike duplicate guard ok; kcal={total_kcal:.0f}/{target_kcal:.0f}; "
+        f"protein={total_protein:.1f}/{target_protein:.1f}; missing_total={missing_total}; "
+        f"shortages={shortages or 'none'}; counts={counts}"
+    )
+
+
 def case_c_regenerate_five_times(state: SmokeState) -> str:
     state.require_setup()
     put_profile(
@@ -1119,6 +1457,66 @@ def case_c_regenerate_five_times(state: SmokeState) -> str:
         run_summaries.append(f"run{index + 1}:seed={seed}:missing={missing_total}:shortages={shortages or 'none'}")
     state.multi_run_results = run_summaries
     return f"5 regenerates ok; shortage_runs={shortage_runs}/5; " + " | ".join(run_summaries)
+
+
+def case_ml_missing_model_fallback(state: SmokeState) -> str:
+    state.require_setup()
+    from app.services.ml_food_eligibility_service import MLFoodEligibilityService
+
+    missing_service = MLFoodEligibilityService(
+        model_path=ROOT_DIR / "backend" / "ml_models" / "__missing_smoke_model.pkl",
+        metadata_path=ROOT_DIR / "backend" / "ml_models" / "__missing_smoke_metadata.json",
+    )
+    assert missing_service.get_food_ml_score({}) is None
+    response = run_recommender_with_ml_service(state, missing_service)
+    refresh_db_snapshot(state)
+    _, items = flatten_meals(response)
+    assert_menu_eligible_items(state, items)
+    fail_if_forbidden_items(items, dairy_disliked_rules())
+    assert_no_meal_semantic_duplicates(response)
+    assert_item_count_contract(response, expected=5)
+    assert_ml_validation_metadata(response, expected_enabled=False, expected_used=False)
+    return "missing ML model falls back to rule-based recommender"
+
+
+def case_ml_existing_model_valid(state: SmokeState) -> str:
+    state.require_setup()
+    import tempfile
+
+    from app.services.ml_food_eligibility_service import MLFoodEligibilityService
+
+    with tempfile.TemporaryDirectory(prefix="nutrigain_ml_smoke_") as temp_dir:
+        temp_path = Path(temp_dir)
+        model_path = temp_path / "food_eligibility_model.pkl"
+        metadata_path = temp_path / "food_eligibility_metadata.json"
+        create_temp_ml_model(model_path, metadata_path)
+        ml_service = MLFoodEligibilityService(model_path=model_path, metadata_path=metadata_path)
+        sample_score = ml_service.get_food_ml_score(
+            {
+                "clean_category": "starch_grain",
+                "food_group_vi": "Ngũ cốc",
+                "meal_role": "staple",
+                "recommended_serving_g": 120,
+                "kcal_per_100g_clean": 130,
+                "protein_per_100g_clean": 3,
+                "fat_per_100g_clean": 1,
+                "carbs_per_100g_clean": 28,
+                "kcal_per_serving_clean": 156,
+                "protein_per_serving_clean": 3.6,
+                "fat_per_serving_clean": 1.2,
+                "carbs_per_serving_clean": 33.6,
+            }
+        )
+        assert sample_score is not None and 0.0 <= sample_score <= 1.0, f"invalid ML score: {sample_score}"
+        response = run_recommender_with_ml_service(state, ml_service)
+        refresh_db_snapshot(state)
+        _, items = flatten_meals(response)
+        assert_menu_eligible_items(state, items)
+        fail_if_forbidden_items(items, dairy_disliked_rules())
+        assert_no_meal_semantic_duplicates(response)
+        assert_item_count_contract(response, expected=5)
+        assert_ml_validation_metadata(response, expected_enabled=True, expected_used=True)
+        return f"existing ML model used safely; sample_score={sample_score:.3f}"
 
 
 def run_case(index: int, name: str, func: Callable[[SmokeState], str], state: SmokeState) -> bool:
@@ -1164,11 +1562,15 @@ def main() -> int:
         ("Favorite foods", case_favorite_foods),
         ("Meal plan belongs to correct user", case_meal_plan_user_ownership),
         ("Image safety", case_image_safety),
+        ("ML missing model fallback", case_ml_missing_model_fallback),
+        ("ML existing model safe ranking", case_ml_existing_model_valid),
         ("Case A vegetarian favorite conflict info", case_a_vegetarian_five_items),
         ("Case B favorite disliked exclusion info", case_b_favorite_disliked_exclusion),
         ("Vegetarian high-protein fill contract", case_b_high_protein_fill),
         ("Case C balanced beef protein guard", case_balanced_beef_profile_protein_guard),
         ("Balanced milk five-item fill", case_balanced_milk_five_item_fill),
+        ("High-protein healthy protein priority", case_high_protein_quality_priority),
+        ("High-protein no semantic duplicates with dairy dislike", case_high_protein_no_semantic_duplicates_with_dairy_dislike),
         ("Repeated vegetarian 5-item contract", case_c_regenerate_five_times),
     ]
     passed = 0

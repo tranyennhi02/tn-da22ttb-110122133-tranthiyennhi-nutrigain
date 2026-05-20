@@ -95,6 +95,31 @@ export async function loginWithGoogle(idToken) {
   });
   return persistSession(data);
 }
+export async function forgotPassword(email) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+    throw new Error("Email không hợp lệ.");
+  }
+  return requestAuth("/api/v1/auth/forgot-password", {
+    email: String(email).trim().toLowerCase(),
+  });
+}
+
+export async function resetPassword({ token, newPassword, confirmPassword }) {
+  if (!token) {
+    throw new Error("Liên kết đặt lại mật khẩu không hợp lệ.");
+  }
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Mật khẩu mới cần có ít nhất 8 ký tự.");
+  }
+  if (newPassword !== confirmPassword) {
+    throw new Error("Mật khẩu xác nhận không khớp.");
+  }
+  return requestAuth("/api/v1/auth/reset-password", {
+    token,
+    new_password: newPassword,
+    confirm_password: confirmPassword,
+  });
+}
 
 
 export function logout() {

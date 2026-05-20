@@ -20,6 +20,20 @@ class GoogleLoginInput(BaseModel):
     id_token: str
 
 
+class ForgotPasswordInput(BaseModel):
+    email: str
+
+
+class ResetPasswordInput(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
 class UserUpdate(BaseModel):
     email: str | None = None
     full_name: str | None = None
@@ -609,6 +623,9 @@ class ValidationSchema(BaseModel):
     meal_item_count_summary: dict | None = None
     meal_fill_debug: list[dict] = Field(default_factory=list)
     recommendation_explanations: list[dict] = Field(default_factory=list)
+    ml_enabled: bool | None = None
+    ml_score_used: bool | None = None
+    ml_score_weight: float | None = None
 
 class RecommendationOutput(BaseModel):
     eligible: bool | None = None

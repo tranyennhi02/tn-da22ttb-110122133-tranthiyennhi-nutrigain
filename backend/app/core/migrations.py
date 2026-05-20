@@ -101,6 +101,25 @@ def ensure_database_schema(engine: Engine) -> None:
                 )
             )
 
+    if "password_reset_tokens" not in inspector.get_table_names():
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE password_reset_tokens (
+                        id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        token_hash VARCHAR(64) NOT NULL UNIQUE,
+                        expires_at DATETIME NOT NULL,
+                        used_at DATETIME NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_password_reset_tokens_user_id (user_id),
+                        INDEX idx_password_reset_tokens_token_hash (token_hash)
+                    )
+                    """
+                )
+            )
+
     with engine.begin() as connection:
         connection.execute(text("UPDATE users SET role = UPPER(role) WHERE role IS NOT NULL"))
         connection.execute(text("UPDATE users SET role = 'USER' WHERE role IS NULL OR role = ''"))

@@ -11,9 +11,9 @@ from app.models.entities import FoodLog, FoodLogItem, Meal, MealPlan, MealPlanIt
 def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
     excess_g = max(int(round(float(total_protein or 0.0) - float(target_protein or 0.0))), 0)
     return (
-        f"Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau {excess_g}g. "
-        "N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng "
-        "b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t."
+        f"Protein đang vượt mục tiêu {excess_g}g. "
+        "Nên giảm bớt món đạm và tăng năng lượng "
+        "bằng tinh bột, trái cây hoặc chất béo tốt."
     )
 
 

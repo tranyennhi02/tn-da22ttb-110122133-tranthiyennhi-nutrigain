@@ -7,6 +7,7 @@ from app.models.entities import (
     Meal,
     MealPlan,
     MealPlanItem,
+    PasswordResetToken,
     RecommendationRequest,
     User,
     UserFavoriteFood,

@@ -69,12 +69,12 @@ function macroWarnings(food) {
   const warnings = [];
 
   if (normalized.category === "Đạm" && ["Thịt", "Hải sản"].includes(normalized.subCategory)) {
-    if (carbs > 2) warnings.push(`${name}: dữ liệu carbs có thể sai với nhóm ${normalized.subCategory}.`);
-    if (protein <= carbs && protein <= fat) warnings.push(`${name}: protein không phải macro chính của món đạm.`);
+    if (carbs > 2) warnings.push(`${name}: dữ liệu tinh bột có thể sai với nhóm ${normalized.subCategory}.`);
+    if (protein <= carbs && protein <= fat) warnings.push(`${name}: protein không phải nhóm dinh dưỡng chính của món đạm.`);
   }
 
   if (normalized.category === "Tinh bột" && carbs < protein && carbs < fat) {
-    warnings.push(`${name}: món tinh bột nhưng carbs không phải macro chính.`);
+    warnings.push(`${name}: món tinh bột nhưng tinh bột không phải nhóm dinh dưỡng chính.`);
   }
 
   if (normalized.category === "Trái cây" && fat > Math.max(5, carbs * 0.5)) {
@@ -93,7 +93,7 @@ function macroWarnings(food) {
 
   const macroKcal = protein * 4 + carbs * 4 + fat * 9;
   if (calories > 0 && macroKcal > 0 && Math.abs(calories - macroKcal) / calories > 0.12) {
-    warnings.push(`${name}: kcal lệch đáng kể so với macro.`);
+    warnings.push(`${name}: kcal lệch đáng kể so với dữ liệu dinh dưỡng.`);
   }
 
   return warnings;
@@ -145,7 +145,7 @@ export function validateMealPlan(mealPlan, userProfile, target) {
     isValid = false;
     if (level !== "error") level = "warning";
     const proteinExcess = Math.max(Math.round(totalProtein - proteinTarget), 0);
-    messages.push(`Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau ${proteinExcess}g. N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t.`);
+    messages.push(`Protein đang vượt mục tiêu ${proteinExcess}g. Nên giảm bớt món đạm và tăng năng lượng bằng tinh bột, trái cây hoặc chất béo tốt.`);
   }
 
   if (totalFat < target.fatTarget * 0.8) {

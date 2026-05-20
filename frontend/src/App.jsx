@@ -5,8 +5,10 @@ import { saveUserProfile, submitRecommendation } from "./controllers/recommendat
 import { fetchCurrentUser } from "./services/apiService";
 import DashboardView from "./views/DashboardView";
 import AdminView from "./views/AdminView";
+import ForgotPasswordView from "./views/ForgotPasswordView";
 import LoginView from "./views/LoginView";
 import OnboardingView from "./views/OnboardingView";
+import ResetPasswordView from "./views/ResetPasswordView";
 import { defaultFormState } from "./models/recommendationModel";
 import { parseFoodList } from "./utils/foodList.js";
 import { normalizeProfilePayload, foodListToInput } from "./utils/profileFormUtils.js";
@@ -137,17 +139,49 @@ export default function App() {
   const [initialSection, setInitialSection] = useState("overview");
   const [justLoggedIn, setJustLoggedIn] = useState(false);
   const [profileFormMode, setProfileFormMode] = useState("register_onboarding");
+  const [locationPath, setLocationPath] = useState(() => window.location.pathname);
 
   const userEmail = useMemo(() => session?.email || "", [session]);
   const isAdminUser = useCallback((user) => ["ADMIN", "SUPER_ADMIN"].includes(String(user?.role || "").toUpperCase()), []);
+  const isPasswordAuthRoute = locationPath === "/forgot-password" || locationPath === "/reset-password";
 
   function navigateTo(path) {
     if (window.location.pathname !== path) {
       window.history.pushState({}, "", path);
     }
+    setLocationPath(path);
   }
 
   useEffect(() => {
+    function syncLocation() {
+      setLocationPath(window.location.pathname);
+    }
+    window.addEventListener("popstate", syncLocation);
+    return () => window.removeEventListener("popstate", syncLocation);
+  }, []);
+
+  function handleBackToLogin() {
+    performLogout();
+    clearOnboardingFlag();
+    clearProfileCacheKeys();
+    setJustLoggedIn(false);
+    setAuthUser(null);
+    setProfileFormState(defaultFormState);
+    setSession(null);
+    setAppView("checking");
+    setInitialMealResult(null);
+    setInitialSection("overview");
+    navigateTo("/login");
+  }
+
+  function handleForgotPasswordRoute() {
+    navigateTo("/forgot-password");
+  }
+
+  useEffect(() => {
+    if (isPasswordAuthRoute) {
+      return;
+    }
     if (!session) {
       setAppView("checking");
       return;
@@ -214,7 +248,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [session, isAdminUser]);
+  }, [session, isAdminUser, isPasswordAuthRoute]);
 
   async function handleUserAuthSuccess(authResult) {
     setJustLoggedIn(true);
@@ -379,8 +413,22 @@ export default function App() {
   }, []);
 
   // ── render ────────────────────────────────────────────────────────────────
+  if (locationPath === "/forgot-password") {
+    return <ForgotPasswordView onBackToLogin={handleBackToLogin} />;
+  }
+
+  if (locationPath === "/reset-password") {
+    return <ResetPasswordView onBackToLogin={handleBackToLogin} onForgotPassword={handleForgotPasswordRoute} />;
+  }
+
   if (!session) {
-    return <LoginView onAuthSuccess={handleAuthSubmit} />;
+    return (
+      <LoginView
+        onAuthSuccess={handleAuthSubmit}
+        initialMode={locationPath === "/login" ? "login" : null}
+        onForgotPassword={handleForgotPasswordRoute}
+      />
+    );
   }
 
   if (appView === "checking") {

@@ -34,12 +34,15 @@ from app.views.schemas import (
     FoodRatingView,
     FoodUpdate,
     FoodView,
+    ForgotPasswordInput,
     MealPlanItemCheckInInput,
     MealPlanRegenerateInput,
+    MessageResponse,
     RecommendationHistoryDetail,
     RecommendationHistoryResponse,
     RecommendationInput,
     RecommendationOutput,
+    ResetPasswordInput,
     TodayMealPlanResponse,
     UserCreate,
     UserLogin,
@@ -121,6 +124,16 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> AuthTokenRespons
 @router.post("/auth/google", response_model=AuthTokenResponse, tags=["auth"])
 def google_login(payload: GoogleLoginInput, db: Session = Depends(get_db)) -> AuthTokenResponse:
     return auth_service.google_login(payload.id_token, db)
+
+
+@router.post("/auth/forgot-password", response_model=MessageResponse, tags=["auth"])
+def forgot_password(payload: ForgotPasswordInput, db: Session = Depends(get_db)) -> MessageResponse:
+    return MessageResponse(**auth_service.forgot_password(payload, db))
+
+
+@router.post("/auth/reset-password", response_model=MessageResponse, tags=["auth"])
+def reset_password(payload: ResetPasswordInput, db: Session = Depends(get_db)) -> MessageResponse:
+    return MessageResponse(**auth_service.reset_password(payload, db))
 
 
 @router.get("/users/me", response_model=CurrentUserView, tags=["users"])

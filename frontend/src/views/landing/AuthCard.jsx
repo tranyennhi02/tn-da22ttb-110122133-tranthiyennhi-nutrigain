@@ -1,7 +1,7 @@
 import { forwardRef, useState, useEffect } from "react";
 import NutriGainLogo from "../../components/NutriGainLogo";
 
-export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, isSubmitting, serverError, toast }) {
+export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, onForgotPassword, isSubmitting, serverError, toast }) {
   const isRegister = mode === "register";
   const [form, setForm] = useState({ fullName: "", email: "", password: "" });
   const [showPw, setShowPw] = useState(false);
@@ -137,7 +137,7 @@ export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, 
             </div>
             {!isRegister && (
               <div className="mt-1.5 flex justify-end">
-                <button type="button" className="text-xs font800 text-brand-text-sub transition hover:text-brand-primary">Quên mật khẩu?</button>
+                <button type="button" onClick={(e) => { e.preventDefault(); if (onForgotPassword) onForgotPassword(); }} className="text-xs font800 text-brand-text-sub transition hover:text-brand-primary">Quên mật khẩu?</button>
               </div>
             )}
           </div>

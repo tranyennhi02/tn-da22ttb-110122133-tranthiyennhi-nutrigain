@@ -1,18 +1,32 @@
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
+import secrets
+import smtplib
+from datetime import datetime, timedelta
+from email.message import EmailMessage
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models.entities import User
+from app.models.entities import PasswordResetToken, User
 from app.repositories.user_repository import UserRepository
-from app.views.schemas import AuthTokenResponse, UserCreate, UserLogin, UserView
+from app.views.schemas import AuthTokenResponse, ForgotPasswordInput, ResetPasswordInput, UserCreate, UserLogin, UserView
 
 
+logger = logging.getLogger(__name__)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+FORGOT_PASSWORD_MESSAGE = "Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi."
+RESET_PASSWORD_SUCCESS_MESSAGE = "Đặt lại mật khẩu thành công."
+RESET_LINK_INVALID_MESSAGE = "Liên kết đặt lại mật khẩu không hợp lệ."
+RESET_LINK_EXPIRED_MESSAGE = "Liên kết đặt lại mật khẩu đã hết hạn."
+RESET_LINK_USED_MESSAGE = "Liên kết đặt lại mật khẩu đã được sử dụng."
 
 
 class AuthService:
@@ -50,6 +64,114 @@ class AuthService:
             extra_claims={"email": user.email, "role": user.role},
         )
         return AuthTokenResponse(access_token=token, token_type="bearer", user=cls._user_payload(user))
+
+    @staticmethod
+    def _hash_reset_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _reset_url(token: str) -> str:
+        frontend_url = settings.frontend_url.rstrip("/") or "http://localhost:5173"
+        return f"{frontend_url}/reset-password?token={token}"
+
+    @staticmethod
+    def _smtp_configured() -> bool:
+        return bool(settings.smtp_host and settings.smtp_from)
+
+    def _send_reset_password_message(self, email: str, reset_url: str, token: str) -> None:
+        if not self._smtp_configured():
+            import os
+            frontend_url = str(settings.frontend_url).lower()
+            env = str(settings.app_env or str(os.getenv("ENVIRONMENT", "")) or str(os.getenv("ENV", ""))).lower()
+            is_local_frontend = "localhost" in frontend_url or "127.0.0.1" in frontend_url
+            is_dev_env = env in ("development", "local", "dev") or str(os.getenv("DEBUG", "")).lower() == "true"
+            if is_local_frontend or is_dev_env:
+                dev_reset_url = f"http://localhost:5173/reset-password?token={token}"
+                logger.warning("DEV reset password link: %s", dev_reset_url)
+            return
+
+        try:
+            message = EmailMessage()
+            message["Subject"] = "Đặt lại mật khẩu NutriGain"
+            message["From"] = settings.smtp_from
+            message["To"] = email
+            message.set_content(
+                "Bạn vừa yêu cầu đặt lại mật khẩu NutriGain.\n\n"
+                f"Mở liên kết sau để đặt mật khẩu mới: {reset_url}\n\n"
+                "Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email này."
+            )
+            port = settings.smtp_port or 587
+            with smtplib.SMTP(settings.smtp_host, port, timeout=10) as smtp:
+                if port == 587:
+                    smtp.starttls()
+                if settings.smtp_user and settings.smtp_password:
+                    smtp.login(settings.smtp_user, settings.smtp_password)
+                smtp.send_message(message)
+        except Exception as exc:
+            logger.warning("Unable to send reset password email; request kept generic: %s", exc)
+
+    def forgot_password(self, payload: ForgotPasswordInput, db: Session) -> dict[str, str]:
+        email = self._validate_email(payload.email)
+        user = UserRepository(db).get_by_email(email)
+        if user is None:
+            return {"message": FORGOT_PASSWORD_MESSAGE}
+
+        now = datetime.utcnow()
+        token = secrets.token_urlsafe(32)
+        token_hash = self._hash_reset_token(token)
+        expires_at = now + timedelta(minutes=max(1, settings.reset_password_token_expire_minutes))
+
+        existing_tokens = db.scalars(
+            select(PasswordResetToken).where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            )
+        )
+        for reset_token in existing_tokens:
+            reset_token.used_at = now
+
+        db.add(
+            PasswordResetToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+        )
+        db.commit()
+        self._send_reset_password_message(user.email, self._reset_url(token), token)
+        return {"message": FORGOT_PASSWORD_MESSAGE}
+
+    def reset_password(self, payload: ResetPasswordInput, db: Session) -> dict[str, str]:
+        token = str(payload.token or "").strip()
+        if not token:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=RESET_LINK_INVALID_MESSAGE)
+        self._validate_password(payload.new_password)
+        if payload.new_password != payload.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Mật khẩu xác nhận không khớp.",
+            )
+
+        token_hash = self._hash_reset_token(token)
+        reset_token = db.scalar(
+            select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
+        )
+        if reset_token is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=RESET_LINK_INVALID_MESSAGE)
+        if reset_token.used_at is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=RESET_LINK_USED_MESSAGE)
+        now = datetime.utcnow()
+        if reset_token.expires_at < now:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=RESET_LINK_EXPIRED_MESSAGE)
+
+        user = db.get(User, reset_token.user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=RESET_LINK_INVALID_MESSAGE)
+
+        user.password_hash = hash_password(payload.new_password)
+        reset_token.used_at = now
+        db.commit()
+        return {"message": RESET_PASSWORD_SUCCESS_MESSAGE}
 
     def register(self, payload: UserCreate, db: Session) -> AuthTokenResponse:
         email = self._validate_email(payload.email)

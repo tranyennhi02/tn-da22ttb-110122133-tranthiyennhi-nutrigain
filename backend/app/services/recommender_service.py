@@ -26,10 +26,12 @@ from app.services.nutrition_calculation_service import (
     asian_bmi_label,
     classify_asian_bmi,
 )
+from app.services.ml_food_eligibility_service import ml_food_eligibility_service
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_FOOD_PLACEHOLDER = "/images/placeholders/food-default.svg"
+ML_SCORE_WEIGHT = 0.2
 CATEGORY_PLACEHOLDERS = {
     "starch_grain": "/images/placeholders/starch-grain.svg",
     "starch_tuber": "/images/placeholders/starch-tuber.svg",
@@ -242,6 +244,22 @@ FULL_FAT_DAIRY_TERMS = (
     "sua chua hy lap",
 )
 DAIRY_TERMS = ("milk", "sua", "yogurt", "sua chua", "cheese", "pho mai")
+DAIRY_EXCLUSION_TERMS = (
+    "sua",
+    "milk",
+    "dairy",
+    "sua bo",
+    "sua tuoi",
+    "sua chua",
+    "yogurt",
+    "yoghurt",
+    "cheese",
+    "pho mai",
+    "cream",
+    "kem",
+)
+SOY_MILK_TERMS = ("soy milk", "soymilk", "sua dau nanh", "dau nanh beverage")
+ANIMAL_MAIN_PROTEIN_WARNING = "Một số bữa có nhiều hơn một món đạm chính. Có thể thay bớt bằng đậu, ngũ cốc hoặc rau củ."
 BAD_MENU_FAT_SPREAD_TERMS = (
     "margarine",
     "bo thuc vat",
@@ -258,12 +276,12 @@ VEGETARIAN_SAFE_FILL_CATEGORIES = {
     "plant_protein",
 }
 PROTEIN_EXCESS_WARNING_TEMPLATE = (
-    "Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau {excess_g}g. "
-    "N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng "
-    "b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t."
+    "Protein đang vượt mục tiêu {excess_g}g. "
+    "Nên giảm bớt món đạm và tăng năng lượng "
+    "bằng tinh bột, trái cây hoặc chất béo tốt."
 )
 PROTEIN_EXCESS_WARNING = (
-    "Protein đang vượt mục tiêu. Nên giảm bớt món đạm động vật và tăng năng lượng bằng tinh bột hoặc chất béo tốt."
+    "Protein đang vượt mục tiêu. Nên giảm bớt món đạm và tăng năng lượng bằng tinh bột hoặc chất béo tốt."
 )
 FISH_TERMS = ("ca", "fish", "salmon", "tuna", "mackerel", "sardine", "ca hoi", "ca thu", "ca ngu")
 SHELLFISH_TERMS = ("tom", "shrimp", "prawn", "crab", "cua", "shellfish")
@@ -306,6 +324,7 @@ PROCESSED_MEAT_TERMS = (
     "thit che bien",
     "xuc xich",
     "giam bong",
+    "mortadella",
 )
 DESSERT_SWEET_TERMS = (
     "dessert",
@@ -345,6 +364,10 @@ PROCESSED_FAVORITE_PENALTY_TERMS = (
     "processed",
     "processed meat",
     "thit che bien",
+    "mortadella",
+    "salami",
+    "ham",
+    "bacon",
 )
 SWEET_LOW_PRIORITY_TERMS = (
     "keo",
@@ -364,6 +387,50 @@ NATURAL_FRUIT_TERMS = (
     "blueberry",
     "mam xoi",
     "raspberry",
+)
+SEMANTIC_FOOD_GROUP_TERMS = (
+    ("egg", ("trung", "egg", "yolk", "long do trung")),
+    ("milk_dairy", ("sua", "milk", "dairy", "cream", "kem", "cheese", "pho mai")),
+    ("yogurt", ("sua chua", "yogurt", "yoghurt")),
+    ("beef", ("thit bo", "bo nac", "bo xay", "beef", "lean beef")),
+    ("chicken", ("thit ga", "uc ga", "ga nac", "chicken", "turkey")),
+    ("fish_salmon", ("ca hoi", "salmon")),
+    ("sweet_potato", ("khoai lang", "sweet potato")),
+    ("rice", ("com", "gao", "gao lut", "rice")),
+    ("potato", ("khoai tay", "potato")),
+    ("tofu", ("dau hu", "dau phu", "tofu")),
+    ("soy", ("dau nanh", "soy", "soybean")),
+    ("fruit_berry", ("dau tay", "strawberry", "viet quat", "blueberry", "mam xoi", "raspberry", "berry")),
+)
+LEAN_CHICKEN_PROTEIN_TERMS = (
+    "thit ga nac",
+    "uc ga",
+    "ga nuong",
+    "ga luoc",
+    "lean chicken",
+    "chicken breast",
+    "grilled chicken",
+    "boiled chicken",
+)
+HEALTHY_HIGH_PROTEIN_TERMS = (
+    "fish",
+    "ca",
+    "salmon",
+    "tuna",
+    "mackerel",
+    "sardine",
+    "egg",
+    "trung",
+    "milk",
+    "sua",
+    "yogurt",
+    "sua chua",
+    "bean",
+    "dau",
+    "tofu",
+    "dau hu",
+    "dau phu",
+    "tempeh",
 )
 HEALTHY_GAIN_ENERGY_TERMS = (
     "avocado",
@@ -517,9 +584,11 @@ def calculateBMI(weight_kg: float | None, height_cm: float | None) -> float | No
 
 def validateUserProfile(payload: RecommendationInput) -> dict:
     errors: list[str] = []
+    warnings: list[str] = []
     weight = payload.weight
     height = payload.height
     age = payload.age
+    target_weight = getattr(payload, "target_weight", None)
 
     if weight is None or height is None:
         errors.append("Cần bổ sung chiều cao và cân nặng để tính BMI.")
@@ -530,13 +599,36 @@ def validateUserProfile(payload: RecommendationInput) -> dict:
     if age is not None and not (1 <= int(age) <= 120):
         errors.append("Tuổi nằm ngoài ngưỡng hợp lý 1-120.")
 
+    if weight is not None and not (25 <= float(weight) <= 250):
+        warnings.append("Cân nặng hiện tại nằm ngoài khoảng phổ biến (25-250kg).")
+    if height is not None and not (120 <= float(height) <= 220):
+        warnings.append("Chiều cao hiện tại nằm ngoài khoảng phổ biến (120-220cm).")
+    if age is not None and not (13 <= int(age) <= 100):
+        warnings.append("Tuổi hiện tại nằm ngoài khoảng phổ biến (13-100).")
+    if target_weight is not None and not (25 <= float(target_weight) <= 250):
+        warnings.append("Mục tiêu cân nặng nằm ngoài khoảng phổ biến (25-250kg).")
+
     bmi = calculateBMI(weight, height)
     if bmi is None:
         errors.append("Không thể tính BMI từ hồ sơ hiện tại.")
+    else:
+        if bmi < 14:
+            warnings.append("Cân nặng hiện tại rất thấp so với chiều cao. Bạn nên tham khảo ý kiến chuyên gia dinh dưỡng hoặc bác sĩ trước khi áp dụng thực đơn tăng cân.")
+        elif 14 <= bmi < 16:
+            warnings.append("BMI của bạn đang ở mức thiếu cân nặng. Hãy tăng cân từ từ và theo dõi sức khỏe định kỳ.")
+            
+    if target_weight is not None and weight is not None:
+        diff = float(target_weight) - float(weight)
+        goal_type = str(getattr(payload, "goal_type", "gain") or "gain").strip().lower()
+        if diff > 30:
+            warnings.append("Mục tiêu tăng cân khá lớn. Hệ thống sẽ hỗ trợ theo từng giai đoạn, bạn nên đặt mục tiêu ngắn hạn hơn.")
+        if diff <= 0 and goal_type in {"gain", "muscle", "muscle_gain"}:
+            warnings.append("Mục tiêu cân nặng không lớn hơn cân nặng hiện tại nhưng chế độ là tăng cân. Hãy kiểm tra lại.")
 
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": warnings,
         "bmi": bmi,
     }
 
@@ -642,7 +734,30 @@ def _format_food_terms_for_message(foods: list[str]) -> str:
     return ", ".join(str(food).strip() for food in foods if str(food).strip())
 
 
-def _row_matches_terms(row: pd.Series | dict, terms: list[str]) -> bool:
+@lru_cache(maxsize=512)
+def _normalized_match_terms_cached(terms_key: tuple[str, ...]) -> tuple[str, ...]:
+    normalized_terms: list[str] = []
+    for term in terms_key:
+        normalized_term = " ".join(_normalize_search_text(term).strip().split())
+        normalized_term = "".join(char if char.isalnum() or char.isspace() else " " for char in normalized_term)
+        normalized_term = " ".join(normalized_term.split())
+        if normalized_term:
+            normalized_terms.append(normalized_term)
+    return tuple(normalized_terms)
+
+
+def _normalized_match_terms(terms: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    return _normalized_match_terms_cached(tuple(str(term or "") for term in terms))
+
+
+def _row_match_text(row: pd.Series | dict) -> str:
+    cached = row.get("_search_text_cache", "")
+    try:
+        has_cached_text = cached is not None and not pd.isna(cached) and bool(str(cached).strip())
+    except (TypeError, ValueError):
+        has_cached_text = bool(cached)
+    if has_cached_text:
+        return str(cached)
     raw_text = _normalize_search_text(
         " ".join(
             _safe_text(row.get(column, ""))
@@ -662,13 +777,44 @@ def _row_matches_terms(row: pd.Series | dict, terms: list[str]) -> bool:
         )
     )
     text = "".join(char if char.isalnum() or char.isspace() else " " for char in raw_text)
-    text = " ".join(text.split())
+    return " ".join(text.split())
+
+
+def _attach_row_search_cache(ranked: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty or "_search_text_cache" in ranked.columns:
+        return ranked
+    next_ranked = ranked.copy()
+    next_ranked["_search_text_cache"] = next_ranked.apply(_row_match_text, axis=1)
+    return next_ranked
+
+
+def _limit_ranked_candidate_pool(ranked: pd.DataFrame, meal_slots: int, top_n: int | None = None) -> pd.DataFrame:
+    if ranked.empty:
+        return ranked
+    pool_limit = max(600, min(1200, max(int(meal_slots or 0) * 80, int(top_n or 0) * 12)))
+    if len(ranked) <= pool_limit:
+        return ranked
+    reserve = min(300, max(120, pool_limit // 4))
+    top_rows = ranked.head(max(pool_limit - reserve, pool_limit // 2))
+    category_column = "clean_category" if "clean_category" in ranked.columns else "category" if "category" in ranked.columns else None
+    if category_column:
+        category_count = max(int(ranked[category_column].nunique(dropna=True) or 1), 1)
+        per_category = max(12, min(60, reserve // category_count + 1))
+        category_rows = ranked.groupby(category_column, group_keys=False).head(per_category)
+        candidate_pool = pd.concat([top_rows, category_rows], ignore_index=False)
+    else:
+        candidate_pool = top_rows
+    subset = ["food_id"] if "food_id" in candidate_pool.columns else None
+    candidate_pool = candidate_pool.drop_duplicates(subset=subset, keep="first").head(pool_limit)
+    return candidate_pool.sort_values("score", ascending=False)
+
+
+def _row_matches_terms(row: pd.Series | dict, terms: list[str]) -> bool:
+    text = _row_match_text(row)
     padded_text = f" {text} "
-    for term in terms:
-        normalized_term = " ".join(_normalize_search_text(term).strip().split())
-        normalized_term = "".join(char if char.isalnum() or char.isspace() else " " for char in normalized_term)
-        normalized_term = " ".join(normalized_term.split())
-        if not normalized_term:
+    is_soy_milk = _text_has_any(text, SOY_MILK_TERMS)
+    for normalized_term in _normalized_match_terms(terms):
+        if is_soy_milk and normalized_term in DAIRY_EXCLUSION_TERMS:
             continue
         if " " not in normalized_term and len(normalized_term) <= 3:
             if f" {normalized_term} " in padded_text:
@@ -719,6 +865,25 @@ def _row_category(row: pd.Series | dict) -> str:
 def _is_animal_protein_category(category: object) -> bool:
     normalized = _canonical_food_category(category)
     return normalized in {"protein_meat", "protein_seafood"}
+
+
+def _animal_main_protein_source(row: pd.Series | dict) -> str:
+    category = _canonical_food_category(
+        row.get("clean_category", row.get("category", "")),
+        row.get("name", ""),
+    )
+    text = _row_search_text(row)
+    if category == "egg" or _text_has_any(text, EGG_TERMS):
+        return "egg"
+    if category == "protein_seafood" or _text_has_any(text, FISH_TERMS + SHELLFISH_TERMS + ("seafood", "hai san")):
+        return "seafood"
+    if category == "protein_meat" or _text_has_any(text, MEAT_TERMS):
+        if _text_has_any(text, ("beef", "thit bo")):
+            return "beef"
+        if _text_has_any(text, ("chicken", "turkey", "thit ga", "ga")):
+            return "chicken"
+        return "meat"
+    return ""
 
 
 def _is_animal_meat_or_seafood_row(row: pd.Series | dict) -> bool:
@@ -935,6 +1100,38 @@ def _is_natural_fruit_row(row: pd.Series | dict) -> bool:
     return category == "fruit" and _text_has_any(_row_search_text(row), NATURAL_FRUIT_TERMS)
 
 
+def normalize_food_similarity_key(food: pd.Series | dict) -> str:
+    text = _row_search_text(food)
+    for key, terms in SEMANTIC_FOOD_GROUP_TERMS:
+        if _text_has_any(text, terms):
+            return key
+
+    category = _canonical_food_category(food.get("clean_category", food.get("category", "")), food.get("name", ""))
+    if category in {"protein_meat", "protein_seafood", "egg", "dairy", "plant_protein"}:
+        name_key = " ".join(_normalize_search_text(food.get("name", "")).split())
+        return f"{category}:{name_key}" if name_key else category
+    return ""
+
+
+def _is_lean_chicken_preference_row(row: pd.Series | dict) -> bool:
+    category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+    if category != "protein_meat" or _is_processed_meat_row(row):
+        return False
+    return _text_has_any(_row_search_text(row), LEAN_CHICKEN_PROTEIN_TERMS)
+
+
+def _is_high_protein_preferred_row(row: pd.Series | dict) -> bool:
+    if _is_processed_meat_row(row):
+        return False
+    category = _canonical_food_category(row.get("clean_category", row.get("category", "")), row.get("name", ""))
+    if category in {"protein_seafood", "egg", "dairy", "plant_protein"}:
+        return True
+    if category == "protein_meat":
+        return _is_real_beef_preference_row(row) or _is_lean_chicken_preference_row(row)
+    text = _row_search_text(row)
+    return _text_has_any(text, HEALTHY_HIGH_PROTEIN_TERMS)
+
+
 def _healthy_favorite_score_adjustment(row: pd.Series | dict, favorite_foods: object) -> float:
     adjustment = 0.0
     if _favorite_foods_include_beef(favorite_foods):
@@ -993,9 +1190,10 @@ def _expand_food_terms(terms: list[str]) -> list[str]:
         "tom": list(SHELLFISH_TERMS),
         "tôm": list(SHELLFISH_TERMS),
         "shrimp": list(SHELLFISH_TERMS),
-        "sua": ["sua", "sua chua", "milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai"],
-        "sữa": ["sua", "sua chua", "milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai"],
-        "milk": ["sua", "sua chua", "milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai"],
+        "sua": ["sua", "sua bo", "sua tuoi", "sua chua", "milk", "cow milk", "fresh milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem"],
+        "sữa": ["sua", "sua bo", "sua tuoi", "sua chua", "milk", "cow milk", "fresh milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem"],
+        "sua dong vat": ["sua", "sua bo", "sua tuoi", "sua chua", "milk", "cow milk", "fresh milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem"],
+        "milk": ["sua", "sua bo", "sua tuoi", "sua chua", "milk", "cow milk", "fresh milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem"],
         "trung": list(EGG_TERMS),
         "trứng": list(EGG_TERMS),
         "egg": list(EGG_TERMS),
@@ -1020,6 +1218,8 @@ def _expand_food_terms(terms: list[str]) -> list[str]:
             candidates = list(FISH_TERMS) + list(SHELLFISH_TERMS) + ["seafood", "hai san"]
         elif "mực" in raw_lower or normalized == "muc":
             candidates = ["muc", "squid", "seafood", "hai san"]
+        elif normalized in {"sua", "sua dong vat", "milk", "dairy"}:
+            candidates = ["sua", "sua bo", "sua tuoi", "sua chua", "milk", "cow milk", "fresh milk", "yogurt", "yoghurt", "dairy", "cheese", "pho mai", "cream", "kem"]
         else:
             candidates = synonym_map.get(normalized, [normalized])
         for candidate in candidates:
@@ -1123,6 +1323,7 @@ class RecommenderService:
                 "bmi_label": "Đang theo dõi",
                 "eligible": False,
                 "reason": " ".join(profile_validation["errors"]),
+                "warnings": profile_validation.get("warnings", []),
             }
 
         bmi = float(profile_validation["bmi"])
@@ -1139,6 +1340,7 @@ class RecommenderService:
                 "eligible": False,
                 "reason": reason,
                 "message": message,
+                "warnings": profile_validation.get("warnings", []),
             }
 
         return {
@@ -1149,6 +1351,7 @@ class RecommenderService:
             "eligible": True,
             "reason": "Người dùng thiếu cân có BMI dưới 18.5 và đủ điều kiện tạo thực đơn tăng cân.",
             "message": BMI_SEVERE_UNDERWEIGHT_WARNING if bmi < 16 else None,
+            "warnings": profile_validation.get("warnings", []),
         }
 
     @staticmethod
@@ -1753,8 +1956,14 @@ class RecommenderService:
             """Return bool Series: True where category is in cats."""
             return category.isin(cats)
 
+        is_high_protein_diet = (
+            normalized_diet_style in {"high_protein", "high protein", "giau protein"}
+            or "high protein" in normalized_diet_style
+            or "giau protein" in normalized_diet_style
+        )
+
         # ── Low-carb / keto ───────────────────────────────────────────────────
-        if diet_style in {"low_carb", "low-carb", "keto", "high_protein"}:
+        if diet_style in {"low_carb", "low-carb", "keto", "high_protein", "high-protein"} or is_high_protein_diet:
             bmi_val = (
                 float(payload.weight / ((payload.height / 100) ** 2))
                 if payload.weight and payload.height
@@ -1791,6 +2000,18 @@ class RecommenderService:
                     - 0.12 * carb_penalty_mask.astype(float)
                 )
 
+            if is_high_protein_diet:
+                high_protein_preferred_mask = next_df.apply(_is_high_protein_preferred_row, axis=1).astype(bool)
+                processed_meat_mask = next_df.apply(_is_processed_favorite_penalty_row, axis=1).astype(bool)
+                real_beef_mask = next_df.apply(_is_real_beef_preference_row, axis=1).astype(bool)
+                favorite_beef_bonus = 0.18 if _favorite_foods_include_beef(getattr(payload, "favorite_foods", [])) else 0.0
+                next_df["score"] = (
+                    next_df["score"]
+                    + 0.55 * high_protein_preferred_mask.astype(float)
+                    + favorite_beef_bonus * real_beef_mask.astype(float)
+                    - 1.45 * processed_meat_mask.astype(float)
+                )
+
         # ── Eat-clean / balanced-eat-clean ────────────────────────────────────
         elif any(term in normalized_diet_style for term in EAT_CLEAN_DIET_TERMS):
             clean_boost = next_df.apply(HealthyWeightGainRecommender._food_quality_score, axis=1)
@@ -1818,6 +2039,58 @@ class RecommenderService:
             )
             unfamiliar_mask: pd.Series = _name_contains_any(_unfamiliar_for_clean)  # bool
             next_df["score"] = next_df["score"] - 0.20 * unfamiliar_mask.astype(float)
+
+            # ── Eat Clean specific penalties ──
+            _ec_fried = ("chiên", "chien", "fried", "fries", "deep fried")
+            _ec_sweets = ("snack", "bánh quế", "banh que", "waffle", "candy", "sweets", "kẹo", "keo")
+            _ec_unnatural = ("que cá", "fish stick", "mix", "bột ngô xanh", "blue cornmeal", "quả lê gai", "prickly pear", "nước bưởi")
+            fried_mask = _name_contains_any(_ec_fried)
+            sweets_mask = _name_contains_any(_ec_sweets)
+            unnatural_mask = _name_contains_any(_ec_unnatural)
+            processed_meat_mask_ec = next_df.apply(_is_processed_favorite_penalty_row, axis=1).astype(bool)
+
+            next_df["score"] = (
+                next_df["score"]
+                - 1.50 * processed_meat_mask_ec.astype(float)
+                - 1.30 * fried_mask.astype(float)
+                - 1.30 * sweets_mask.astype(float)
+                - 1.00 * unnatural_mask.astype(float)
+            )
+
+            # ── Eat Clean specific boosts ──
+            _ec_simple_cook = ("luộc", "luoc", "hấp", "hap", "nướng", "nuong", "áp chảo ít dầu", "ap chao it dau")
+            _ec_good_carbs = ("cơm", "com", "gạo lứt", "gao lut", "yến mạch", "yen mach", "oat", "khoai lang hấp", "khoai lang luộc", "khoai lang hap", "khoai lang luoc")
+            _ec_good_proteins = ("thịt bò nạc", "thit bo nac", "ức gà", "uc ga", "cá", "ca ", "trứng", "trung", "đậu phụ", "dau phu", "đậu hũ", "dau hu", "đậu nành", "dau nanh", "tempeh")
+            _ec_good_extras = ("rau", "trái cây", "trai cay", "fruit", "hạt", "hat", "nut")
+
+            simple_cook_mask = _name_contains_any(_ec_simple_cook)
+            good_carbs_mask = _name_contains_any(_ec_good_carbs)
+            good_proteins_mask = _name_contains_any(_ec_good_proteins)
+            good_extras_mask = _name_contains_any(_ec_good_extras)
+
+            next_df["score"] = (
+                next_df["score"]
+                + 0.40 * simple_cook_mask.astype(float)
+                + 0.45 * good_carbs_mask.astype(float)
+                + 0.45 * good_proteins_mask.astype(float)
+                + 0.35 * good_extras_mask.astype(float)
+            )
+
+            # ── Eat Clean favorite specific logic ──
+            fav_list = getattr(payload, "favorite_foods", [])
+            fav_text = " ".join(_normalize_search_text(t) for t in _coerce_profile_terms(fav_list))
+            
+            if "bo " in fav_text or "beef" in fav_text or "thit bo" in fav_text:
+                real_beef_mask = next_df.apply(_is_real_beef_preference_row, axis=1).astype(bool)
+                next_df["score"] = next_df["score"] + 0.35 * real_beef_mask.astype(float)
+                
+            if "ga " in fav_text or "chicken" in fav_text or "thit ga" in fav_text:
+                lean_chicken_mask = next_df.apply(_is_lean_chicken_preference_row, axis=1).astype(bool)
+                next_df["score"] = next_df["score"] + 0.35 * lean_chicken_mask.astype(float)
+                
+            if "trung" in fav_text or "egg" in fav_text:
+                good_egg_mask = _name_contains_any(("trứng luộc", "trung luoc", "trứng chín", "trung chin", "boiled egg"))
+                next_df["score"] = next_df["score"] + 0.35 * good_egg_mask.astype(float)
 
         # ── Budget level scoring ───────────────────────────────────────────────
         if budget_level in {"low", "saving", "cheap", "tiết kiệm", "tiet kiem"}:
@@ -1872,6 +2145,26 @@ class RecommenderService:
         )
         next_df["score"] = next_df["score"] - 0.50 * sweet_processed_mask.astype(float)
 
+        # ── Global familiar items boost & unfamiliar penalty ──────────────────
+        _familiar_boost_terms = (
+            "cơm", "com", "gạo lứt", "gao lut", "yến mạch", "yen mach", "bánh mì nguyên hạt", "banh mi nguyen hat",
+            "khoai lang luộc", "khoai lang luoc", "khoai lang hấp", "khoai lang hap", "khoai lang nướng", "khoai lang nuong",
+            "trứng", "trung", "thịt gà", "thit ga", "ức gà", "uc ga", "thịt bò nạc", "thit bo nac", "cá", "ca",
+            "đậu phụ", "dau phu", "đậu nành", "dau nanh", "tempeh",
+            "rau cải", "rau cai", "cà rốt", "ca rot", "bí", "bi", "cà chua", "ca chua",
+            "chuối", "chuoi", "cam", "dâu", "dau", "việt quất", "viet quat"
+        )
+        _unfamiliar_penalty_terms = ("snack", "mix", "que cá", "que ca", "quả lê gai", "qua le gai", "bột ngô xanh", "bot ngo xanh")
+        
+        familiar_mask = _name_contains_any(_familiar_boost_terms)
+        unfamiliar_mask2 = _name_contains_any(_unfamiliar_penalty_terms)
+        
+        next_df["score"] = (
+            next_df["score"]
+            + 0.15 * familiar_mask.astype(float)
+            - 0.25 * unfamiliar_mask2.astype(float)
+        )
+
         is_clean_like = any(term in normalized_diet_style for term in EAT_CLEAN_DIET_TERMS)
         low_fat_dairy_mask = next_df.apply(_is_low_fat_dairy_row, axis=1).astype(bool)
         full_fat_dairy_mask = next_df.apply(_is_full_fat_dairy_row, axis=1).astype(bool)
@@ -1919,6 +2212,23 @@ class RecommenderService:
         )
         popular_mask: pd.Series = _name_contains_any(_popular_terms)              # bool
         next_df["score"] = next_df["score"] + 0.18 * popular_mask.astype(float)
+
+        # ── Global Whole Food Boost & Processed Food Penalty ──────────────
+        _whole_food_terms = (
+            "tươi", "nguyên cám", "whole", "fresh", "thịt tươi", "cá tươi", "rau tươi", "nguyên hạt", "trái cây tươi",
+        )
+        _processed_food_terms = (
+            "canned", "đóng hộp", "xúc xích", "sausage", "thịt xông khói", "bacon", 
+            "chế biến sẵn", "đóng gói", "bơ thực vật", "margarine", "đồ hộp", "thịt nguội", "dăm bông", "ham",
+            "mì gói", "instant noodle", "snack",
+        )
+        whole_food_mask: pd.Series = _name_contains_any(_whole_food_terms)
+        processed_food_mask: pd.Series = _name_contains_any(_processed_food_terms)
+        next_df["score"] = (
+            next_df["score"]
+            + 0.15 * whole_food_mask.astype(float)
+            - 0.35 * processed_food_mask.astype(float)
+        )
 
         _good_fat_terms = (
             "avocado", "bo", "bơ", "nuts", "hat", "hạt", "almond", "walnut",
@@ -2061,6 +2371,8 @@ class RecommenderService:
         dairy_soy_count = 0
         dessert_count = 0
         animal_protein_count = 0
+        current_day_protein = 0.0
+        is_eat_clean = any(term in _normalize_search_text(target.get("diet_type", "") or "balanced") for term in EAT_CLEAN_DIET_TERMS)
         vegetarian_mode = _is_vegetarian_diet(target.get("diet_type", ""))
         max_animal_protein_count = 0 if vegetarian_mode else (2 if target_protein <= 95 else 3)
 
@@ -2077,6 +2389,9 @@ class RecommenderService:
 
         def _row_name_key(row: pd.Series | dict) -> str:
             return _normalize_search_text(row.get("name", "")).strip()
+
+        def _row_semantic_key(row: pd.Series | dict) -> str:
+            return normalize_food_similarity_key(row)
 
         def _row_is_animal_protein(row: pd.Series | dict) -> bool:
             return _row_clean_category(row) in {"protein_meat", "protein_seafood"} or _is_animal_meat_or_seafood_row(row)
@@ -2127,7 +2442,14 @@ class RecommenderService:
                 or category in {"healthy_fat_nuts", "egg"}
             )
 
-        def _row_slot_adjustment(row: pd.Series | dict, slot_name: str, meal_has_starch: bool, meal_dairy_soy_count: int) -> float:
+        def _row_slot_adjustment(
+            row: pd.Series | dict,
+            slot_name: str,
+            meal_has_starch: bool,
+            meal_dairy_soy_count: int,
+            meal_animal_main_sources: set[str] | None = None,
+            current_protein: float = 0.0,
+        ) -> float:
             category = _row_clean_category(row)
             name_text = _row_name_text(row)
             calories = max(float(row.get("calories_raw", row.get("kcal_per_serving_clean", 0.0)) or 0.0), 1.0)
@@ -2136,6 +2458,17 @@ class RecommenderService:
             carbs = float(row.get("carbs_raw", row.get("carbs_per_serving_clean", 0.0)) or 0.0)
             carb_density = carbs * 4.0 / calories
             score_delta = 0.0
+
+            if is_eat_clean and target_protein > 0 and current_protein > target_protein * 1.05:
+                if category in PROTEIN_CATEGORIES or protein >= 8.0:
+                    score_delta -= 1.50
+                # Bù kcal bằng carb/fat tự nhiên
+                if category in STARCH_CATEGORIES and not _row_is_dessert(row):
+                    score_delta += 0.80
+                if category == "healthy_fat_nuts":
+                    score_delta += 0.50
+                if category == "fruit" and any(term in name_text for term in ("chuoi", "cam", "dau", "viet quat")):
+                    score_delta += 0.50
 
             if _row_is_dessert(row):
                 score_delta -= 1.75 if dessert_count else 1.15
@@ -2149,6 +2482,11 @@ class RecommenderService:
                 score_delta -= 0.45
             if _row_is_dairy_or_soy(row) and meal_dairy_soy_count >= 1 and slot_name != "protein":
                 score_delta -= 0.55
+            candidate_animal_source = _animal_main_protein_source(row)
+            if candidate_animal_source and meal_animal_main_sources:
+                score_delta -= 1.25
+                if candidate_animal_source == "egg" or "egg" in meal_animal_main_sources:
+                    score_delta -= 0.35
 
             if slot_name == "extra":
                 if gain_energy_mode and _row_is_good_gain_extra(row):
@@ -2219,6 +2557,16 @@ class RecommenderService:
                 ]
             
             selected_rows = []
+            selected_semantic_keys: set[str] = set()
+
+            def _prefer_semantic_distinct(pool: pd.DataFrame) -> pd.DataFrame:
+                if pool.empty or not selected_semantic_keys:
+                    return pool
+                distinct_pool = pool[
+                    ~pool.apply(lambda row: bool(_row_semantic_key(row)) and _row_semantic_key(row) in selected_semantic_keys, axis=1)
+                ].copy()
+                return distinct_pool if not distinct_pool.empty else pool
+
             for slot_idx, slot in enumerate(slots):
                 slot_name = slot["name"]
                 allowed_cats = slot["cats"]
@@ -2227,6 +2575,7 @@ class RecommenderService:
                     ~ranked["food_id"].isin(seen_food_ids)
                     & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                 ].copy()
+                pool = _prefer_semantic_distinct(pool)
                 if family_counts:
                     family_pool = pool[
                         ~pool.apply(
@@ -2269,6 +2618,11 @@ class RecommenderService:
                 meal_has_starch = any(_row_is_primary_starch(row) for row in selected_rows)
                 meal_dairy_soy_count = sum(1 for row in selected_rows if _row_is_dairy_or_soy(row))
                 meal_animal_protein_count = sum(1 for row in selected_rows if _row_is_animal_protein(row))
+                meal_animal_main_sources = {
+                    source
+                    for source in (_animal_main_protein_source(row) for row in selected_rows)
+                    if source
+                }
                 if meal_has_starch and slot_name != "starch":
                     non_starch_pool = pool[~pool.apply(_row_is_primary_starch, axis=1)]
                     if not non_starch_pool.empty:
@@ -2323,6 +2677,7 @@ class RecommenderService:
                             ~ranked["food_id"].isin(seen_food_ids)
                             & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                         ].copy()
+                        relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
                         if slot_name != "extra":
                             relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                         constrained_pool = relaxed_pool[relaxed_pool.apply(lambda row: _row_clean_category(row) in fallback_cats, axis=1)]
@@ -2347,6 +2702,7 @@ class RecommenderService:
                                 ~ranked["food_id"].isin(seen_food_ids)
                                 & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                             ].copy()
+                            relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
                             if slot_name != "extra":
                                 relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                             constrained_pool = relaxed_pool[relaxed_pool.apply(lambda row: _row_clean_category(row) in ultimate_cats, axis=1)]
@@ -2358,6 +2714,7 @@ class RecommenderService:
                             ~ranked["food_id"].isin(seen_food_ids)
                             & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                         ].copy()
+                        relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
                         if slot_name != "extra":
                             relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                         constrained_pool = relaxed_pool
@@ -2369,7 +2726,14 @@ class RecommenderService:
                 
                 scored_pool = constrained_pool.copy()
                 scored_pool["_slot_score"] = scored_pool.apply(
-                    lambda row: float(row.get("score", 0.0) or 0.0) + _row_slot_adjustment(row, slot_name, meal_has_starch, meal_dairy_soy_count),
+                    lambda row: float(row.get("score", 0.0) or 0.0) + _row_slot_adjustment(
+                        row,
+                        slot_name,
+                        meal_has_starch,
+                        meal_dairy_soy_count,
+                        meal_animal_main_sources,
+                        current_day_protein,
+                    ),
                     axis=1,
                 )
                 best_row = scored_pool.sort_values("_slot_score", ascending=False).iloc[0].copy()
@@ -2402,8 +2766,12 @@ class RecommenderService:
                 best_row["culinary_role"] = slot_name
                 
                 selected_rows.append(best_row)
+                current_day_protein += float(best_row.get("protein_raw", 0.0) or 0.0)
                 seen_food_ids.add(best_row["food_id"])
                 seen_food_names.add(_row_name_key(best_row))
+                semantic_key = _row_semantic_key(best_row)
+                if semantic_key:
+                    selected_semantic_keys.add(semantic_key)
                 family = HealthyWeightGainRecommender._food_family(best_row)
                 if family:
                     family_counts[family] = family_counts.get(family, 0) + 1
@@ -2547,10 +2915,16 @@ class RecommenderService:
                             new_is_animal = _row_is_animal_protein(scaled_row)
                             seen_food_ids.discard(old_row.get("food_id"))
                             seen_food_names.discard(_row_name_key(old_row))
+                            old_semantic_key = _row_semantic_key(old_row)
+                            if old_semantic_key:
+                                selected_semantic_keys.discard(old_semantic_key)
                             
                             selected_rows[3] = scaled_row
                             seen_food_ids.add(scaled_row["food_id"])
                             seen_food_names.add(_row_name_key(scaled_row))
+                            new_semantic_key = _row_semantic_key(scaled_row)
+                            if new_semantic_key:
+                                selected_semantic_keys.add(new_semantic_key)
                             if old_was_animal:
                                 animal_protein_count = max(0, animal_protein_count - 1)
                             if new_is_animal:
@@ -2604,10 +2978,16 @@ class RecommenderService:
                                 new_is_animal = _row_is_animal_protein(scaled_row)
                                 seen_food_ids.discard(old_row.get("food_id"))
                                 seen_food_names.discard(_row_name_key(old_row))
+                                old_semantic_key = _row_semantic_key(old_row)
+                                if old_semantic_key:
+                                    selected_semantic_keys.discard(old_semantic_key)
                                 
                                 selected_rows[3] = scaled_row
                                 seen_food_ids.add(scaled_row["food_id"])
                                 seen_food_names.add(_row_name_key(scaled_row))
+                                new_semantic_key = _row_semantic_key(scaled_row)
+                                if new_semantic_key:
+                                    selected_semantic_keys.add(new_semantic_key)
                                 if old_was_animal:
                                     animal_protein_count = max(0, animal_protein_count - 1)
                                 if new_is_animal:
@@ -2622,11 +3002,22 @@ class RecommenderService:
                 attempts_fill += 1
                 selected_ids = {r.get("food_id") for r in selected_rows}
                 selected_names = {_row_name_key(r) for r in selected_rows}
+                selected_semantic_keys_current = {
+                    key
+                    for key in (_row_semantic_key(r) for r in selected_rows)
+                    if key
+                }
+
+                def _would_duplicate_semantic(row: pd.Series | dict) -> bool:
+                    semantic_key = _row_semantic_key(row)
+                    return bool(semantic_key and semantic_key in selected_semantic_keys_current)
                 
                 found_fb = None
                 # First try fallback rows prioritizing energy foods if requested_slots >= 4 and not meal_has_energy
                 for f_row in fallback_rows:
                     if f_row.get("food_id") not in selected_ids and _row_name_key(f_row) not in selected_names:
+                        if _would_duplicate_semantic(f_row):
+                            continue
                         if requested_slots >= 4 and not meal_has_energy:
                             if _is_fat_or_healthy_gain_food(f_row):
                                 found_fb = f_row
@@ -2639,6 +3030,8 @@ class RecommenderService:
                 if found_fb is None and requested_slots >= 4 and not meal_has_energy:
                     for f_row in fallback_rows:
                         if f_row.get("food_id") not in selected_ids and _row_name_key(f_row) not in selected_names:
+                            if _would_duplicate_semantic(f_row):
+                                continue
                             found_fb = f_row
                             break
                             
@@ -2646,6 +3039,8 @@ class RecommenderService:
                 if found_fb is None:
                     for _, r_row in ranked.iterrows():
                         if r_row.get("food_id") not in selected_ids and _row_name_key(r_row) not in selected_names:
+                            if _would_duplicate_semantic(r_row):
+                                continue
                             if disliked_foods and _row_matches_terms(r_row, disliked_foods):
                                 continue
                             if _row_clean_category(r_row) in {"dessert_sweets", "drink_natural"} or _row_is_dessert(r_row):
@@ -2705,6 +3100,9 @@ class RecommenderService:
                     selected_rows.append(scaled_row)
                     seen_food_ids.add(scaled_row["food_id"])
                     seen_food_names.add(_row_name_key(scaled_row))
+                    semantic_key = _row_semantic_key(scaled_row)
+                    if semantic_key:
+                        selected_semantic_keys.add(semantic_key)
                     if _row_is_animal_protein(scaled_row):
                         animal_protein_count += 1
                     if _is_fat_or_healthy_gain_food(scaled_row):
@@ -3252,7 +3650,7 @@ class RecommenderService:
                         "fat": round(float(item.get("fat") or 0.0), 1),
                         "carb": round(float(item.get("carbs") or 0.0), 1),
                         "image_requirement": item.get("image_requirement") or "Ảnh món ăn đúng tên món.",
-                        "reason": "Được giữ trong thực đơn sau khi kiểm tra nhóm món, macro và khẩu phần.",
+                        "reason": "Được giữ trong thực đơn sau khi kiểm tra nhóm món, dữ liệu dinh dưỡng và khẩu phần.",
                     }
                     for item in items
                 ],
@@ -3292,14 +3690,14 @@ class RecommenderService:
         score = max(0, min(100, 100 - penalty))
         main_problems = [issue["reason"] for issue in issues[:5]]
         if not main_problems:
-            main_problems = ["Không phát hiện lỗi nghiêm trọng sau khi chuẩn hóa tên món, khẩu phần và macro."]
+            main_problems = ["Không phát hiện lỗi nghiêm trọng sau khi chuẩn hóa tên món, khẩu phần và dữ liệu dinh dưỡng."]
 
         return {
             "eligibility_check": eligibility_check,
             "overall_assessment": {
                 "score": score,
                 "summary": (
-                    "Thực đơn đủ điều kiện cho người thiếu cân có BMI dưới 18.5 theo mục tiêu và macro đã nhập."
+                    "Thực đơn đủ điều kiện cho người thiếu cân có BMI dưới 18.5 theo mục tiêu và dữ liệu dinh dưỡng đã nhập."
                     if eligibility_check.get("eligible")
                     else "Không đủ điều kiện sinh thực đơn."
                 ),
@@ -3309,7 +3707,7 @@ class RecommenderService:
             "fixed_menu": fixed_menu,
             "validation_rules_to_add": [
                 "Tính BMI từ chiều cao/cân nặng và chặn tạo thực đơn tăng cân khi BMI >= 18.5.",
-                "Loại món có macro lệch nghiêm trọng so với kcal trước khi lập thực đơn.",
+                "Loại món có dữ liệu dinh dưỡng lệch nghiêm trọng so với kcal trước khi lập thực đơn.",
                 "Giới hạn khẩu phần món nhiều năng lượng như bơ đậu phộng, hạt, đậu phộng.",
                 "Chuẩn hóa tên nguyên liệu thành tên món ăn hoàn chỉnh trước khi hiển thị.",
                 "Mỗi bữa chính phải có tinh bột, đạm và rau/củ hoặc trái cây phù hợp.",
@@ -3584,7 +3982,7 @@ class RecommenderService:
             random_seed=random_seed,
             exclude_food_ids=[],
             exclude_meal_plan_id=previous_id,
-            macro_backtracking_attempts=20,
+            macro_backtracking_attempts=8,
             save_user_data=True,
         )
         eligibility_check = self._build_eligibility_check(request_payload)
@@ -3810,6 +4208,7 @@ class RecommenderService:
             excluded_categories=payload.excluded_categories,
             category_preferences=current_preferences,
         )
+        ranked = _attach_row_search_cache(ranked)
         ranked = self._apply_diet_and_budget_preferences(ranked, payload, target=target)
         ranked = self.filterFoodsByDietType(
             ranked,
@@ -3952,12 +4351,37 @@ class RecommenderService:
             axis=1
         )
         ranked = ranked[~outlier_mask].copy()
+        ranked = _limit_ranked_candidate_pool(ranked, meal_slots, payload.top_n)
+
+        ml_metadata = ml_food_eligibility_service.get_metadata()
+        ml_score_used = False
+        if not ranked.empty:
+            try:
+                ml_scores = pd.Series(
+                    [ml_food_eligibility_service.get_food_ml_score(row) for _, row in ranked.iterrows()],
+                    index=ranked.index,
+                )
+                ml_score_mask = ml_scores.notna()
+                if bool(ml_metadata.get("ml_enabled")) and ml_score_mask.any():
+                    ranked = ranked.copy()
+                    ranked["rule_score"] = ranked["score"].astype(float)
+                    ranked["ml_score"] = ml_scores
+                    ranked.loc[ml_score_mask, "score"] = (
+                        ranked.loc[ml_score_mask, "rule_score"] * (1.0 - ML_SCORE_WEIGHT)
+                        + ranked.loc[ml_score_mask, "ml_score"].astype(float) * ML_SCORE_WEIGHT
+                    )
+                    ranked = ranked.sort_values("score", ascending=False)
+                    ml_score_used = True
+            except Exception as exc:
+                ml_metadata = ml_food_eligibility_service.get_metadata()
+                ml_score_used = False
+                logger.warning("Food eligibility ML scoring skipped; using rule-based ranking: %s", exc)
 
         # Retry logic: try multiple seeded variants and keep the closest kcal plan.
         best_meal_plan = None
         best_delta = float("inf")
         best_totals: dict[str, float] | None = None
-        max_attempts = max(1, min(int(payload.macro_backtracking_attempts or 20), 20))
+        max_attempts = max(1, min(int(payload.macro_backtracking_attempts or 8), 8))
         seed_base = payload.random_seed or int(datetime.now(timezone.utc).timestamp())
         
         for attempt in range(max_attempts):
@@ -4504,6 +4928,13 @@ class RecommenderService:
                     candidate_item = self._to_food_item_payload(row)
                     if _is_dairy_or_soy_item(candidate_item) and _current_dairy_soy_count() >= 3:
                         continue
+                    meal_items_without_target = [
+                        item
+                        for item_idx, item in enumerate(items)
+                        if item_idx != target_index
+                    ]
+                    if _row_has_meal_semantic_duplicate(candidate_item, meal_items_without_target):
+                        continue
                     candidate_carbs = float(candidate_item.get("carbs") or 0.0)
                     candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
                     if candidate_carbs > max(22.0, target_carbs_item - 15.0):
@@ -4574,6 +5005,13 @@ class RecommenderService:
                         continue
                     candidate_item = self._to_food_item_payload(row)
                     if _is_dairy_or_soy_item(candidate_item) and _current_dairy_soy_count() >= 3:
+                        continue
+                    meal_items_without_target = [
+                        item
+                        for item_idx, item in enumerate(items)
+                        if item_idx != target_index
+                    ]
+                    if _row_has_meal_semantic_duplicate(candidate_item, meal_items_without_target):
                         continue
                     candidate_protein = float(candidate_item.get("protein") or 0.0)
                     candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
@@ -4666,7 +5104,7 @@ class RecommenderService:
                 target_item_id = str(target_item.get("food_id")) if target_item.get("food_id") is not None else ""
                 target_protein_item = float(target_item.get("protein") or 0.0)
                 target_kcal_item = float(target_item.get("calories") or target_item.get("kcal") or 0.0)
-                replacement_choices: list[tuple[float, float, float, float, dict]] = []
+                replacement_choices: list[tuple[float, float, float, float, float, dict]] = []
 
                 for allow_second_starch in (False, True):
                     for _, row in ranked.iterrows():
@@ -4697,6 +5135,12 @@ class RecommenderService:
                         if target_kcal_item > 0 and candidate_kcal < target_kcal_item * 0.45:
                             continue
                         category = _item_category(candidate_item)
+                        meal_items_without_target = [
+                            item
+                            for item_idx, item in enumerate(target_meal.get("items", []))
+                            if item_idx != target_index
+                        ]
+                        semantic_duplicate_penalty = 6.0 if _row_has_meal_semantic_duplicate(candidate_item, meal_items_without_target) else 0.0
                         category_rank = {
                             "starch_grain": 0.0,
                             "starch_tuber": 0.0,
@@ -4706,6 +5150,7 @@ class RecommenderService:
                         }.get(category, 5.0)
                         replacement_choices.append(
                             (
+                                semantic_duplicate_penalty,
                                 category_rank + (4.0 if allow_second_starch else 0.0),
                                 candidate_protein,
                                 abs(candidate_kcal - target_kcal_item),
@@ -4719,7 +5164,7 @@ class RecommenderService:
                 if not replacement_choices:
                     break
 
-                replacement_item = sorted(replacement_choices, key=lambda item: (item[0], item[1], item[2], item[3]))[0][4]
+                replacement_item = sorted(replacement_choices, key=lambda item: (item[0], item[1], item[2], item[3], item[4]))[0][5]
                 target_meal["items"][target_index] = replacement_item
                 preserved_item_count_note = True
                 replacements += 1
@@ -4779,6 +5224,13 @@ class RecommenderService:
                         candidate_item = self._to_food_item_payload(row)
                         if _is_dairy_or_soy_item(candidate_item) and _current_dairy_soy_count() >= 3:
                             continue
+                        meal_items_without_target = [
+                            item
+                            for item_idx, item in enumerate(items)
+                            if item_idx != idx
+                        ]
+                        if _row_has_meal_semantic_duplicate(candidate_item, meal_items_without_target):
+                            continue
                         candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
                         if target_kcal_item > 0 and candidate_kcal < target_kcal_item * 0.45:
                             continue
@@ -4822,6 +5274,18 @@ class RecommenderService:
 
         hard_block_terms = _expand_food_terms(disliked_foods) + _expand_food_terms(payload.allergens)
         meal_fill_debug: list[dict] = []
+        semantic_duplicate_relaxed_note = False
+
+        def _meal_semantic_keys(items: list[dict]) -> set[str]:
+            return {
+                key
+                for key in (normalize_food_similarity_key(item) for item in items)
+                if key
+            }
+
+        def _row_has_meal_semantic_duplicate(row: pd.Series | dict, meal_items: list[dict]) -> bool:
+            semantic_key = normalize_food_similarity_key(row)
+            return bool(semantic_key and semantic_key in _meal_semantic_keys(meal_items))
 
         def _menu_eligible(row: pd.Series | dict) -> bool:
             value = row.get("menu_eligible", True)
@@ -4852,8 +5316,6 @@ class RecommenderService:
             if hard_block_terms and _row_matches_terms(row, hard_block_terms):
                 return False
             if vegetarian_mode and _is_animal_protein_row(row):
-                return False
-            if _row_blocked_by_high_protein_fill(row):
                 return False
             return True
 
@@ -4892,9 +5354,6 @@ class RecommenderService:
             if category == "dairy":
                 return protein >= 12.0 or protein_kcal_ratio >= 0.30
             return protein >= 15.0 or protein_kcal_ratio >= 0.32
-
-        def _row_blocked_by_high_protein_fill(row: pd.Series | dict) -> bool:
-            return _protein_is_near_or_above_target(0.95) and _row_is_high_protein_fill(row)
 
         normalized_favorite_text = " ".join(
             _normalize_search_text(favorite)
@@ -4956,31 +5415,32 @@ class RecommenderService:
 
             if protein_high:
                 category_order = {
-                    "starch_grain": 0.0,
-                    "starch_tuber": 0.0,
-                    "fruit": 1.0,
-                    "vegetable": 2.0,
-                    "healthy_fat_nuts": 3.0,
+                    "fruit": 0.0,
+                    "vegetable": 1.0,
+                    "starch_tuber": 2.0,
+                    "starch_grain": 2.2,
+                    "plant_protein": 3.0,
+                    "healthy_fat_nuts": 4.0,
                 }
             elif missing_kcal:
                 category_order = {
-                    "starch_grain": 0.0,
-                    "starch_tuber": 0.0,
-                    "fruit": 1.0,
-                    "vegetable": 2.0,
-                    "healthy_fat_nuts": 3.0,
-                    "plant_protein": 4.0 if vegetarian_mode else 5.0,
+                    "fruit": 0.0,
+                    "vegetable": 1.0,
+                    "starch_tuber": 2.0,
+                    "starch_grain": 2.2,
+                    "plant_protein": 3.0,
+                    "healthy_fat_nuts": 4.0,
                     "dairy": 5.0,
                     "egg": 6.0,
                 }
             else:
                 category_order = {
-                    "vegetable": 0.0,
-                    "fruit": 1.0,
-                    "starch_grain": 2.0,
+                    "fruit": 0.0,
+                    "vegetable": 1.0,
                     "starch_tuber": 2.0,
-                    "healthy_fat_nuts": 3.0,
-                    "plant_protein": 4.0,
+                    "starch_grain": 2.2,
+                    "plant_protein": 3.0,
+                    "healthy_fat_nuts": 4.0,
                     "dairy": 5.0,
                     "egg": 6.0,
                 }
@@ -5038,9 +5498,6 @@ class RecommenderService:
             for _, row in ranked.iterrows():
                 if not _row_passes_hard_constraints(row, meal_items, existing_ids):
                     continue
-                if vegetarian_mode and _expected_slots_for_meal(meal.get("meal_type", "meal")) >= 5:
-                    if not _row_is_vegetarian_safe_fill_candidate(row, meal):
-                        continue
                 hard_candidates.append(row)
 
             soft_candidates = [
@@ -5048,12 +5505,33 @@ class RecommenderService:
                 for row in hard_candidates
                 if _row_is_soft_fill_candidate(row, meal)
             ]
+
+            def _semantic_sort(rows: list[pd.Series | dict]) -> list[pd.Series | dict]:
+                distinct_rows = [row for row in rows if not _row_has_meal_semantic_duplicate(row, meal_items)]
+                duplicate_rows = [row for row in rows if _row_has_meal_semantic_duplicate(row, meal_items)]
+                meal_animal_sources = {
+                    source
+                    for source in (_animal_main_protein_source(item) for item in meal_items)
+                    if source
+                }
+
+                def _fill_sort_key(row: pd.Series | dict) -> tuple[float, float, float, float]:
+                    candidate_source = _animal_main_protein_source(row)
+                    animal_penalty = 3.0 if candidate_source and meal_animal_sources else 0.0
+                    if candidate_source == "egg" or "egg" in meal_animal_sources:
+                        animal_penalty += 1.0
+                    rank, kcal_sort, score_sort = _candidate_fill_priority(row)
+                    return (animal_penalty, rank, kcal_sort, score_sort)
+
+                return sorted(distinct_rows, key=_fill_sort_key) + sorted(duplicate_rows, key=_fill_sort_key)
+
             return (
-                sorted(hard_candidates, key=_candidate_fill_priority),
-                sorted(soft_candidates, key=_candidate_fill_priority),
+                _semantic_sort(hard_candidates),
+                _semantic_sort(soft_candidates),
             )
 
         def fill_missing_items_for_meal(meal: dict, missing_count: int, reason: str) -> list[str]:
+            nonlocal semantic_duplicate_relaxed_note
             if missing_count <= 0:
                 return []
             meal_type = str(meal.get("meal_type") or "meal").lower()
@@ -5090,9 +5568,8 @@ class RecommenderService:
                 }):
                     no_item_added_reason = "candidate_rejected_after_payload_conversion"
                     continue
-                if vegetarian_mode and expected >= 5 and not _row_is_vegetarian_safe_fill_candidate(row, meal):
-                    no_item_added_reason = "candidate_not_in_vegetarian_safe_fill_groups"
-                    continue
+                if _row_has_meal_semantic_duplicate(item, meal.get("items", [])):
+                    semantic_duplicate_relaxed_note = True
                 meal.setdefault("items", []).append(item)
                 added_names.append(str(item.get("name") or item.get("food_id") or "item"))
                 no_item_added_reason = ""
@@ -5160,15 +5637,15 @@ class RecommenderService:
                 if actual >= expected:
                     continue
                 missing_total += expected - actual
-                label = _meal_label_vi(meal_type)
-                if expected >= 5:
-                    warnings_for_counts.append(
-                        f"Bạn chọn {expected} món/bữa nhưng hệ thống chỉ tìm được {actual} món phù hợp cho {label} sau khi áp dụng chế độ ăn, danh sách loại trừ và giới hạn dinh dưỡng."
-                    )
-                else:
-                    warnings_for_counts.append(
-                        f"Không đủ món phù hợp để tạo đủ {expected} món cho {label}. Hệ thống đã ưu tiên không vi phạm món loại trừ và chế độ ăn."
-                    )
+                label = {
+                    "breakfast": "Bữa sáng",
+                    "lunch": "Bữa trưa",
+                    "dinner": "Bữa tối",
+                    "snack": "Bữa phụ",
+                }.get(meal_type, "Bữa ăn")
+                warnings_for_counts.append(
+                    f"{label} chỉ tạo được {actual}/{expected} món phù hợp."
+                )
             return summary, warnings_for_counts, missing_total
 
         meal_types_present = {str(meal.get("meal_type", "")).lower() for meal in meal_plan_payload}
@@ -5320,12 +5797,31 @@ class RecommenderService:
         infos = []
         recommendation_explanations: list[dict] = []
         warnings.extend(meal_item_count_warnings)
+        semantic_duplicate_meals: list[str] = []
+        for meal in meal_plan_payload:
+            seen_semantic_keys: set[str] = set()
+            duplicate_found = False
+            for item in meal.get("items", []):
+                semantic_key = normalize_food_similarity_key(item)
+                if not semantic_key:
+                    continue
+                if semantic_key in seen_semantic_keys:
+                    duplicate_found = True
+                    break
+                seen_semantic_keys.add(semantic_key)
+            if duplicate_found:
+                semantic_duplicate_meals.append(str(meal.get("meal_type") or "meal"))
+        if semantic_duplicate_meals or semantic_duplicate_relaxed_note:
+            _append_unique_message(
+                infos,
+                "Một số món tương tự nhau được dùng lại do không đủ lựa chọn phù hợp.",
+            )
         is_vegetarian_plan = _is_vegetarian_diet(payload.diet_type or payload.diet_style or "")
 
         def _favorite_is_selected(favorite: str) -> bool:
             raw_favorite = str(favorite or "").strip().lower()
             normalized_favorite = " ".join(_normalize_search_text(raw_favorite).split())
-            beef_favorite = raw_favorite == "b\u00f2" or normalized_favorite in {"beef", "thit bo"}
+            beef_favorite = raw_favorite == "bò" or normalized_favorite in {"beef", "thit bo"}
             favorite_terms = _expand_food_terms([favorite])
             for meal in meal_plan_payload:
                 for item in meal.get("items", []):
@@ -5413,14 +5909,14 @@ class RecommenderService:
         if protein_limited_favorites:
             _append_unique_message(
                 infos,
-                f"Món yêu thích '{protein_limited_favorites}' chưa được ưu tiên vì protein trong thực đơn đã gần hoặc vượt mục tiêu.",
+                f"Món yêu thích '{protein_limited_favorites}' chưa được ưu tiên vì hệ thống chọn phương án cân bằng kcal/protein tốt hơn.",
             )
 
         macro_balanced_favorites = _format_food_terms_for_message(favorite_skip_groups["macro"])
         if macro_balanced_favorites:
             _append_unique_message(
                 infos,
-                f"M\u00f3n y\u00eau th\u00edch '{macro_balanced_favorites}' ch\u01b0a \u0111\u01b0\u1ee3c \u01b0u ti\u00ean v\u00ec h\u1ec7 th\u1ed1ng ch\u1ecdn ph\u01b0\u01a1ng \u00e1n c\u00e2n b\u1eb1ng kcal/protein t\u1ed1t h\u01a1n.",
+                f"Món yêu thích '{macro_balanced_favorites}' chưa được ưu tiên vì hệ thống chọn phương án cân bằng kcal/protein tốt hơn.",
             )
 
         normalized_diet_for_validation = _normalize_search_text(payload.diet_type or payload.diet_style or "")
@@ -5436,6 +5932,7 @@ class RecommenderService:
         for meal in meal_plan_payload:
             meal_starch_count = 0
             meal_animal_protein_count = 0
+            meal_animal_main_protein_count = 0
             for item in meal["items"]:
                 if item["food_id"] in food_ids:
                     errors.append(f"Trùng lặp món ăn trong ngày: {item['name']}")
@@ -5447,6 +5944,8 @@ class RecommenderService:
                     meal_animal_protein_count += 1
                     if is_vegetarian_plan:
                         errors.append(f"Chế độ ăn chay không phù hợp với món '{item['name']}'.")
+                if _animal_main_protein_source(item):
+                    meal_animal_main_protein_count += 1
                 if _is_primary_starch_item(item):
                     meal_starch_count += 1
                 if _is_dessert_or_sweet_item(item):
@@ -5464,13 +5963,15 @@ class RecommenderService:
                     
             if meal_starch_count > 1:
                 errors.append("Mỗi bữa chỉ nên có một nguồn tinh bột chính; hãy đổi món tinh bột thứ hai sang bơ, hạt, trứng, cá béo hoặc sữa nguyên kem.")
-            if meal_animal_protein_count > 1:
-                errors.append("Mỗi bữa chỉ nên có một nguồn đạm động vật chính; tránh phối hợp nhiều món đạm động vật trong cùng bữa.")
+            if (
+                meal_animal_main_protein_count > 1
+                and (target_protein <= 0 or total_protein >= target_protein)
+                and ANIMAL_MAIN_PROTEIN_WARNING not in warnings
+            ):
+                warnings.append(ANIMAL_MAIN_PROTEIN_WARNING)
 
         if seafood_count > 2:
             errors.append("Hải sản xuất hiện quá 2 lần/ngày. (Vượt ngưỡng an toàn)")
-        if animal_protein_count_final > max_animal_protein_items:
-            warnings.append("Đạm động vật xuất hiện hơi nhiều trong ngày; nên thay một phần bằng đậu, ngũ cốc, chất béo tốt hoặc tinh bột.")
             
         if dessert_count_final > 1:
             errors.append("Món ngọt/dessert xuất hiện quá 1 lần trong ngày, chưa phù hợp kế hoạch tăng cân lành mạnh.")
@@ -5483,6 +5984,8 @@ class RecommenderService:
 
         if profile_summary.get("medical_warning"):
             warnings.append(BMI_SEVERE_UNDERWEIGHT_WARNING)
+        if semantic_duplicate_relaxed_note:
+            infos.append("Một số món tương tự nhau được dùng lại do không đủ lựa chọn phù hợp.")
         if preserved_item_count_note or (target_kcal > 0 and total_kcal < min_kcal):
             warnings.append("Có thể cần tăng khẩu phần trong giới hạn hợp lý hoặc thêm bữa phụ tùy chọn, nhưng thực đơn vẫn giữ đúng số món mỗi bữa bạn đã chọn.")
 
@@ -5499,10 +6002,13 @@ class RecommenderService:
         validation_result["meal_item_count_summary"] = meal_item_count_summary
         validation_result["meal_fill_debug"] = meal_fill_debug
         validation_result["recommendation_explanations"] = recommendation_explanations
+        validation_result["ml_enabled"] = bool(ml_metadata.get("ml_enabled"))
+        validation_result["ml_score_used"] = bool(ml_score_used)
+        validation_result["ml_score_weight"] = ML_SCORE_WEIGHT
         macro_only_major = (
             validation_result["status"] == "major_adjustment"
             and not errors
-            and missing_item_count_total == 0
+            and missing_item_count_total <= 1
         )
         kcal_major = target_kcal > 0 and abs(total_kcal - target_kcal) / target_kcal > 0.10
         protein_major = target_protein > 0 and total_protein > target_protein * 1.15

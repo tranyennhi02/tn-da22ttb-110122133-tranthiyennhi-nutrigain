@@ -131,6 +131,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const [addToMealRequest, setAddToMealRequest] = useState(null);
   const [dislikeRequest, setDislikeRequest] = useState(null);
   const [didLoadToday, setDidLoadToday] = useState(false);
+  const [generationNotice, setGenerationNotice] = useState("");
 
   useEffect(() => {
     if (!initialResult) return;
@@ -222,7 +223,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         const backendInfos = Array.isArray(backendValidation.infos) ? backendValidation.infos : [];
         const proteinWarningAlreadyPresent = backendWarnings.some((message) => {
           const normalized = stripAccents(String(message || "")).toLowerCase();
-          return normalized.includes("protein") && normalized.includes("vuot");
+          return isProteinExcessMessageKey(normalized);
         });
         const reason =
           proteinWarning ||
@@ -260,6 +261,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           infos: backendInfos,
           errors: Array.isArray(backendValidation.errors) ? backendValidation.errors : [],
           recommendationExplanations: backendValidation.recommendation_explanations || result.recommendation_explanations || [],
+          mealItemCountSummary: backendValidation.meal_item_count_summary || result.meal_plan?.meal_item_count_summary || null,
           targetKcal,
           totalKcal: totalCalories,
           kcalDiff,
@@ -310,9 +312,11 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   }
 
   async function requestRecommendation() {
+    if (isSubmitting) return;
     const nextErrors = validateProfile(formState);
     setFormErrors(nextErrors);
     setSubmitError("");
+    setGenerationNotice("");
 
     if (Object.keys(nextErrors).length > 0) {
       setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo thực đơn.");
@@ -331,7 +335,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     try {
       const data = await submitRecommendation(formState);
       setResult(data);
-      setActiveSection("meal-plan");
+      setGenerationNotice(isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "");
+      setActiveSection("overview");
       setFavoriteMeals(new Set());
       setRatings({});
       setMealLog({ entries: {}, manualItems: [] });
@@ -344,9 +349,11 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   }
 
   async function requestRegenerateRecommendation() {
+    if (isSubmitting) return;
     const nextErrors = validateProfile(formState);
     setFormErrors(nextErrors);
     setSubmitError("");
+    setGenerationNotice("");
 
     if (Object.keys(nextErrors).length > 0) {
       setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo lại thực đơn.");
@@ -424,7 +431,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       setRatings({});
       setMealLog({ entries: {}, manualItems: [] });
       setResult(data);
-      setActiveSection("meal-plan");
+      setGenerationNotice(isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "");
+      setActiveSection((current) => (current === "meal-plan" ? "meal-plan" : "overview"));
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       // Giữ lại trạng thái cũ nếu có lỗi
@@ -565,14 +573,14 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     if (!hasRecommendation) return;
     const rows = [
       ["Metric", "Value", "Unit"],
-      ["Calories mục tiêu", summary.targetCalories, "kcal"],
-      ["Calories hiện tại", mealPlanValidation.totalCalories, "kcal"],
+      ["Năng lượng mục tiêu", summary.targetCalories, "kcal"],
+      ["Năng lượng thực đơn", mealPlanValidation.totalCalories, "kcal"],
       ["BMI", summary.bmi, ""],
       ["BMR", summary.bmr, "kcal"],
       ["TDEE", summary.tdee, "kcal"],
-      ["Protein hiện tại", mealPlanValidation.totalProtein, "g"],
-      ["Fat hiện tại", mealPlanValidation.totalFat, "g"],
-      ["Carbs hiện tại", mealPlanValidation.totalCarbs, "g"],
+      ["Protein thực đơn", mealPlanValidation.totalProtein, "g"],
+      ["Chất béo thực đơn", mealPlanValidation.totalFat, "g"],
+      ["Tinh bột thực đơn", mealPlanValidation.totalCarbs, "g"],
     ];
     const csv = rows.map((row) => row.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -643,6 +651,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
             ratings={ratings}
             mealLog={mealLog}
             consumedNutrition={consumedNutrition}
+            generationNotice={generationNotice}
             submitError={submitError}
             onFavorite={toggleFavorite}
             onRate={rateMeal}
@@ -710,14 +719,35 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
 
   return (
     <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
-      <div className="w-full max-w-lg text-center">
+      <div className="w-full max-w-3xl">
         <div className="flex justify-center">
           <NutriGainLogo size="lg" />
         </div>
-        <h2 className="mt-6 text-2xl font-extrabold text-[#0F172A]">Tạo thực đơn hôm nay</h2>
-        <p className="mt-3 text-base text-[#64748B]">
-          Hồ sơ của bạn đã sẵn sàng. Bấm bên dưới để NutriGain tạo thực đơn tăng cân cá nhân hóa cho hôm nay.
-        </p>
+        <section className="mt-6 rounded-[28px] border border-emerald-100 bg-white p-6 shadow-xl shadow-emerald-900/8 sm:p-7">
+          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Kết luận hôm nay</p>
+          <h2 className="mt-2 text-2xl font-black text-[#0F172A]">
+            {isSubmitting ? "Đang tạo thực đơn phù hợp cho bạn" : "Chưa có thực đơn hôm nay"}
+          </h2>
+          <p className="mt-3 text-sm font700 leading-6 text-[#64748B]">
+            {isSubmitting
+              ? "Hệ thống đang cân bằng năng lượng, protein và các món bạn cần tránh."
+              : "Hồ sơ của bạn đã sẵn sàng. Tạo thực đơn để xem hôm nay nên ăn gì và có cần điều chỉnh gì không."}
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <InfoTile label="Năng lượng thực đơn" value="Chưa có dữ liệu" />
+            <InfoTile label="Protein thực đơn" value="Chưa có dữ liệu" />
+          </div>
+          {isSubmitting ? (
+            <div className="mt-5 grid gap-3">
+              <div className="h-3 w-2/3 animate-pulse rounded-full bg-emerald-100" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-slate-100" />
+            </div>
+          ) : (
+            <ul className="mt-5 space-y-2 text-sm font800 leading-6 text-slate-700">
+              <li>Tạo thực đơn để NutriGain kiểm tra năng lượng và protein cho hôm nay.</li>
+              <li>Món không thích, dị ứng và chế độ ăn sẽ được dùng để lọc món.</li>
+            </ul>
+          )}
         {submitError && (
           <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
             {submitError}
@@ -734,11 +764,12 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               Đang tạo thực đơn...
             </span>
-          ) : "Tạo thực đơn ngay"}
+          ) : "Tạo thực đơn hôm nay"}
         </button>
         <p className="mt-4 text-xs text-[#64748B]">
           Bạn có thể chỉnh lại hồ sơ bất kỳ lúc nào trong mục <strong>Tài khoản</strong>.
         </p>
+        </section>
       </div>
     </main>
   );
@@ -770,7 +801,7 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
             <p className="text-xs font900 uppercase tracking-[0.18em] text-brand-primary">Thiết lập hồ sơ</p>
             <h2 className="mt-2 text-3xl font-black text-brand-text-main">Thiết lập hồ sơ dinh dưỡng</h2>
             <p className="mt-2 text-sm font700 leading-6 text-brand-text-sub">
-              Điền thông tin cơ thể và mục tiêu để NutriGain dự báo BMI, calories và macro cá nhân hóa.
+              Điền thông tin cơ thể và mục tiêu để NutriGain dự báo BMI, calories và mục tiêu dinh dưỡng cá nhân hóa.
             </p>
           </div>
 
@@ -947,8 +978,8 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
                 <TagInput
                   label="Danh sách cần tránh"
                   name="unfavorite_foods"
-                  placeholder="Ví dụ: hải sản, đậu phộng"
-                  helperText="NutriGain sẽ loại bỏ các món trùng tag này khỏi gợi ý."
+                  placeholder="Ví dụ: sữa động vật, đậu nành, gà, bò"
+                  helperText="Nhập sữa động vật nếu muốn tránh sữa bò, sữa chua, phô mai."
                   value={formState.unfavorite_foods}
                   error={errors.unfavorite_foods}
                   onChange={onChange}
@@ -1020,7 +1051,7 @@ function ProfileSetup({ formState, errors, submitError, isSubmitting, onChange, 
 
               <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font900 uppercase tracking-[0.12em] text-slate-500">Macro mục tiêu</p>
+                  <p className="text-xs font900 uppercase tracking-[0.12em] text-slate-500">Mục tiêu dinh dưỡng</p>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font900 text-slate-600 ring-1 ring-slate-100">
                     {macroTotal}g
                   </span>
@@ -1083,6 +1114,7 @@ function DashboardContent({
   ratings,
   mealLog,
   consumedNutrition,
+  generationNotice,
   submitError,
   onFavorite,
   onRate,
@@ -1109,8 +1141,10 @@ function DashboardContent({
           weeklyCalories={weeklyCalories}
           meals={meals}
           consumedNutrition={consumedNutrition}
+          generationNotice={generationNotice}
           onRegenerate={onRegenerate}
           isSubmitting={isSubmitting}
+          onNavigate={handleSidebarNavigate}
         />
       ) : null}
 
@@ -1201,109 +1235,120 @@ function OverviewPage({
   weeklyCalories,
   meals,
   consumedNutrition,
+  generationNotice,
   onRegenerate,
   isSubmitting,
+  onNavigate,
 }) {
   const [showDetails, setShowDetails] = useState(false);
-  const remainingCalories = Math.max(nutritionTarget.targetCalories - consumedNutrition.calories, 0);
   const nextMeal = findNextMeal(meals, consumedNutrition);
-  const progressPct = Math.min(Math.round((consumedNutrition.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
-  const circumference = 2 * Math.PI * 54;
-  const strokeOffset = circumference - (progressPct / 100) * circumference;
-  const validationStatus = validation?.status || (validation?.isValid ? "valid" : "major_adjustment");
-  const totalProteinForStatus = Number(validation?.totalProtein ?? consumedNutrition.protein ?? 0);
-  const targetProteinForStatus = Number(validation?.targetProtein ?? nutritionTarget.proteinTarget ?? 0);
-  const proteinOverLimit = Boolean(validation?.proteinOverLimit) || (targetProteinForStatus > 0 && totalProteinForStatus > targetProteinForStatus * 1.15);
-  const planNeedsAdjustment = proteinOverLimit || validation?.isValid === false || ["minor_adjustment", "major_adjustment", "invalid", "fallback"].includes(validationStatus);
-  const progressStroke = planNeedsAdjustment ? "#FB923C" : progressPct >= 90 ? "#10B981" : "#FB923C";
-  const progressLabel = proteinOverLimit
-    ? "C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh protein"
-    : planNeedsAdjustment
-      ? "C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh th\u1ef1c \u0111\u01a1n"
-      : progressPct >= 95
-        ? "\u0110\u1ea1t m\u1ee5c ti\u00eau"
-        : `C\u00f2n thi\u1ebfu ${remainingCalories.toLocaleString("vi-VN")} kcal`;
-  const overviewWarnings = dedupeMessages(proteinOverLimit
-    ? [buildProteinExcessMessage(totalProteinForStatus, targetProteinForStatus)]
-    : []);
+  const planTotals = useMemo(
+    () => buildPlanTotalsFromMeals(meals, validation),
+    [meals, validation],
+  );
+  const missingItems = useMemo(
+    () => buildMissingMealItems(meals, validation),
+    [meals, validation],
+  );
+  const baseUserStatus = useMemo(
+    () => getMealPlanUserStatus(validation, planTotals, nutritionTarget, missingItems, meals),
+    [validation, planTotals, nutritionTarget, missingItems, meals],
+  );
+  const userStatus = isSubmitting
+    ? {
+        label: "Đang tạo thực đơn phù hợp cho bạn",
+        tone: "neutral",
+        points: ["Hệ thống đang cân bằng năng lượng, protein và các món bạn cần tránh."],
+        actionLabel: "Đang tạo thực đơn...",
+        actionKind: "loading",
+      }
+    : baseUserStatus;
+  const scoreLabel = getMealPlanScoreLabel(validation, planTotals, nutritionTarget);
+  const visiblePoints = dedupeMessages(userStatus.points).slice(0, 3);
+  const adjustmentMessages = isSubmitting
+    ? []
+    : buildDashboardAdjustmentMessages(validation, dataWarnings, visiblePoints, { totals: planTotals, targets: nutritionTarget, meals, missingItems }).slice(0, 2);
+  const detailMessages = isSubmitting
+    ? []
+    : buildDashboardDetailMessages(validation, dataWarnings, { totals: planTotals, targets: nutritionTarget, meals });
+  const statusTone = statusToneClass(userStatus.tone);
+
+  function handlePrimaryAction() {
+    if (isSubmitting) return;
+    if (userStatus.actionKind === "view") {
+      onNavigate?.("meal-plan");
+      return;
+    }
+    onRegenerate?.();
+  }
 
   return (
     <div className="space-y-5">
-      {/* ── Hero: Calorie Ring + Protein ──────────────────────── */}
-      <section className="glass-panel p-6 sm:p-8">
-        <div className="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
-          {/* Circular progress */}
-          <div className="flex flex-col items-center">
-            <div className="relative h-36 w-36 sm:h-44 sm:w-44">
-              <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-                <circle cx="60" cy="60" r="54" fill="none" stroke="#E2E8F0" strokeWidth="8" />
-                <circle
-                  cx="60" cy="60" r="54" fill="none"
-                  stroke={progressStroke}
-                  strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={strokeOffset}
-                  className="transition-all duration-700"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-3xl sm:text-4xl font-black text-[#0F172A] leading-none">
-                  {consumedNutrition.calories.toLocaleString("vi-VN")}
-                </span>
-                <span className="mt-1 text-sm font-bold text-[#64748B]">/ {nutritionTarget.targetCalories} kcal</span>
-              </div>
-            </div>
-            <p className="mt-3 text-sm font-bold text-[#64748B]">
-              {progressLabel}
-            </p>
-          </div>
-
-          {/* Right side: Protein + status */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Hôm nay</p>
-              <h2 className="mt-1 text-2xl font-black text-[#0F172A]">Tổng quan dinh dưỡng</h2>
-            </div>
-
-            {/* Protein bar */}
-            <div className="rounded-2xl bg-[#F1F5F9] p-4">
-              <div className="flex items-center justify-between text-sm font-bold">
-                <span className="text-[#0F172A]">Protein</span>
-                <span className="text-[#0F172A]">{consumedNutrition.protein}g <span className="text-[#64748B] font-normal">/ {nutritionTarget.proteinTarget}g</span></span>
-              </div>
-              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-[#E2E8F0]">
-                <div
-                  className="h-full rounded-full bg-sky-500 transition-all duration-500"
-                  style={{ width: `${Math.min((consumedNutrition.protein / Math.max(nutritionTarget.proteinTarget, 1)) * 100, 100)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* BMI badge (compact) */}
-            {summary.bmi ? (
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-bold text-[#047857]">
-                  BMI {summary.bmi} · {summary.bmiStatus}
-                </span>
-                {summary.medicalWarning ? (
-                  <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">⚠️ Cần theo dõi</span>
-                ) : null}
-              </div>
+      <section className={`rounded-[28px] border p-6 shadow-sm sm:p-7 ${statusTone.shell}`}>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
+          <div>
+            <p className={`text-xs font900 uppercase tracking-[0.18em] ${statusTone.eyebrow}`}>Kết luận hôm nay</p>
+            <h2 className="mt-2 text-3xl font-black leading-tight text-slate-950">
+              {userStatus.label}
+            </h2>
+            {scoreLabel ? (
+              <p className="mt-2 text-sm font800 text-slate-500">{scoreLabel}</p>
             ) : null}
-
-            {/* Validation status */}
-            <PlanAlert validation={validation} onRegenerate={onRegenerate} isSubmitting={isSubmitting} compact />
+            {generationNotice && !isSubmitting ? (
+              <p className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font900 text-emerald-800">
+                {generationNotice}
+              </p>
+            ) : null}
           </div>
+
+          <button
+            type="button"
+            onClick={handlePrimaryAction}
+            disabled={isSubmitting}
+            className={`flex min-h-12 w-full items-center justify-center rounded-2xl px-5 py-3 text-sm font900 text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-65 ${statusTone.button}`}
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                {userStatus.actionLabel}
+              </span>
+            ) : userStatus.actionLabel}
+          </button>
         </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <DashboardMetric
+            label="Năng lượng thực đơn"
+            value={`${round(planTotals.calories).toLocaleString("vi-VN")} kcal`}
+            target={`${round(planTotals.targetCalories || nutritionTarget.targetCalories).toLocaleString("vi-VN")} kcal`}
+          />
+          <DashboardMetric
+            label="Protein thực đơn"
+            value={`${round(planTotals.protein).toLocaleString("vi-VN")}g`}
+            target={`${round(planTotals.targetProtein || nutritionTarget.proteinTarget).toLocaleString("vi-VN")}g`}
+          />
+        </div>
+
+        <ul className="mt-5 grid gap-2 text-sm font800 leading-6 text-slate-700">
+          {visiblePoints.map((point) => (
+            <li key={point} className="flex gap-2">
+              <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${statusTone.dot}`} />
+              <span>{point}</span>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-5 text-xs font800 text-slate-500">
+          Số liệu được tính từ thực đơn được gợi ý hôm nay.
+        </p>
       </section>
 
-      {/* ── Next Meal CTA ──────────────────────────────────── */}
-      {overviewWarnings.length ? (
+      {adjustmentMessages.length ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font800 leading-6 text-amber-950">
-          <h3 className="text-base font-black text-amber-950">C\u1ea7n \u0111i\u1ec1u ch\u1ec9nh macro</h3>
+          <h3 className="text-base font-black text-amber-950">Gợi ý điều chỉnh</h3>
           <ul className="mt-2 space-y-1">
-            {overviewWarnings.map((warning) => (
-              <li key={warning}>{warning}</li>
+            {adjustmentMessages.map((message) => (
+              <li key={message}>{message}</li>
             ))}
           </ul>
         </section>
@@ -1327,25 +1372,23 @@ function OverviewPage({
           </div>
           <button
             type="button"
-            onClick={onRegenerate}
+            onClick={() => onNavigate?.("meal-plan")}
             disabled={isSubmitting}
-            className="h-12 shrink-0 rounded-2xl bg-[#10B981] px-6 text-sm font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60"
+            className="h-12 shrink-0 rounded-2xl border border-emerald-100 bg-white px-6 text-sm font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
           >
-            {isSubmitting ? "Đang tạo..." : "Xem thực đơn hôm nay"}
+            Xem thực đơn
           </button>
         </div>
+        {isSubmitting ? (
+          <div className="border-t border-slate-100 px-5 pb-5">
+            <div className="grid gap-2 pt-4">
+              <div className="h-3 w-3/4 animate-pulse rounded-full bg-slate-100" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-slate-100" />
+            </div>
+          </div>
+        ) : null}
       </section>
 
-      {/* ── Warnings (if any) ──────────────────────────────── */}
-      {dataWarnings.length ? (
-        <section className="space-y-2">
-          {dataWarnings.map((warning) => (
-            <WarningCard key={warning} text={warning} />
-          ))}
-        </section>
-      ) : null}
-
-      {/* ── Expandable Details ─────────────────────────────── */}
       <section className="glass-panel overflow-hidden">
         <button
           type="button"
@@ -1360,11 +1403,11 @@ function OverviewPage({
         {showDetails ? (
           <div className="border-t border-[#E2E8F0] px-5 pb-5 pt-4 animate-fade-in">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <MacroTarget label="Fat" value={consumedNutrition.fat} target={nutritionTarget.fatTarget} tone="orange" />
-              <MacroTarget label="Carbs" value={consumedNutrition.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
+              <MacroTarget label="Chất béo" value={planTotals.fat} target={nutritionTarget.fatTarget} tone="orange" />
+              <MacroTarget label="Tinh bột" value={planTotals.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
               <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-                <div className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Hoàn thành</div>
-                <div className="mt-3 text-2xl font-black text-[#0F172A]">{calorieProgress}%</div>
+                <div className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Đánh giá thực đơn</div>
+                <div className="mt-3 text-2xl font-black text-[#0F172A]">{getMealPlanScore(validation, planTotals, nutritionTarget)}%</div>
               </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1373,11 +1416,73 @@ function OverviewPage({
               <InfoRow label="Ngưỡng thấp" value={`${nutritionTarget.minCalories} kcal`} />
               <InfoRow label="Ngưỡng cao" value={`${nutritionTarget.maxCalories} kcal`} />
             </div>
+            {detailMessages.length ? (
+              <div className="mt-4 rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
+                <p className="text-sm font900 text-slate-900">Gợi ý và thông tin thêm</p>
+                <ul className="mt-2 space-y-1 text-sm font700 leading-6 text-slate-600">
+                  {detailMessages.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>
     </div>
   );
+}
+
+function DashboardMetric({ label, value, target }) {
+  return (
+    <div className="rounded-2xl bg-white/90 p-4 ring-1 ring-slate-100">
+      <p className="text-xs font900 uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
+      <p className="mt-1 text-xs font800 text-slate-500">Mục tiêu: {target}</p>
+    </div>
+  );
+}
+
+function statusToneClass(tone) {
+  const tones = {
+    success: {
+      shell: "border-emerald-100 bg-emerald-50/80",
+      eyebrow: "text-emerald-700",
+      button: "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-700",
+      dot: "bg-emerald-500",
+    },
+    "soft-success": {
+      shell: "border-emerald-100 bg-emerald-50/60",
+      eyebrow: "text-emerald-700",
+      button: "bg-emerald-600 shadow-emerald-600/15 hover:bg-emerald-700",
+      dot: "bg-emerald-400",
+    },
+    warning: {
+      shell: "border-amber-200 bg-amber-50/80",
+      eyebrow: "text-amber-700",
+      button: "bg-amber-600 shadow-amber-600/20 hover:bg-amber-700",
+      dot: "bg-amber-500",
+    },
+    "soft-warning": {
+      shell: "border-amber-100 bg-amber-50/70",
+      eyebrow: "text-amber-700",
+      button: "bg-amber-500 shadow-amber-500/15 hover:bg-amber-600",
+      dot: "bg-amber-400",
+    },
+    danger: {
+      shell: "border-rose-200 bg-rose-50/80",
+      eyebrow: "text-rose-700",
+      button: "bg-rose-600 shadow-rose-600/20 hover:bg-rose-700",
+      dot: "bg-rose-500",
+    },
+    neutral: {
+      shell: "border-slate-200 bg-white",
+      eyebrow: "text-slate-600",
+      button: "bg-slate-900 shadow-slate-900/10 hover:bg-slate-800",
+      dot: "bg-slate-400",
+    },
+  };
+  return tones[tone] || tones.neutral;
 }
 
 function findNextMeal(meals, consumed) {
@@ -1485,33 +1590,36 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
         {/* 3 compact KPIs */}
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">KCAL THỰC ĐƠN</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Kcal đã ăn</p>
             <p className="mt-2 text-3xl font-black text-slate-900">
-              {round(planTotals.calories).toLocaleString("vi-VN")}{" "}
+              {round(actualTotals.calories).toLocaleString("vi-VN")}{" "}
               <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.targetCalories.toLocaleString("vi-VN")} kcal</span>
             </p>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E2E8F0]">
-              <div className={`h-full rounded-full transition-all duration-500 ${planKcalPct >= 90 ? "bg-[#10B981]" : "bg-[#FB923C]"}`} style={{ width: `${planKcalPct}%` }} />
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${actualTotals.calories >= nutritionTarget.targetCalories * 0.9 ? "bg-[#10B981]" : "bg-[#FB923C]"}`}
+                style={{ width: `${Math.min(Math.round((actualTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100)}%` }}
+              />
             </div>
           </div>
           
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">PROTEIN THỰC ĐƠN</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Protein đã ăn</p>
             <p className="mt-2 text-3xl font-black text-slate-900">
-              {round(planTotals.protein)}g{" "}
+              {round(actualTotals.protein)}g{" "}
               <span className="text-sm font-bold text-slate-400">/ {nutritionTarget.proteinTarget}g</span>
             </p>
           </div>
           
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">MỨC ĐỘ PHÙ HỢP</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Thực đơn gợi ý</p>
             <p className={`mt-2 text-3xl font-black ${planKcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
               {planKcalPct}%
             </p>
           </div>
         </div>
-        <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-          Số liệu này được tính từ thực đơn được hệ thống gợi ý hôm nay.
+        <p className="mt-3 text-sm font-medium italic text-slate-500">
+          * Số liệu này được tính từ thực đơn được hệ thống gợi ý hôm nay.
         </p>
 
         {/* Expandable macro details */}
@@ -1521,12 +1629,12 @@ function JournalPage({ meals, validation, nutritionTarget, mealLog, onMealLogCha
           onClick={() => setShowMacro((v) => !v)}
         >
           <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform duration-200 ${showMacro ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-          Chi tiết macro
+          Xem chi tiết dinh dưỡng
         </button>
         {showMacro ? (
           <div className="mt-1 grid gap-3 sm:grid-cols-2 animate-fade-in">
-            <InfoTile label="Fat đã ăn" value={`${round(actualTotals.fat)}g`} />
-            <InfoTile label="Carbs đã ăn" value={`${round(actualTotals.carbs)}g`} />
+            <InfoTile label="Chất béo đã ăn" value={`${round(actualTotals.fat)}g`} />
+            <InfoTile label="Tinh bột đã ăn" value={`${round(actualTotals.carbs)}g`} />
           </div>
         ) : null}
 
@@ -1918,7 +2026,7 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
           <div>
             <h3 className="text-2xl font-black text-[#0F172A]">{mealName}</h3>
             <p className="mt-1 text-sm font-semibold text-[#64748B]">
-              {isShort ? `Đã tạo ${itemCount}/${expected} món phù hợp` : `${itemCount} món`}
+              {isShort ? `${mealName} chỉ tạo được ${itemCount}/${expected} món phù hợp` : `${itemCount} món`}
             </p>
           </div>
         </div>
@@ -3238,6 +3346,13 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
           <section className="glass-panel p-5 sm:p-6 animate-fade-in">
             <h2 className="text-2xl font-black text-slate-950">Hồ sơ dinh dưỡng</h2>
             <p className="mt-2 text-sm font800 leading-6 text-slate-500">Cập nhật thông tin để NutriGain tính BMI, kcal mục tiêu và tạo thực đơn phù hợp.</p>
+            {eligibility?.warnings && eligibility.warnings.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {eligibility.warnings.map((warn, i) => (
+                  <WarningCard key={i} text={warn} />
+                ))}
+              </div>
+            )}
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <ProfileField label="Tuổi" name="age" type="number" min="1" max="120" value={profile.age} error={errors.age} onChange={onChange} />
               <ProfileSelect label="Giới tính" name="sex" value={profile.sex} error={errors.sex} onChange={onChange} options={[{ value: "", label: "Không chọn" }, { value: "male", label: "Nam" }, { value: "female", label: "Nữ" }]} />
@@ -3250,7 +3365,7 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
               <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
               <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
               <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} helperText="Nhập các món muốn ưu tiên, phân tách bằng dấu phẩy." />
-              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} helperText="Nhập món không thích, dị ứng hoặc cần tránh, phân tách bằng dấu phẩy." />
+              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} helperText="Ví dụ: sữa động vật, đậu nành, gà, bò. Phân tách bằng dấu phẩy." />
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
               <button
@@ -3489,7 +3604,7 @@ function SystemSettingsPage({ datasetStats, progress, summary, validation }) {
           icon={(props) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>}
           label="Món bị loại" 
           value={formatStat(datasetStats.excluded)} 
-          subtext="Vi phạm macro hoặc rule"
+          subtext="Vi phạm dữ liệu dinh dưỡng hoặc rule"
           colorClass="bg-orange-50 text-orange-600"
         />
         <SettingsMetricCard 
@@ -3526,7 +3641,7 @@ function SystemSettingsPage({ datasetStats, progress, summary, validation }) {
             />
             <ValidationRuleItem 
               id="macro" 
-              label="Kiểm tra macro bất thường" 
+              label="Kiểm tra dữ liệu dinh dưỡng bất thường" 
               description="Loại bỏ các món ăn có chỉ số Đạm/Béo/Tinh bột vi phạm logic hoặc không cân đối." 
               checked={rules.macro} 
               onChange={toggleRule} 
@@ -3586,7 +3701,7 @@ function DailyNutritionSummary({ validation, consumedNutrition, nutritionTarget,
     <section className="glass-panel p-5 sm:p-6">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1.1fr)] xl:items-center">
         <div>
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Hôm nay</p>
+          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">ĐÃ ĂN HÔM NAY</p>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <h2 className="text-4xl font-black leading-none text-slate-950">
               {consumed.calories.toLocaleString("vi-VN")}
@@ -3601,16 +3716,22 @@ function DailyNutritionSummary({ validation, consumedNutrition, nutritionTarget,
               }}
             />
           </div>
+          {consumed.calories === 0 && (
+             <p className="mt-3 text-sm font800 text-slate-500">
+               Bạn chưa đánh dấu món nào đã ăn hôm nay.
+             </p>
+          )}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <MacroTarget label="Protein" value={consumed.protein} target={nutritionTarget.proteinTarget} tone="sky" />
-          <MacroTarget label="Fat" value={consumed.fat} target={nutritionTarget.fatTarget} tone="orange" />
-          <MacroTarget label="Carbs" value={consumed.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
+          <MacroTarget label="Protein đã ăn" value={consumed.protein} target={nutritionTarget.proteinTarget} tone="sky" />
+          <MacroTarget label="Chất béo đã ăn" value={consumed.fat} target={nutritionTarget.fatTarget} tone="orange" />
+          <MacroTarget label="Tinh bột đã ăn" value={consumed.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
         </div>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-5 border-t border-slate-100 pt-5">
+        <p className="text-xs font900 uppercase tracking-[0.18em] text-slate-500 mb-3">Đánh giá thực đơn gợi ý</p>
         <PlanAlert validation={validation} onRegenerate={onRegenerate} isSubmitting={isSubmitting} compact />
       </div>
     </section>
@@ -3645,6 +3766,494 @@ function deriveEvaluationStatus({ totalCalories, targetKcal, totalProtein, total
   return "major_adjustment";
 }
 
+function buildPlanTotalsFromMeals(meals, validation) {
+  const mealTotals = sumItems((meals || []).flatMap((meal) => meal.items || []));
+  const totalCalories = Number(validation?.totalCalories ?? validation?.totalKcal ?? validation?.total_kcal ?? mealTotals.calories);
+  const totalProtein = Number(validation?.totalProtein ?? validation?.total_protein ?? mealTotals.protein);
+  const totalFat = Number(validation?.totalFat ?? validation?.total_fat ?? mealTotals.fat);
+  const totalCarbs = Number(validation?.totalCarbs ?? validation?.total_carbs ?? mealTotals.carbs);
+  const targetCalories = Number(validation?.targetKcal ?? validation?.target_kcal ?? 0);
+  const targetProtein = Number(validation?.targetProtein ?? validation?.target_protein ?? 0);
+  return {
+    calories: round(totalCalories),
+    protein: round(totalProtein),
+    fat: round(totalFat),
+    carbs: round(totalCarbs),
+    targetCalories: round(targetCalories),
+    targetProtein: round(targetProtein),
+    hasPlan: (meals || []).some((meal) => Array.isArray(meal.items) && meal.items.length > 0) || totalCalories > 0,
+  };
+}
+
+function buildMissingMealItems(meals, validation) {
+  const summary = validation?.mealItemCountSummary || validation?.meal_item_count_summary || validation?.item_count_summary || {};
+  const missing = [];
+  Object.entries(summary || {}).forEach(([mealType, info]) => {
+    const expected = Number(info?.expected ?? 0);
+    const actual = Number(info?.actual ?? 0);
+    if (expected > 0 && actual < expected) {
+      missing.push({ mealType, expected, actual, label: mealLabels[mealType] || mealType });
+    }
+  });
+  if (!missing.length) {
+    (meals || []).forEach((meal) => {
+      const expected = Number(meal.expectedItems || 0);
+      const actual = Number(meal.items?.length || 0);
+      if (expected > 0 && actual < expected) {
+        missing.push({ mealType: meal.mealType || meal.title, expected, actual, label: meal.title });
+      }
+    });
+  }
+  return {
+    total: missing.reduce((sum, item) => sum + Math.max(item.expected - item.actual, 0), 0),
+    items: missing,
+  };
+}
+
+function formatMissingMealPoint(missingItems) {
+  const first = missingItems?.items?.[0];
+  const missingCount = first ? Math.max(Number(first.expected || 0) - Number(first.actual || 0), 0) : Number(missingItems?.total || 0);
+  if (first && missingCount > 0) {
+    return `${first.label || "Một bữa"} đang thiếu ${missingCount} món phù hợp.`;
+  }
+  if (missingCount > 0) return "Một số bữa đang thiếu món phù hợp.";
+  return "";
+}
+
+function formatMissingMealAction(missingItems) {
+  const first = missingItems?.items?.[0];
+  const missingCount = first ? Math.max(Number(first.expected || 0) - Number(first.actual || 0), 0) : Number(missingItems?.total || 0);
+  if (first && missingCount > 0) {
+    return `${first.label || "Một bữa"} đang thiếu ${missingCount} món, bạn có thể tạo lại nếu muốn thực đơn đầy đủ hơn.`;
+  }
+  if (missingCount > 0) return "Bạn có thể tạo lại nếu muốn thực đơn đầy đủ hơn.";
+  return "";
+}
+
+function getMealPlanUserStatus(validation, totals, targets, missingItems, meals = []) {
+  const targetCalories = Number(totals?.targetCalories || targets?.targetCalories || 0);
+  const targetProtein = Number(totals?.targetProtein || targets?.proteinTarget || 0);
+  if (!totals?.hasPlan) {
+    return {
+      label: "Chưa có thực đơn hôm nay",
+      tone: "neutral",
+      points: ["Tạo thực đơn để NutriGain kiểm tra năng lượng và protein cho hôm nay."],
+      actionLabel: "Tạo thực đơn hôm nay",
+      actionKind: "generate",
+    };
+  }
+
+  const rawStatus = String(validation?.status || "").toLowerCase();
+  const isValidFlag = validation?.is_valid === true || validation?.isValid === true || validation?.is_valid === "true" || validation?.isValid === "true";
+  const score = getMealPlanScore(validation, totals, targets);
+  const totalProtein = Number(totals?.protein || 0);
+  const proteinDelta = round(totalProtein - targetProtein);
+  const proteinDiff = Math.max(proteinDelta, 0);
+  const proteinMissing = Math.max(round(targetProtein - totalProtein), 0);
+  const proteinHigh = targetProtein > 0 && totalProtein > targetProtein * 1.15;
+  const proteinLowSevere = targetProtein > 0 && totalProtein < targetProtein * 0.8;
+  const proteinLowLight = targetProtein > 0 && totalProtein < targetProtein && !proteinLowSevere;
+  const missingTotal = getMissingItemCount(validation, missingItems);
+  const missingMany = missingTotal > 1;
+  const animalProteinLoad = getAnimalProteinLoad(meals, targetProtein);
+  const hasAnimalProteinIssue = totalProtein >= targetProtein && animalProteinLoad.mealOverLimit;
+  const points = [];
+
+  const kcalDiff = Number(validation?.kcalDiff ?? validation?.kcal_diff ?? (Number(totals?.calories || 0) - targetCalories));
+  const kcalAbs = Math.abs(round(kcalDiff));
+  const kcalThreshold = Math.max(120, targetCalories * 0.07);
+  const kcalRatio = targetCalories > 0 ? kcalAbs / targetCalories : 0;
+  const kcalOffTarget = targetCalories > 0 && kcalAbs > kcalThreshold;
+  if (targetCalories > 0) {
+    if (kcalAbs <= Math.max(80, targetCalories * 0.05)) {
+      points.push("Năng lượng gần đạt mục tiêu.");
+    } else if (kcalDiff < -kcalThreshold) {
+      points.push(`Năng lượng còn thiếu khoảng ${kcalAbs.toLocaleString("vi-VN")} kcal.`);
+    } else if (kcalDiff > kcalThreshold) {
+      points.push(`Năng lượng đang cao hơn mục tiêu khoảng ${kcalAbs.toLocaleString("vi-VN")} kcal.`);
+    }
+  }
+
+  if (proteinHigh && proteinDiff > 0) {
+    points.push(`Protein đang cao hơn mục tiêu ${proteinDiff.toLocaleString("vi-VN")}g.`);
+  } else if (proteinLowLight) {
+    points.push("Protein còn thiếu nhẹ.");
+  } else if (proteinLowSevere && proteinMissing > 0) {
+    points.push(`Protein còn thiếu khoảng ${proteinMissing.toLocaleString("vi-VN")}g.`);
+  }
+
+  if (missingTotal > 0) {
+    points.push(formatMissingMealPoint(missingItems) || "Một số bữa đang thiếu món phù hợp.");
+  }
+
+  if (hasAnimalProteinIssue) {
+    points.push("Một số bữa có nhiều hơn một món đạm chính.");
+  }
+
+  if (hasFavoriteSkipped(validation)) {
+    points.push("Một số món yêu thích không được chọn vì không phù hợp với hồ sơ hiện tại.");
+  }
+
+  const hardConstraintViolation = hasHardConstraintViolation(validation, {
+    totals,
+    targetProtein,
+    animalProteinLoad,
+  });
+  const kcalFarOff = targetCalories > 0 && (score < 85 || kcalRatio > 0.15);
+  const shouldRegenerate = score < 85
+    || missingMany
+    || hardConstraintViolation
+    || kcalFarOff
+    || proteinHigh
+    || proteinLowSevere;
+  const hasLightAdjustment = proteinLowLight
+    || kcalOffTarget
+    || missingTotal > 0
+    || rawStatus === "minor_adjustment"
+    || rawStatus === "fallback"
+    || hasAnimalProteinIssue
+    || (isValidFlag && !["valid", ""].includes(rawStatus));
+
+  if (score >= 95 && missingTotal === 0 && !shouldRegenerate) {
+    return {
+      label: hasLightAdjustment ? "Thực đơn gần phù hợp" : "Thực đơn hôm nay phù hợp",
+      tone: hasLightAdjustment ? "soft-success" : "success",
+      points: dedupeMessages(points.length ? points : ["Thực đơn đã phù hợp với mục tiêu hôm nay."]),
+      actionLabel: "Xem thực đơn hôm nay",
+      actionKind: "view",
+    };
+  }
+
+  if (!points.length) {
+    points.push("Thực đơn gần đạt mục tiêu, chỉ cần kiểm tra vài điểm nhỏ.");
+  }
+
+  if (!shouldRegenerate) {
+    const lightMissing = score >= 95 && missingTotal === 1;
+    return {
+      label: missingTotal > 0 || rawStatus === "minor_adjustment" || hasAnimalProteinIssue ? "Cần điều chỉnh nhẹ" : "Thực đơn gần phù hợp",
+      tone: lightMissing ? "soft-warning" : "warning",
+      points: dedupeMessages(points),
+      actionLabel: missingTotal > 0 ? "Tạo lại để đủ món hơn" : "Tạo lại thực đơn phù hợp hơn",
+      actionKind: "regenerate",
+    };
+  }
+
+  return {
+    label: "Nên tạo lại thực đơn",
+    tone: "danger",
+    points: dedupeMessages(points),
+    actionLabel: "Tạo lại thực đơn phù hợp hơn",
+    actionKind: "regenerate",
+  };
+}
+
+function getMissingItemCount(validation, missingItems) {
+  const explicit = Number(
+    validation?.missing_item_count_total
+    ?? validation?.missingItemCountTotal
+    ?? validation?.mealItemCountSummary?.missing_item_count_total
+    ?? validation?.meal_item_count_summary?.missing_item_count_total,
+  );
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  return Number(missingItems?.total || 0);
+}
+
+function getAnimalProteinLoad(meals = [], targetProtein = 0) {
+  const maxPerDay = targetProtein > 95 ? 3 : 2;
+  let total = 0;
+  let mealOverLimit = false;
+  (meals || []).forEach((meal) => {
+    const count = (meal.items || []).filter(isAnimalProteinItem).length;
+    total += count;
+    if (count > 1) mealOverLimit = true;
+  });
+  return {
+    total,
+    maxPerDay,
+    mealOverLimit,
+    dayOverLimit: total > maxPerDay,
+    overLimit: mealOverLimit,
+  };
+}
+
+function isAnimalProteinItem(item) {
+  const text = normalizeMessageKey(
+    `${item?.technicalCategory || ""} ${item?.subCategory || ""} ${item?.category || ""} ${item?.foodGroup || ""} ${item?.name || ""}`,
+  );
+  return /(protein meat|protein seafood|protein_meat|protein_seafood|meat|seafood|thit|hai san|fish|salmon|tuna|shrimp|prawn|crab|egg|trung|beef|chicken|turkey|pork|lamb|duck)/.test(text);
+}
+
+function isProteinExcessMessageKey(key) {
+  return key.includes("protein") && (key.includes("vuot") || key.includes("cao hon"));
+}
+
+function isProteinLowMessageKey(key) {
+  return (key.includes("protein") || key.includes("dam")) && (key.includes("thieu") || key.includes("thap hon") || key.includes("con thieu"));
+}
+
+function isAnimalProteinMessageKey(key) {
+  return key.includes("dam dong vat")
+    || key.includes("animal protein")
+    || key.includes("nguon dam dong vat")
+    || key.includes("mon dam chinh")
+    || key.includes("nguon dam chinh");
+}
+
+function isKcalMessageKey(key) {
+  return key.includes("kcal")
+    || key.includes("nang luong")
+    || (key.includes("thuc don hien tai dat") && key.includes("muc tieu"));
+}
+
+function hasHardConstraintViolation(validation, context = {}) {
+  const messages = [
+    ...(Array.isArray(validation?.errors) ? validation.errors : []),
+    ...(Array.isArray(validation?.warnings) ? validation.warnings : []),
+  ];
+  const totalProtein = Number(context?.totals?.protein || 0);
+  const targetProtein = Number(context?.targetProtein || 0);
+  return messages.some((message) => {
+    const key = normalizeMessageKey(message);
+    if (!key) return false;
+    if (isAnimalProteinMessageKey(key)) {
+      return false;
+    }
+    if (isProteinExcessMessageKey(key)) {
+      return targetProtein > 0 && totalProtein > targetProtein * 1.15;
+    }
+    if (isProteinLowMessageKey(key) || isKcalMessageKey(key)) {
+      return false;
+    }
+    return (
+      key.includes("khong co du lieu thuc don")
+      || key.includes("duoi 1200")
+      || key.includes("nam trong danh sach khong thich")
+      || key.includes("di ung")
+      || key.includes("trung lap mon")
+      || key.includes("an chay khong phu hop")
+      || key.includes("nguon tinh bot chinh")
+      || key.includes("vuot nguong an toan")
+      || key.includes("du lieu bat thuong")
+      || key.includes("mon ngot")
+      || key.includes("dessert")
+      || key.includes("eat clean khong nen")
+    );
+  });
+}
+
+function hasFavoriteSkipped(validation) {
+  const messages = [
+    ...(Array.isArray(validation?.infos) ? validation.infos : []),
+    ...(Array.isArray(validation?.warnings) ? validation.warnings : []),
+  ].map((message) => normalizeMessageKey(decodeUnicodeEscapes(message)));
+  if (messages.some((message) => message.includes("mon yeu thich") && (message.includes("khong") || message.includes("chua")))) {
+    return true;
+  }
+  const explanations = [
+    ...(Array.isArray(validation?.recommendationExplanations) ? validation.recommendationExplanations : []),
+    ...(Array.isArray(validation?.recommendation_explanations) ? validation.recommendation_explanations : []),
+  ];
+  return explanations.some((entry) => {
+    if (typeof entry === "string") {
+      return normalizeMessageKey(decodeUnicodeEscapes(entry)).includes("favorite");
+    }
+    return entry?.type === "favorite_skipped" || Boolean(entry?.reason && String(entry.reason).includes("favorite"));
+  });
+}
+
+function buildDashboardAdjustmentMessages(validation, dataWarnings, mainPoints = [], context = {}) {
+  const pointKeys = mainPoints.map((point) => normalizeMessageKey(point));
+  return dedupeMessages([
+    ...buildContextualAdjustmentMessages(context),
+    ...collectNutritionMessages(validation, dataWarnings, context)
+      .map((message) => toShortAdjustmentMessage(message, context)),
+  ]
+    .filter(Boolean)
+    .filter((message) => !messageRepeatsPoint(message, pointKeys)));
+}
+
+function buildDashboardDetailMessages(validation, dataWarnings, context = {}) {
+  return dedupeMessages(collectNutritionMessages(validation, dataWarnings, context).map(toFriendlyDashboardMessage)).slice(0, 8);
+}
+
+function collectNutritionMessages(validation, dataWarnings = [], context = {}) {
+  const messages = [
+    ...(Array.isArray(validation?.errors) ? validation.errors : []),
+    ...(Array.isArray(validation?.warnings) ? validation.warnings : []),
+    ...(Array.isArray(validation?.infos) ? validation.infos : []),
+    ...(Array.isArray(dataWarnings) ? dataWarnings : []),
+  ];
+  const explanations = [
+    ...(Array.isArray(validation?.recommendationExplanations) ? validation.recommendationExplanations : []),
+    ...(Array.isArray(validation?.recommendation_explanations) ? validation.recommendation_explanations : []),
+  ];
+  explanations.forEach((entry) => {
+    messages.push(formatRecommendationExplanation(entry));
+  });
+  return dedupeMessages(messages).filter((message) => shouldShowNutritionMessage(message, context));
+}
+
+function buildContextualAdjustmentMessages(context = {}) {
+  const totals = context.totals || {};
+  const targets = context.targets || {};
+  if (!totals?.hasPlan) return [];
+  const targetProtein = Number(totals.targetProtein || targets.proteinTarget || 0);
+  const totalProtein = Number(totals.protein || 0);
+  const proteinRatio = targetProtein > 0 ? totalProtein / targetProtein : 1;
+  const animalProteinLoad = getAnimalProteinLoad(context.meals || [], targetProtein);
+  const missingTotal = Number(context.missingItems?.total || 0);
+
+  if (missingTotal > 0) {
+    return ["Thực đơn gần phù hợp. Bạn có thể tạo lại nếu muốn đầy đủ hơn."];
+  }
+
+  if (targetProtein > 0 && totalProtein > targetProtein * 1.15) {
+    return [buildProteinExcessMessage(totalProtein, targetProtein)];
+  }
+
+  if (targetProtein > 0 && totalProtein < targetProtein && proteinRatio >= 0.85) {
+    return ["Có thể thêm một món giàu protein phù hợp."];
+  }
+
+  if (targetProtein > 0 && totalProtein < targetProtein * 0.85) {
+    return ["Protein còn thiếu. Có thể thêm một món giàu protein phù hợp."];
+  }
+
+  if (targetProtein > 0 && totalProtein >= targetProtein && animalProteinLoad.mealOverLimit) {
+    return ["Một số bữa có nhiều hơn một món đạm chính. Có thể thay bớt bằng đậu, ngũ cốc hoặc rau củ."];
+  }
+
+  return [];
+}
+
+function shouldShowNutritionMessage(message, context = {}) {
+  const key = normalizeMessageKey(message);
+  if (!key) return false;
+  const totals = context.totals || {};
+  const targets = context.targets || {};
+  const targetProtein = Number(totals.targetProtein || targets.proteinTarget || 0);
+  const totalProtein = Number(totals.protein || 0);
+  const animalProteinLoad = getAnimalProteinLoad(context.meals || [], targetProtein);
+
+  if (key.includes("thuc don gan dat muc tieu") && key.includes("can kiem tra")) return false;
+  if (key.includes("protein cua thuc don da gan") && totalProtein < targetProtein) return false;
+  if (isAnimalProteinMessageKey(key)) {
+    return targetProtein > 0 && totalProtein >= targetProtein && animalProteinLoad.mealOverLimit;
+  }
+  if (isProteinExcessMessageKey(key)) {
+    return targetProtein > 0 && totalProtein > targetProtein * 1.15;
+  }
+  if (isProteinLowMessageKey(key)) {
+    return targetProtein > 0 && totalProtein < targetProtein * 0.85;
+  }
+  return true;
+}
+
+function formatRecommendationExplanation(entry) {
+  if (!entry) return "";
+  if (typeof entry === "string") return entry;
+  const foods = Array.isArray(entry.foods) && entry.foods.length
+    ? entry.foods.join(", ")
+    : entry.food || entry.term || "";
+  const reasonMap = {
+    excluded_by_disliked_or_allergy: "nằm trong danh sách cần tránh.",
+    conflicts_with_vegetarian: "không phù hợp với chế độ ăn chay.",
+    protein_near_or_above_target: "protein của thực đơn đã gần hoặc cao hơn mục tiêu.",
+    macro_balance_preferred: "hệ thống ưu tiên phương án cân bằng dinh dưỡng hơn.",
+  };
+  if (entry.type === "favorite_skipped" || entry.reason) {
+    return foods
+      ? `Món yêu thích "${foods}" chưa được chọn vì ${reasonMap[entry.reason] || "không phù hợp với hồ sơ hiện tại."}`
+      : "Một số món yêu thích không được chọn vì không phù hợp với hồ sơ hiện tại.";
+  }
+  return String(entry.message || entry.reason || "");
+}
+
+function toFriendlyDashboardMessage(message) {
+  return decodeUnicodeEscapes(message)
+    .replace(/\bmacro\b/gi, "dinh dưỡng")
+    .replace(/\btarget\b/gi, "mục tiêu")
+    .replace(/\bvalidation\b/gi, "kiểm tra")
+    .replace(/\bratio\b/gi, "tỷ lệ")
+    .replace(/minor_adjustment|major_adjustment|is_valid/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toShortAdjustmentMessage(message, context = {}) {
+  const friendly = toFriendlyDashboardMessage(message);
+  const key = normalizeMessageKey(friendly);
+  if (!key) return "";
+  const totals = context.totals || {};
+  const targets = context.targets || {};
+  const targetProtein = Number(totals.targetProtein || targets.proteinTarget || 0);
+  const totalProtein = Number(totals.protein || 0);
+  const animalProteinLoad = getAnimalProteinLoad(context.meals || [], targetProtein);
+  if (isProteinExcessMessageKey(key)) {
+    return targetProtein > 0 && totalProtein > targetProtein * 1.15
+      ? buildProteinExcessMessage(totalProtein, targetProtein)
+      : "";
+  }
+  if (isProteinLowMessageKey(key)) {
+    return targetProtein > 0 && totalProtein < targetProtein
+      ? "Có thể thêm một món giàu protein phù hợp."
+      : "";
+  }
+  if (isAnimalProteinMessageKey(key)) {
+    if (!(targetProtein > 0 && totalProtein >= targetProtein && animalProteinLoad.mealOverLimit)) return "";
+    return "Một số bữa có nhiều hơn một món đạm chính. Có thể thay bớt bằng đậu, ngũ cốc hoặc rau củ.";
+  }
+  if ((key.includes("da tao") || key.includes("chi tao duoc")) && key.includes("mon phu hop")) {
+    return "Bạn có thể tạo lại nếu muốn thực đơn đầy đủ hơn.";
+  }
+  if (key.includes("mon yeu thich") && (key.includes("khong") || key.includes("chua"))) {
+    return "Bạn có thể chỉnh món yêu thích hoặc danh sách cần tránh trong hồ sơ nếu muốn ưu tiên món khác.";
+  }
+  if (key.includes("thuc don gan dat muc tieu") && key.includes("can kiem tra")) {
+    return "";
+  }
+  return friendly;
+}
+
+function messageRepeatsPoint(message, pointKeys) {
+  const key = normalizeMessageKey(message);
+  if (!key) return true;
+  return pointKeys.some((pointKey) => {
+    if (!pointKey) return false;
+    if (key === pointKey || key.includes(pointKey) || pointKey.includes(key)) return true;
+    if (pointKey.includes("nang luong") && (key.includes("nang luong") || key.includes("kcal"))) return true;
+    if (pointKey.includes("mon yeu thich") && key.includes("mon yeu thich")) return true;
+    if ((pointKey.includes("dang thieu") || pointKey.includes("chi tao duoc")) && (key.includes("dang thieu") || key.includes("chi tao duoc"))) return true;
+    if (pointKey.includes("mon dam chinh") && key.includes("mon dam chinh")) return true;
+    if (pointKey.includes("mot so bua") && key.includes("mon phu hop")) return true;
+    return false;
+  });
+}
+
+function getMealPlanScore(validation, totals, targets) {
+  if (!totals?.hasPlan) return 0;
+  const explicitPct = Number(validation?.kcalDiffPct ?? validation?.kcal_diff_pct);
+  if (Number.isFinite(explicitPct)) {
+    return Math.max(0, Math.min(100, Math.round(100 - Math.min(Math.abs(explicitPct), 100))));
+  }
+  const targetCalories = Number(totals?.targetCalories || targets?.targetCalories || 0);
+  if (targetCalories <= 0) return validation?.isValid ? 100 : 0;
+  const diffPct = Math.abs(Number(totals?.calories || 0) - targetCalories) / targetCalories;
+  return Math.max(0, Math.min(100, Math.round(100 - diffPct * 100)));
+}
+
+function getMealPlanScoreLabel(validation, totals, targets) {
+  if (!totals?.hasPlan) return "";
+  return `Đánh giá: ${getMealPlanScore(validation, totals, targets)}%`;
+}
+
+function isMealPlanResponseValid(data) {
+  const validation = data?.validation || {};
+  const status = String(validation.status || data?.meal_plan?.status || "").toLowerCase();
+  return status === "valid" || validation.is_valid === true || validation.isValid === true;
+}
+
 function MacroTarget({ label, value, target, tone }) {
   const barColor = {
     sky: "bg-sky-500",
@@ -3676,23 +4285,41 @@ function MacroTarget({ label, value, target, tone }) {
 }
 
 function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) {
-  const status = validation.proteinOverLimit ? "major_adjustment" : validation.status || (validation.isValid ? "valid" : "major_adjustment");
+  const alertTotals = {
+    calories: Number(validation.totalCalories || validation.totalKcal || validation.total_kcal || 0),
+    protein: Number(validation.totalProtein || validation.total_protein || 0),
+    targetCalories: Number(validation.targetKcal || validation.target_kcal || 0),
+    targetProtein: Number(validation.targetProtein || validation.target_protein || 0),
+    hasPlan: Number(validation.totalCalories || validation.totalKcal || validation.total_kcal || 0) > 0,
+  };
+  const alertScore = getMealPlanScore(validation, alertTotals, {});
+  const alertProteinOverLimit = alertTotals.targetProtein > 0 && alertTotals.protein > alertTotals.targetProtein * 1.15;
+  const alertHardIssue = hasHardConstraintViolation(validation, {
+    totals: alertTotals,
+    targetProtein: alertTotals.targetProtein,
+    animalProteinLoad: { mealOverLimit: false, overLimit: false },
+  });
+  let status = alertProteinOverLimit ? "major_adjustment" : validation.status || (validation.isValid ? "valid" : "major_adjustment");
+  
+  if ((validation.isValid && status !== "minor_adjustment") || (alertScore >= 95 && getMissingItemCount(validation, null) === 0 && !alertProteinOverLimit && !alertHardIssue)) {
+      status = "valid";
+  }
   
   let shellClass = "border-emerald-200 bg-emerald-50 text-emerald-900";
-  let title = "Đạt mục tiêu";
+  let title = "Thực đơn hôm nay phù hợp";
   
   if (status === "minor_adjustment") {
     shellClass = "border-amber-200 bg-amber-50 text-amber-900";
-    title = "Gần đạt mục tiêu";
+    title = "Cần điều chỉnh nhẹ";
   } else if (status === "major_adjustment") {
     shellClass = "border-orange-200 bg-orange-50 text-orange-900";
-    title = "Cần điều chỉnh";
+    title = "Nên tạo lại thực đơn";
   } else if (status === "invalid") {
     shellClass = "border-red-200 bg-red-50 text-red-900";
-    title = "Cần kiểm tra";
+    title = "Cần điều chỉnh dinh dưỡng";
   } else if (status === "fallback") {
     shellClass = "border-slate-200 bg-slate-50 text-slate-900";
-    title = "Chưa tối ưu";
+    title = "Thực đơn gần phù hợp";
   }
 
   const showButton = status === "minor_adjustment" || status === "major_adjustment";
@@ -3700,7 +4327,8 @@ function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) 
     ? validation.errors
     : Array.isArray(validation.warnings) && validation.warnings.length > 0
       ? validation.warnings
-      : validation.messages || []);
+      : validation.messages || [])
+    .filter((message) => shouldShowNutritionMessage(message, { totals: alertTotals, targets: {}, meals: [] }));
   const infoMessages = dedupeMessages(Array.isArray(validation.infos) ? validation.infos : []);
 
   return (
@@ -3725,10 +4353,31 @@ function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) 
               </ul>
             </div>
           ) : null}
+          {Array.isArray(validation.recommendationExplanations) && validation.recommendationExplanations.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm font800 leading-6 text-indigo-900">
+              <p className="font-black">Lý do thay đổi món yêu thích</p>
+              <ul className="mt-1 space-y-1 list-disc pl-4">
+                {validation.recommendationExplanations.map((exp, index) => {
+                  let text = exp;
+                  if (typeof exp === 'object' && exp !== null) {
+                    const term = exp.term || 'Món này';
+                    const reasonMap = {
+                      'excluded_by_disliked_or_allergy': 'nằm trong danh sách dị ứng/không thích.',
+                      'conflicts_with_vegetarian': 'không phù hợp với chế độ ăn chay.',
+                      'protein_near_or_above_target': 'đã đủ hoặc dư protein mục tiêu.',
+                      'macro_balance_preferred': 'hệ thống ưu tiên cân bằng dinh dưỡng hơn.',
+                    };
+                    text = `Món '${term}' không được ưu tiên vì ${reasonMap[exp.reason] || exp.reason}`;
+                  }
+                  return <li key={`exp-${index}`}>{text}</li>;
+                })}
+              </ul>
+            </div>
+          ) : null}
           {status !== "valid" && !compact ? (
             <div className="mt-3 grid gap-2 text-xs font900 sm:grid-cols-4">
-              <span>Target: {Math.round(validation.targetKcal || validation.target_kcal || 0).toLocaleString("vi-VN")} kcal</span>
-              <span>Tổng: {Math.round(validation.totalCalories || validation.total_kcal || 0).toLocaleString("vi-VN")} kcal</span>
+              <span>Mục tiêu: {Math.round(validation.targetKcal || validation.target_kcal || 0).toLocaleString("vi-VN")} kcal</span>
+              <span>Năng lượng thực đơn: {Math.round(validation.totalCalories || validation.total_kcal || 0).toLocaleString("vi-VN")} kcal</span>
               <span>Lệch: {Math.round(validation.kcalDiff || validation.kcal_diff || 0).toLocaleString("vi-VN")} kcal</span>
               <span>{Number(validation.kcalDiffPct || validation.kcal_diff_pct || 0).toFixed(2)}%</span>
             </div>
@@ -3741,7 +4390,7 @@ function PlanAlert({ validation, onRegenerate, isSubmitting, compact = false }) 
             onClick={onRegenerate}
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Đang xử lý..." : status === "minor_adjustment" ? "Tối ưu lại macro" : "Tạo lại thực đơn phù hợp hơn"}
+            {isSubmitting ? "Đang tạo thực đơn..." : "Tạo lại thực đơn phù hợp hơn"}
           </button>
         ) : null}
       </div>
@@ -4601,7 +5250,7 @@ function EnhancedHelpPanel({ foods }) {
                     onChange={(event) => setReport((current) => ({ ...current, type: event.target.value }))}
                   >
                     <option value="wrong_image">Ảnh món ăn sai</option>
-                    <option value="abnormal_macro">Dữ liệu Macro sai</option>
+                    <option value="abnormal_macro">Dữ liệu dinh dưỡng sai</option>
                     <option value="not_working">Lỗi không sinh được thực đơn</option>
                     <option value="ui_glitch">Giao diện lỗi/Hỏng</option>
                     <option value="other">Vấn đề khác</option>
@@ -4741,7 +5390,7 @@ function HelpPanel() {
         <NoticeRow
           tone="blue"
           title="Xuất báo cáo"
-          text="Tải CSV để lưu calories, BMI, BMR, TDEE và macro mục tiêu."
+          text="Tải CSV để lưu calories, BMI, BMR, TDEE và mục tiêu dinh dưỡng."
         />
       </div>
     </section>
@@ -4881,7 +5530,7 @@ function buildDataWarnings(profile, summary, validation, target) {
   if (!Number.isFinite(weight) || weight < 20 || weight > 250) warnings.push("Cân nặng nằm ngoài ngưỡng hợp lý (20-250kg), cần kiểm tra lại hồ sơ.");
   if (!Number.isFinite(height) || height < 100 || height > 230) warnings.push("Chiều cao nằm ngoài ngưỡng hợp lý (100-230cm), cần kiểm tra lại hồ sơ.");
   if (Number.isFinite(summary.bmi) && (summary.bmi < 10 || summary.bmi > 60)) warnings.push(`BMI ${summary.bmi} bất thường, có thể do nhập sai chiều cao/cân nặng.`);
-  if (validation.totalCalories > Math.max(target.maxCalories * 1.4, 5000)) warnings.push("Tổng kcal thực đơn đang vượt ngưỡng hợp lý, cần kiểm tra dữ liệu khẩu phần hoặc macro.");
+  if (validation.totalCalories > Math.max(target.maxCalories * 1.4, 5000)) warnings.push("Tổng kcal thực đơn đang vượt ngưỡng hợp lý, cần kiểm tra dữ liệu khẩu phần hoặc dinh dưỡng.");
   if (validation.totalProtein > Math.max(target.proteinTarget * 1.8, 220)) warnings.push("Protein đang rất cao so với mục tiêu, cần kiểm tra món đạm hoặc khẩu phần.");
   if (validation.totalFat > Math.max(target.fatTarget * 1.8, 180)) warnings.push("Fat đang rất cao so với mục tiêu, cần kiểm tra món nhiều dầu/hạt/bơ.");
   if (validation.totalCarbs > Math.max(target.carbTarget * 1.8, 700)) warnings.push("Carbs đang rất cao so với mục tiêu, cần kiểm tra nhóm tinh bột.");
@@ -4996,7 +5645,7 @@ function buildMealItemCountWarnings(meals, expectedCount, summary) {
       const actual = Number(info?.actual ?? 0);
       if (expected > 0 && actual < expected) {
         const label = mealLabels[mealType] || mealType || "bữa ăn";
-        warnings.push(`Đã tạo ${actual}/${expected} món phù hợp cho ${label}; hệ thống vẫn giữ chế độ ăn và danh sách loại trừ.`);
+        warnings.push(`${label} chỉ tạo được ${actual}/${expected} món phù hợp.`);
       }
     });
     return warnings;
@@ -5005,7 +5654,7 @@ function buildMealItemCountWarnings(meals, expectedCount, summary) {
     const expected = Number(meal.expectedItems || expectedCount);
     const actual = Number(meal.items?.length || 0);
     if (expected > 0 && actual < expected) {
-      warnings.push(`Đã tạo ${actual}/${expected} món phù hợp cho ${meal.title}; hệ thống vẫn giữ chế độ ăn và danh sách loại trừ.`);
+      warnings.push(`${meal.title} chỉ tạo được ${actual}/${expected} món phù hợp.`);
     }
   });
   return warnings;
@@ -5172,7 +5821,7 @@ function buildMacroComment(macroData) {
     ["fat", macroData.fat],
     ["carbs", macroData.carbs],
   ].sort((a, b) => b[1] - a[1]);
-  return `Macro cao nhất hiện là ${values[0][0]} (${values[0][1]}g). Nên đối chiếu với mục tiêu cá nhân để tránh thực đơn lệch quá nhiều về một nhóm.`;
+  return `Nhóm dinh dưỡng cao nhất hiện là ${values[0][0]} (${values[0][1]}g). Nên đối chiếu với mục tiêu cá nhân để tránh thực đơn lệch quá nhiều về một nhóm.`;
 }
 
 function uniqueValues(values) {
@@ -5267,21 +5916,24 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
     ...(Array.isArray(safeValidation.warnings) ? safeValidation.warnings : []),
   ]);
   const proteinExcessMessage = validationMessages.find((message) => {
-    const normalized = stripAccents(String(message || "")).toLowerCase();
-    return normalized.includes("protein") && normalized.includes("vuot");
+    const normalized = normalizeMessageKey(message);
+    return isProteinExcessMessageKey(normalized);
   });
-  if (safeValidation.proteinOverLimit || proteinExcessMessage) {
+  const targetProtein = Number(safeValidation.targetProtein || safeValidation.target_protein || 0);
+  const totalProtein = Number(safeValidation.totalProtein || safeValidation.total_protein || 0);
+  const proteinOverLimit = targetProtein > 0 && totalProtein > targetProtein * 1.15;
+  if (proteinOverLimit) {
     notices.push({
       id: "high-protein",
-      type: "c\u1ea3nh b\u00e1o protein",
+      type: "cảnh báo protein",
       tone: "orange",
       category: "warning",
       icon: "alert",
-      title: "Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau",
-      text: proteinExcessMessage || buildProteinExcessMessage(safeValidation.totalProtein, safeValidation.targetProtein),
-      actionLabel: "Xem th\u1ef1c \u0111\u01a1n",
+      title: "Protein đang cao hơn mục tiêu",
+      text: proteinExcessMessage || buildProteinExcessMessage(totalProtein, targetProtein),
+      actionLabel: "Xem thực đơn",
       actionTarget: "meal-plan",
-      timeLabel: "H\u00f4m nay",
+      timeLabel: "Hôm nay",
     });
   }
   safeWarnings.forEach((warning, index) => {
@@ -5299,7 +5951,8 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
       timeLabel: "Hôm nay",
     });
   });
-  if (safeValidation.isValid && !safeValidation.proteinOverLimit && safeProgress >= 95) {
+  const backendProteinAllowsSuccess = safeValidation.isValid && !safeValidation.proteinOverLimit && safeProgress >= 95;
+  if (backendProteinAllowsSuccess && !proteinOverLimit) {
     notices.push({
       id: "goal-achievement",
       type: "thành tích đạt mục tiêu",
@@ -5307,7 +5960,7 @@ function buildNotifications(progress, summary, validation, dataWarnings) {
       category: "success",
       icon: "check",
       title: "Thực đơn đạt mục tiêu hôm nay",
-      text: "Kcal và macro đang phù hợp với mục tiêu tăng cân lành mạnh.",
+      text: "Năng lượng và dinh dưỡng đang phù hợp với mục tiêu tăng cân lành mạnh.",
       actionLabel: "Xem tổng quan",
       actionTarget: "overview",
       timeLabel: "Hôm nay",
@@ -5382,7 +6035,7 @@ function buildSummary(result, consumedNutrition = { calories: 0 }) {
 
 function buildProteinExcessMessage(totalProtein, targetProtein) {
   const excess = Math.max(Math.round(Number(totalProtein || 0) - Number(targetProtein || 0)), 0);
-  return `Protein \u0111ang v\u01b0\u1ee3t m\u1ee5c ti\u00eau ${excess}g. N\u00ean gi\u1ea3m b\u1edbt m\u00f3n \u0111\u1ea1m v\u00e0 t\u0103ng n\u0103ng l\u01b0\u1ee3ng b\u1eb1ng tinh b\u1ed9t, tr\u00e1i c\u00e2y ho\u1eb7c ch\u1ea5t b\u00e9o t\u1ed1t.`;
+  return `Protein đang cao hơn mục tiêu ${excess}g. Nên giảm bớt món đạm.`;
 }
 
 function buildKcalDeviationMessage(totalCalories, targetCalories) {
@@ -5859,8 +6512,12 @@ function stripAccents(value) {
     .replace(/Đ/g, "D");
 }
 
+function decodeUnicodeEscapes(value) {
+  return String(value || "").replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function normalizeMessageKey(value) {
-  return stripAccents(String(value || "").normalize("NFKC"))
+  return stripAccents(decodeUnicodeEscapes(value).normalize("NFKC"))
     .toLowerCase()
     .replace(/[^a-z0-9%/]+/g, " ")
     .replace(/\s*\/\s*/g, "/")
@@ -5873,7 +6530,7 @@ function dedupeMessages(messages) {
   const seen = new Set();
   const result = [];
   messages.forEach((message) => {
-    const text = String(message || "").replace(/\s+/g, " ").trim();
+    const text = decodeUnicodeEscapes(message).replace(/\s+/g, " ").trim();
     const key = normalizeMessageKey(text);
     if (!key || seen.has(key)) return;
     seen.add(key);
@@ -5905,6 +6562,30 @@ function validateProfile(formState) {
   if (!formState.meal_complexity) errors.meal_complexity = "Vui lòng chọn số món";
   if (!formState.diet_style) errors.diet_style = "Vui lòng chọn chế độ ăn";
   if (!formState.budget_level) errors.budget_level = "Vui lòng chọn ngân sách";
+
+  // Cảnh báo mâu thuẫn (Conflict Alerts)
+  const dietStyle = formState.diet_style || "";
+  const favFoods = (formState.favorite_foods || "").toLowerCase();
+  const unfavFoods = (formState.unfavorite_foods || "").toLowerCase();
+
+  // Kiểm tra mâu thuẫn chế độ ăn chay
+  if (dietStyle === "vegetarian") {
+    const meatKeywords = ["thịt", "cá", "hải sản", "bò", "gà", "heo", "tôm", "cua", "mực"];
+    const hasMeatInFav = meatKeywords.some((meat) => favFoods.includes(meat));
+    if (hasMeatInFav) {
+      errors.favorite_foods = "Chế độ ăn chay không thể chứa các loại thịt, cá hoặc hải sản trong danh sách yêu thích.";
+    }
+  }
+
+  // Kiểm tra mâu thuẫn chế độ giàu protein
+  if (dietStyle === "high_protein") {
+    const mainProteinSources = ["thịt", "cá", "trứng", "sữa", "đậu"];
+    // Nếu loại trừ gần như tất cả nguồn đạm chính
+    const excludedProteinCount = mainProteinSources.filter((p) => unfavFoods.includes(p)).length;
+    if (excludedProteinCount >= 3) {
+      errors.unfavorite_foods = "Bạn đang loại trừ quá nhiều nguồn protein chính (thịt, cá, trứng...). Sẽ rất khó để thiết lập thực đơn giàu protein.";
+    }
+  }
 
   return errors;
 }

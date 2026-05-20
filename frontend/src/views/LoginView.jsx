@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { defaultLoginState } from "../models/authModel";
 import AuthCard from "./landing/AuthCard";
@@ -11,12 +11,16 @@ import ProductPreviewSection from "./landing/ProductPreviewSection";
 import PublicHeader from "./landing/PublicHeader";
 import NutriGainLogo from "../components/NutriGainLogo";
 
-export default function LoginView({ onAuthSuccess }) {
+export default function LoginView({ onAuthSuccess, initialMode = null, onForgotPassword }) {
   // null = landing page, "login" | "register" = show auth modal/overlay
-  const [authMode, setAuthMode] = useState(null);
+  const [authMode, setAuthMode] = useState(initialMode);
   const [serverError, setServerError] = useState("");
   const [toast, setToast] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setAuthMode(initialMode);
+  }, [initialMode]);
 
   function handleShowAuth(mode) {
     setAuthMode(mode);
@@ -113,6 +117,7 @@ export default function LoginView({ onAuthSuccess }) {
               onSubmit={handleSubmit}
               onSwitchMode={handleSwitchMode}
               onGoogleLogin={handleGoogleLogin}
+              onForgotPassword={onForgotPassword}
             />
           </div>
         </div>
