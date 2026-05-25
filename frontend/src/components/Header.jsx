@@ -9,29 +9,31 @@ export default function Header({ title, onExport, onEditProfile, onToggleMenu, s
   });
 
   return (
-    <header className="app-topbar account-header sticky top-0 z-20">
-      <div className="app-topbar-inner account-header-inner">
-        <div className="topbar-heading">
+    <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
+      <div className="flex h-16 items-center justify-between px-4 sm:px-6 xl:px-8">
+        <div className="flex items-center gap-4">
           <button
-            className="topbar-menu-button grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#081832] text-white shadow-lg shadow-slate-900/10 lg:hidden"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 lg:hidden hover:bg-slate-200 transition-colors"
             onClick={onToggleMenu}
             aria-label="Mở menu"
             type="button"
           >
             <MenuIcon />
           </button>
-          <h1 className="topbar-title account-header-title">{title}</h1>
+          <h1 className="text-xl font-black text-slate-900">{title}</h1>
         </div>
 
-        <div className="topbar-actions account-header-actions">
-          <div className="topbar-date account-date-pill">{today}</div>
-          <button className="topbar-button account-header-btn secondary" onClick={onEditProfile} type="button">
+        <div className="flex items-center gap-3">
+          <div className="hidden rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600 sm:block shadow-inner">
+            {today}
+          </div>
+          <button className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 transition-colors" onClick={onEditProfile} type="button">
             Chỉnh hồ sơ
           </button>
           {showExportReport ? (
-            <button className="topbar-button account-header-btn export" onClick={onExport} disabled={isExportingReport} type="button">
+            <button className="flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow hover:bg-slate-800 transition-colors disabled:opacity-60" onClick={onExport} disabled={isExportingReport} type="button">
               <Download size={16} strokeWidth={2.6} />
-              <span>{isExportingReport ? "Đang xuất..." : "Xuất báo cáo"}</span>
+              <span className="hidden sm:inline">{isExportingReport ? "Đang xuất..." : "Xuất PDF"}</span>
             </button>
           ) : null}
         </div>

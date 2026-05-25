@@ -223,3 +223,71 @@ export async function rateFood(foodId, rating) {
   });
   return parseResponse(response, "Cannot rate food");
 }
+
+export async function getGamificationSummary() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/gamification/summary`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Gamification API not available");
+    }
+    return parseResponse(response, "Cannot load gamification summary");
+  } catch (err) {
+    console.warn("Gamification fallback activated", err);
+    return {
+      streak: { current: 0, best: 0 },
+      achievements: [],
+      today_challenge: {
+        key: "fallback_challenge",
+        title: "Bắt đầu nhẹ nhàng",
+        description: "Ghi nhận bữa ăn đầu tiên của bạn hôm nay.",
+        status: "pending"
+      },
+      encouragement: "Ăn đều hơn một chút cũng là tiến bộ."
+    };
+  }
+}
+
+export async function completeGamificationChallenge(challengeId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/gamification/challenges/${challengeId}/complete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+    });
+    if (!response.ok) {
+      throw new Error("Gamification API not available");
+    }
+    return parseResponse(response, "Cannot complete challenge");
+  } catch (err) {
+    console.warn("Gamification fallback activated", err);
+    return { success: true };
+  }
+}
+
+export async function sendAiChatMessage(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/ai-chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "Cannot send AI chat message");
+}
+
+export async function toggleMealConsumption(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/meal-consumption/toggle`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "Cannot update meal consumption status");
+}

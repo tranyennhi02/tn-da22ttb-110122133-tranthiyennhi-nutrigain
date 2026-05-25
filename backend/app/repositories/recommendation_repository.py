@@ -81,29 +81,40 @@ class RecommendationRepository:
         today_date = datetime.utcnow().date()
 
         # Handle existing meal plan for today to prevent UniqueConstraint error
-        from app.models.entities import MealPlan, Meal, MealPlanItem, FoodLogItem
+        from app.models.entities import MealPlan, Meal, MealPlanItem, FoodLogItem, MealConsumptionLog
         existing_plan = self.db.scalar(
             select(MealPlan).where(MealPlan.user_id == user_id_int, MealPlan.plan_date == today_date)
         )
         if existing_plan:
-            # Get all meal_plan_items IDs for this plan
-            item_ids = self.db.scalars(
-                select(MealPlanItem.id)
-                .join(Meal, MealPlanItem.meal_id == Meal.id)
-                .where(Meal.meal_plan_id == existing_plan.id)
-            ).all()
+            # Check if there are consumption logs
+            has_logs = self.db.scalar(
+                select(MealConsumptionLog.id)
+                .where(MealConsumptionLog.meal_plan_id == existing_plan.id)
+                .limit(1)
+            )
 
-            if item_ids:
-                # Disconnect food_log_items to preserve logs
-                from sqlalchemy import update
-                self.db.execute(
-                    update(FoodLogItem)
-                    .where(FoodLogItem.meal_plan_item_id.in_(item_ids))
-                    .values(meal_plan_item_id=None)
-                )
-            
-            self.db.delete(existing_plan)
-            self.db.flush()
+            if has_logs is not None:
+                existing_plan.status = "superseded"
+                self.db.flush()
+            else:
+                # Get all meal_plan_items IDs for this plan
+                item_ids = self.db.scalars(
+                    select(MealPlanItem.id)
+                    .join(Meal, MealPlanItem.meal_id == Meal.id)
+                    .where(Meal.meal_plan_id == existing_plan.id)
+                ).all()
+
+                if item_ids:
+                    # Disconnect food_log_items to preserve logs
+                    from sqlalchemy import update
+                    self.db.execute(
+                        update(FoodLogItem)
+                        .where(FoodLogItem.meal_plan_item_id.in_(item_ids))
+                        .values(meal_plan_item_id=None)
+                    )
+                
+                self.db.delete(existing_plan)
+                self.db.flush()
 
         meal_plan = MealPlan(
             user_id=user_id_int,

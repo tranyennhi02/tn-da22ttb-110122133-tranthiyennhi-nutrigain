@@ -34,6 +34,41 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class MealReminderTestEmailInput(BaseModel):
+    meal_type: str = "test"
+
+
+class MealReminderTestEmailResponse(BaseModel):
+    success: bool
+    message: str
+    sent_to: str | None = None
+
+
+class MealConsumptionToggleInput(BaseModel):
+    meal_plan_id: int | None = None
+    meal_type: str | None = None
+    meal_plan_item_id: int | None = None
+    food_id: str | None = None
+    is_eaten: bool = True
+
+
+class WeightDailyUpdateInput(BaseModel):
+    weight_kg: float = Field(..., gt=0)
+
+
+class WeightDailyUpdateResponse(BaseModel):
+    success: bool
+    weight_kg: float | None = None
+    log_date: str | None = None
+    profile: dict | None = None
+    chart_points: list[dict] = Field(default_factory=list)
+    summary: dict | None = None
+
+
+class NutritionStatisticsResponse(BaseModel):
+    pass
+
+
 class UserUpdate(BaseModel):
     email: str | None = None
     full_name: str | None = None
