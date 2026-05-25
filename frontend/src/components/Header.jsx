@@ -1,6 +1,6 @@
-import NutriGainLogo from "./NutriGainLogo";
+import { Download } from "lucide-react";
 
-export default function Header({ title, onExport, onEditProfile, onToggleMenu }) {
+export default function Header({ title, onExport, onEditProfile, onToggleMenu, showExportReport = false, isExportingReport = false }) {
   const today = new Date().toLocaleDateString("vi-VN", {
     weekday: "long",
     day: "2-digit",
@@ -9,43 +9,31 @@ export default function Header({ title, onExport, onEditProfile, onToggleMenu })
   });
 
   return (
-    <header className="sticky top-0 z-20 border-b border-brand-border bg-brand-surface/86 px-4 py-4 shadow-sm shadow-brand-navy/5 backdrop-blur-2xl sm:px-6 xl:px-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
+    <header className="app-topbar account-header sticky top-0 z-20">
+      <div className="app-topbar-inner account-header-inner">
+        <div className="topbar-heading">
           <button
-            className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-navy text-white shadow-lg shadow-brand-navy/10 lg:hidden"
+            className="topbar-menu-button grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#081832] text-white shadow-lg shadow-slate-900/10 lg:hidden"
             onClick={onToggleMenu}
             aria-label="Mở menu"
+            type="button"
           >
             <MenuIcon />
           </button>
-          <div>
-            <div className="flex items-center gap-2 text-xs font800 uppercase tracking-[0.14em] text-brand-primary">
-              <NutriGainLogo size="sm" showText={false} />
-              <span>NutriGain</span>
-            </div>
-            <h1 className="mt-1 text-2xl font-black text-brand-text-main sm:text-3xl">
-              {title}
-            </h1>
-          </div>
+          <h1 className="topbar-title account-header-title">{title}</h1>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="rounded-2xl border border-brand-border bg-brand-mint px-4 py-3 text-sm font800 text-brand-primary">
-            {today}
-          </div>
-          <button
-            className="h-12 rounded-2xl border border-brand-border bg-brand-surface px-5 text-sm font900 text-brand-text-main shadow-sm transition hover:border-brand-primary hover:text-brand-primary"
-            onClick={onEditProfile}
-          >
+        <div className="topbar-actions account-header-actions">
+          <div className="topbar-date account-date-pill">{today}</div>
+          <button className="topbar-button account-header-btn secondary" onClick={onEditProfile} type="button">
             Chỉnh hồ sơ
           </button>
-          <button
-            className="h-12 rounded-2xl bg-brand-orange px-5 text-sm font900 text-white shadow-lg shadow-brand-orange/20 transition hover:bg-brand-orange-dark"
-            onClick={onExport}
-          >
-            Xuất báo cáo
-          </button>
+          {showExportReport ? (
+            <button className="topbar-button account-header-btn export" onClick={onExport} disabled={isExportingReport} type="button">
+              <Download size={16} strokeWidth={2.6} />
+              <span>{isExportingReport ? "Đang xuất..." : "Xuất báo cáo"}</span>
+            </button>
+          ) : null}
         </div>
       </div>
     </header>

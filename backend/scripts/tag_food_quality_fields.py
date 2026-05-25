@@ -72,9 +72,12 @@ PREMIUM_TERMS = (
     "caviar", "brie", "camembert", "emmental", "gruyere", "raclette",
     # Uncommon/less-common for Vietnamese budget meals → treated as premium
     # so they rank lower when budget = Tiết kiệm (soft penalty only, menu_eligible unchanged).
+    "cha la", "date",
     "man hoang da", "wild plum",          # mận hoang dã
     "qua mo", "apricot",                  # quả mơ
     "sung say", "dried fig", "fig",        # sung sấy / quả sung
+    "dried fruit", "trai cay kho",
+    "tofu yogurt", "soy yogurt", "sua chua dau phu",
     "burrito", "taquito", "taco",          # Western fast/fusion food
     "ga tay", "turkey",                    # gà tây – less common in VN
     "ca bo", "avocado fish",               # cá bơ – obscure

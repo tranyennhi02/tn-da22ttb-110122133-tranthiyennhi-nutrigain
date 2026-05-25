@@ -26,6 +26,7 @@ def get_current_user(
     try:
         payload = decode_access_token(credentials.credentials)
         user_id = int(payload["sub"])
+        print(f"[AUTH TOKEN DECODED] sub={payload.get('sub')}, user_id={user_id}")
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -35,6 +36,7 @@ def get_current_user(
     user = UserRepository(db).get_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    print(f"[GET CURRENT USER] user_id={user.id}, email={user.email}")
     user_status = str(getattr(user, "status", "") or "").upper()
     if not user.is_active or user_status == "LOCKED":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa.")

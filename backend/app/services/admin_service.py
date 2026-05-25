@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
+import time
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -54,6 +61,115 @@ def _bmi_category(bmi: float | None) -> str | None:
 
 class AdminService:
     @staticmethod
+    def _normalize_image_status(status: Any) -> str:
+        return str(status or "").strip().lower()
+
+    @staticmethod
+    def _is_approved_status(status: Any) -> bool:
+        return AdminService._normalize_image_status(status) in {"approved", "accepted", "active"}
+
+    @staticmethod
+    def _is_rejected_status(status: Any) -> bool:
+        normalized = AdminService._normalize_image_status(status)
+        if normalized in {"rejected", "declined", "hidden"}:
+            return True
+        return "tu choi" in normalized or "từ chối" in normalized
+
+    @staticmethod
+    def _normalize_text(value: Any) -> str:
+        text = unicodedata.normalize("NFD", str(value or "").strip().lower())
+        return "".join(char for char in text if unicodedata.category(char) != "Mn")
+
+    @staticmethod
+    def _display_name(food: Food) -> str | None:
+        for value in (food.dish_name_vi, food.name_vi, food.display_name, food.name, food.original_name):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _build_search_query(name: str) -> str | None:
+        normalized = AdminService._normalize_text(name)
+        mapping = {
+            "banh quy bo sua": "butter cookies",
+            "banh quy": "cookies",
+            "banh bong lan": "sponge cake",
+            "banh mi trang": "white bread",
+            "banh mi": "bread",
+            "banh cuon": "bread roll",
+            "banh bo sua": "butter cake",
+            "banh eclair": "eclair pastry",
+            "sua dau nanh": "soy milk",
+            "sua chua": "yogurt",
+            "sua": "milk",
+            "thit heo": "pork meat",
+            "thit bo": "beef meat",
+            "thit ga": "chicken breast",
+            "ca hoi": "salmon",
+            "ca thu": "mackerel",
+            "trung": "egg",
+            "ca rot": "carrot",
+            "bong cai xanh": "broccoli",
+            "rau cai": "mustard greens",
+            "ca chua": "tomato",
+            "khoai lang": "sweet potato",
+            "khoai tay": "potato",
+            "chuoi": "banana",
+            "tao": "apple",
+            "cam": "orange fruit",
+            "dau tay": "strawberry",
+            "dau phu": "tofu",
+            "yen mach": "oatmeal",
+            "gao lut": "brown rice",
+            "ot chuong": "bell pepper",
+            "rau bina": "spinach",
+            "uc ga": "chicken breast",
+        }
+        for vi_name, english_query in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+            if vi_name in normalized:
+                return english_query
+        return name.strip() or None
+
+    @staticmethod
+    def _fetch_pexels_image(api_key: str, query: str, *, per_page: int = 1, timeout: float = 12.0) -> dict[str, str | None] | None:
+        params = urllib.parse.urlencode(
+            {
+                "query": query,
+                "per_page": max(1, min(per_page, 10)),
+                "orientation": "landscape",
+            }
+        )
+        request = urllib.request.Request(
+            f"https://api.pexels.com/v1/search?{params}",
+            headers={
+                "Authorization": api_key,
+                "User-Agent": "NutriGain/1.0 AdminPexelsRefetch",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            return None
+
+        photos = payload.get("photos") if isinstance(payload, dict) else None
+        if not photos:
+            return None
+
+        photo = photos[0]
+        src = photo.get("src") or {}
+        image_url = (src.get("medium") or src.get("large") or src.get("original") or "").strip()
+        if not image_url:
+            return None
+
+        return {
+            "image_url": image_url,
+            "photographer": (photo.get("photographer") or "").strip() or None,
+            "source_url": (photo.get("url") or "").strip() or None,
+        }
+
+    @staticmethod
     def _user_payload(user: User) -> dict:
         profile = getattr(user, "profile", None)
         bmi = _bmi(getattr(profile, "weight_kg", None), getattr(profile, "height_cm", None))
@@ -77,10 +193,23 @@ class AdminService:
     def _food_payload(food: Food) -> dict:
         is_verified = bool(food.image_verified)
         source_type = food.image_source_type or "placeholder"
+        quality_note = str(food.image_quality_note or "").strip().lower()
+        if source_type == "rejected" or "tu choi" in quality_note or "từ chối" in quality_note:
+            image_status = "rejected"
+        elif is_verified and source_type != "placeholder":
+            image_status = "approved"
+        elif source_type == "pexels" and not is_verified:
+            image_status = "pending"
+        elif not food.image_url:
+            image_status = "missing"
+        else:
+            image_status = "placeholder"
         is_placeholder = (source_type == "placeholder") or not is_verified
         image_badge = (
             "Cần duyệt"
-            if source_type == "pexels" and not is_verified
+            if image_status == "pending"
+            else "Đã từ chối"
+            if image_status == "rejected"
             else "Ảnh thật"
             if is_verified and not is_placeholder
             else "Ảnh minh họa"
@@ -96,10 +225,14 @@ class AdminService:
             "serving": food.serving_display,
             "recommended_serving_g": food.recommended_serving_g,
             "menu_eligible": bool(food.menu_eligible),
+            "excluded_from_recommendation": bool(getattr(food, "excluded_from_recommendation", False)),
+            "admin_rejected": bool(getattr(food, "admin_rejected", False)),
+            "exclusion_reason": getattr(food, "exclusion_reason", None),
             "image_url": food.image_url,
             "image_alt_vi": food.image_alt_vi,
             "image_source_type": source_type,
             "image_verified": is_verified,
+            "image_status": image_status,
             "image_quality_note": food.image_quality_note,
             "image_badge": image_badge,
             "quality_flags": food.quality_flags,
@@ -163,10 +296,18 @@ class AdminService:
             "disliked_foods": _parse_profile_list(profile.disliked_foods),
             "disliked_food_groups": _parse_profile_list(profile.disliked_food_groups),
             "target_weight_kg": profile.target_weight_kg,
+            "target_duration_value": getattr(profile, "target_duration_value", None),
+            "target_duration_unit": getattr(profile, "target_duration_unit", None),
+            "target_duration_months": getattr(profile, "target_duration_months", None),
+            "target_gain_rate_kg_per_month": getattr(profile, "target_gain_rate_kg_per_month", None),
             "weight_gain_speed": profile.weight_gain_speed,
             "diet_type": profile.diet_type,
             "budget_level": profile.budget_level,
             "items_per_meal": profile.items_per_meal,
+            "breakfast_time": profile.breakfast_time,
+            "lunch_time": profile.lunch_time,
+            "dinner_time": profile.dinner_time,
+            "meal_reminder_enabled": bool(profile.meal_reminder_enabled),
         }
         payload["weight_logs"] = [
             {"id": row.id, "weight_kg": row.weight_kg, "log_date": row.log_date.isoformat(), "note": row.note}
@@ -237,6 +378,8 @@ class AdminService:
         if image_status == "pexels_pending":
             filters.append(Food.image_source_type == "pexels")
             filters.append(or_(Food.image_verified.is_(False), Food.image_verified.is_(None)))
+            filters.append(Food.image_url.is_not(None))
+            filters.append(Food.image_url != "")
         elif image_status == "verified_real":
             filters.append(Food.image_source_type == "real")
             filters.append(Food.image_verified.is_(True))
@@ -261,6 +404,82 @@ class AdminService:
         for key, value in values.items():
             if hasattr(food, key):
                 setattr(food, key, value)
+        db.commit()
+        db.refresh(food)
+        return self._food_payload(food)
+
+    def exclude_food_from_recommendations(self, db: Session, food_id: str, reason: str | None = None) -> dict:
+        food = db.get(Food, str(food_id))
+        if food is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+        food.excluded_from_recommendation = True
+        food.admin_rejected = True
+        food.menu_eligible = False
+        food.exclusion_reason = str(reason or "").strip() or None
+        db.commit()
+        db.refresh(food)
+        return {
+            "success": True,
+            "food_id": str(food.food_id),
+            "excluded_from_recommendation": True,
+            "admin_rejected": True,
+            "menu_eligible": bool(food.menu_eligible),
+            "message": "Đã loại món khỏi gợi ý thực đơn.",
+            "food": self._food_payload(food),
+        }
+
+    def restore_food_to_recommendations(self, db: Session, food_id: str) -> dict:
+        food = db.get(Food, str(food_id))
+        if food is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+        food.excluded_from_recommendation = False
+        food.admin_rejected = False
+        food.menu_eligible = True
+        food.exclusion_reason = None
+        db.commit()
+        db.refresh(food)
+        return {
+            "success": True,
+            "food_id": str(food.food_id),
+            "excluded_from_recommendation": False,
+            "admin_rejected": False,
+            "menu_eligible": bool(food.menu_eligible),
+            "message": "Đã khôi phục món vào gợi ý thực đơn.",
+            "food": self._food_payload(food),
+        }
+
+    def refetch_food_image(self, db: Session, food_id: str) -> dict:
+        food = db.get(Food, str(food_id))
+        if food is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+        current_status = self._food_payload(food).get("image_status")
+        if current_status == "approved":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approved images cannot be refetched automatically")
+
+        name = self._display_name(food)
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Food name is required for image refetch")
+
+        query = self._build_search_query(name)
+        if not query:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot build a Pexels search query for this food")
+
+        api_key = os.getenv("PEXELS_API_KEY", "").strip()
+        if not api_key:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PEXELS_API_KEY is not configured")
+
+        image = self._fetch_pexels_image(api_key, query)
+        if image is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No Pexels image found")
+
+        food.image_url = image["image_url"]
+        food.image_alt_vi = name
+        food.image_source_type = "pexels"
+        food.image_verified = False
+        food.image_quality_note = "Ảnh lấy từ Pexels, cần admin kiểm duyệt"
         db.commit()
         db.refresh(food)
         return self._food_payload(food)

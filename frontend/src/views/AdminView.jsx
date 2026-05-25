@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
 import { adminGet, adminPatch, adminPost } from "../services/adminApiService";
 import {
   AdminBadge,
@@ -151,12 +151,131 @@ function getStatusLabel(status) {
 }
 
 function getImageState(food) {
+  const directStatus = normalizeImageStatus(food?.image_status || food?.status);
+  if (isRejectedStatus(directStatus)) return { label: "Đã từ chối", status: "rejected" };
+  if (isApprovedStatus(directStatus)) return { label: "Ảnh thật", status: "verified_real" };
   const source = food?.image_source_type || "placeholder";
   const verified = Boolean(food?.image_verified);
   if (source === "pexels" && !verified) return { label: "Cần duyệt", status: "pexels_pending" };
   if (verified && source !== "placeholder") return { label: "Ảnh thật", status: "verified_real" };
+  if (source === "rejected") return { label: "Đã từ chối", status: "rejected" };
+  if (String(food?.image_quality_note || "").toLowerCase().includes("từ chối")) return { label: "Đã từ chối", status: "rejected" };
   if (!food?.image_url) return { label: "Thiếu ảnh", status: "warning" };
   return { label: "Placeholder", status: "pending" };
+}
+
+function isValidImageUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function getDraftImageStatus(food) {
+  const directStatus = normalizeImageStatus(food?.status || food?.image_status);
+  if (isApprovedStatus(directStatus)) return "approved";
+  if (isRejectedStatus(directStatus)) return "rejected";
+  const source = String(food?.image_source_type || "").toLowerCase();
+  const note = String(food?.image_quality_note || "").toLowerCase();
+  if (food?.image_verified) return "approved";
+  if (source === "placeholder" && note.includes("từ chối")) return "rejected";
+  if (source === "placeholder" && note.includes("tu choi")) return "rejected";
+  if (source === "rejected") return "rejected";
+  return "pending";
+}
+
+function normalizeImageStatus(status) {
+  return String(status || "").toLowerCase().trim();
+}
+
+function isApprovedStatus(status) {
+  return ["approved", "accepted", "active"].includes(normalizeImageStatus(status));
+}
+
+function isRejectedStatus(status) {
+  return ["rejected", "declined"].includes(normalizeImageStatus(status));
+}
+
+function isPendingStatus(status) {
+  return !isApprovedStatus(status) && !isRejectedStatus(status);
+}
+
+function isFoodExcluded(food) {
+  return Boolean(food?.excluded_from_recommendation || food?.admin_rejected);
+}
+
+function getImageStatusMeta(status) {
+  if (isApprovedStatus(status)) {
+    return {
+      label: "Đã duyệt",
+      className: "status-approved",
+    };
+  }
+
+  if (isRejectedStatus(status)) {
+    return {
+      label: "Đã từ chối",
+      className: "status-rejected",
+    };
+  }
+
+  return {
+    label: "Cần duyệt",
+    className: "status-pending",
+  };
+}
+
+function getDraftStatusMeta(status, hasError = false) {
+  if (hasError) return { label: "Ảnh lỗi", tone: "red", pillStatus: "error" };
+  if (isApprovedStatus(status)) return { label: "Đã duyệt", tone: "emerald", pillStatus: "success" };
+  if (isRejectedStatus(status)) return { label: "Đã từ chối", tone: "red", pillStatus: "error" };
+  return { label: "Cần duyệt", tone: "amber", pillStatus: "pending" };
+}
+
+function getImageSourceLabel(source) {
+  const normalized = String(source || "").toLowerCase();
+  const labels = {
+    pexels: "Pexels",
+    upload: "Upload",
+    uploaded: "Upload",
+    manual_url: "URL thủ công",
+    manual: "URL thủ công",
+    url: "URL thủ công",
+    real: "Ảnh đã duyệt",
+    wikimedia: "Wikimedia",
+    unsplash: "Unsplash",
+    placeholder: "Chưa có nguồn",
+    rejected: "Đã từ chối",
+  };
+  return labels[normalized] || source || "Chưa có nguồn";
+}
+
+function buildImagePatch({ food, imageUrl, status, sourceType, qualityNote }) {
+  const cleanUrl = String(imageUrl || "").trim();
+  const patch = {
+    image_url: cleanUrl || null,
+    image_alt_vi: food?.image_alt_vi || food?.name || null,
+    image_source_type: sourceType || (cleanUrl ? "manual_url" : "placeholder"),
+    image_verified: status === "approved",
+    image_status: status,
+    image_quality_note: String(qualityNote || "").trim() || null,
+  };
+  if (status === "approved") {
+    patch.image_source_type = "real";
+    patch.image_quality_note = patch.image_quality_note || "Ảnh món ăn đã được duyệt";
+  } else if (status === "rejected") {
+    patch.image_source_type = "rejected";
+    patch.image_verified = false;
+    patch.image_quality_note = patch.image_quality_note || "Ảnh món ăn đã bị từ chối";
+  } else {
+    patch.image_verified = false;
+    patch.image_source_type = cleanUrl ? (sourceType === "real" ? "manual_url" : sourceType || "manual_url") : "placeholder";
+  }
+  return patch;
 }
 
 function buildFoodParams(filters, page, pageSize) {
@@ -184,15 +303,50 @@ function FoodThumb({ food, size = "md" }) {
   const sizeClasses = {
     md: "h-12 w-12 rounded-2xl object-cover",
     lg: "h-44 w-full rounded-2xl object-cover",
-    preview: "aspect-[16/10] w-full rounded-t-[20px] object-cover",
-    contain: "h-72 w-full rounded-2xl object-contain",
+    preview: "aspect-[16/9] w-full rounded-none object-cover",
+    contain: "aspect-[4/3] w-full rounded-2xl object-contain",
   };
   const classes = sizeClasses[size] || sizeClasses.md;
   const iconClass = size === "md" ? "h-5 w-5" : "h-9 w-9";
   if (!food?.image_url || failed) {
+    const fallbackFrame = size === "preview"
+      ? "relative aspect-[16/9] w-full overflow-hidden rounded-t-[20px] bg-slate-100"
+      : size === "contain"
+        ? "relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100"
+        : cx("flex shrink-0 items-center justify-center bg-slate-100 text-slate-400", classes);
     return (
-      <div className={cx("flex shrink-0 items-center justify-center bg-slate-100 text-slate-400", classes)}>
-        <Icon name="image" className={iconClass} />
+      <div className={fallbackFrame}>
+        <div className={cx(size === "preview" || size === "contain" ? "flex h-full w-full items-center justify-center" : "flex h-full w-full items-center justify-center bg-slate-100 text-slate-400")}>
+          <Icon name="image" className={iconClass} />
+        </div>
+      </div>
+    );
+  }
+  if (size === "preview") {
+    return (
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-t-[20px] bg-slate-100">
+        <img
+          src={food.image_url}
+          alt={food.image_alt_vi || food.name || "Ảnh món ăn"}
+          title={food.image_alt_vi || food.name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+  if (size === "contain") {
+    return (
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-100">
+        <img
+          src={food.image_url}
+          alt={food.image_alt_vi || food.name || "Ảnh món ăn"}
+          title={food.image_alt_vi || food.name}
+          className="h-full w-full object-contain"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
       </div>
     );
   }
@@ -620,7 +774,25 @@ function FoodsPage({ refreshKey }) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
   const [imageFood, setImageFood] = useState(null);
+  const [imageToast, setImageToast] = useState(null);
+  const imageToastTimerRef = useRef(null);
   const pageSize = 50;
+
+  function notifyImageToast(type, message) {
+    if (imageToastTimerRef.current) {
+      clearTimeout(imageToastTimerRef.current);
+    }
+    setImageToast({ type, message });
+    imageToastTimerRef.current = setTimeout(() => {
+      setImageToast(null);
+    }, 3500);
+  }
+
+  useEffect(() => () => {
+    if (imageToastTimerRef.current) {
+      clearTimeout(imageToastTimerRef.current);
+    }
+  }, []);
 
   function setChip(chip) {
     setFilters((prev) => ({ ...prev, chip }));
@@ -636,6 +808,52 @@ function FoodsPage({ refreshKey }) {
       })
       .catch((err) => setError(err.message || "Không thể tải danh sách thực phẩm."))
       .finally(() => setLoading(false));
+  }
+
+  function handleImageUpdated(updatedImage) {
+    if (!updatedImage) return;
+    const updatedId = String(updatedImage.food_id || updatedImage.id || "");
+    if (!updatedId) return;
+
+    setData((prev) => ({
+      ...prev,
+      items: asArray(prev.items).map((item) => {
+        const itemId = String(item.food_id || item.id || "");
+        if (itemId !== updatedId) return item;
+        return {
+          ...item,
+          ...updatedImage,
+          image_url: updatedImage.image_url ?? updatedImage.url ?? item.image_url,
+          image_status: updatedImage.status || updatedImage.image_status || item.image_status,
+          image_verified:
+            typeof updatedImage.image_verified === "boolean" ? updatedImage.image_verified : item.image_verified,
+          image_source_type: updatedImage.image_source_type || item.image_source_type,
+          image_quality_note: updatedImage.image_quality_note ?? item.image_quality_note,
+        };
+      }),
+    }));
+
+    setImageFood((prev) => {
+      if (!prev) return prev;
+      const prevId = String(prev.food_id || prev.id || "");
+      return prevId === updatedId ? { ...prev, ...updatedImage } : prev;
+    });
+
+    setSelected((prev) => {
+      if (!prev) return prev;
+      const prevId = String(prev.food_id || prev.id || "");
+      if (prevId !== updatedId) return prev;
+      return {
+        ...prev,
+        ...updatedImage,
+        image_url: updatedImage.image_url ?? updatedImage.url ?? prev.image_url,
+        image_status: updatedImage.status || updatedImage.image_status || prev.image_status,
+        image_verified:
+          typeof updatedImage.image_verified === "boolean" ? updatedImage.image_verified : prev.image_verified,
+        image_source_type: updatedImage.image_source_type || prev.image_source_type,
+        image_quality_note: updatedImage.image_quality_note ?? prev.image_quality_note,
+      };
+    });
   }
 
   useEffect(() => {
@@ -663,10 +881,50 @@ function FoodsPage({ refreshKey }) {
     loadFoods();
   }
 
+  async function excludeFood(food) {
+    const id = food?.food_id || food?.id;
+    if (!id) return;
+    try {
+      const result = await adminPost(`/foods/${id}/exclude-from-recommendations`, {
+        reason: "Admin loại khỏi thực đơn gợi ý",
+      });
+      handleImageUpdated(result?.food || result);
+      notifyImageToast("success", result?.message || "Đã loại món khỏi gợi ý thực đơn.");
+      loadFoods();
+    } catch (error) {
+      notifyImageToast("error", error.message || "Không thể loại món khỏi gợi ý.");
+    }
+  }
+
+  async function restoreFood(food) {
+    const id = food?.food_id || food?.id;
+    if (!id) return;
+    try {
+      const result = await adminPost(`/foods/${id}/restore-to-recommendations`, {});
+      handleImageUpdated(result?.food || result);
+      notifyImageToast("success", result?.message || "Đã khôi phục món vào gợi ý.");
+      loadFoods();
+    } catch (error) {
+      notifyImageToast("error", error.message || "Không thể khôi phục món.");
+    }
+  }
+
   if (loading) return <AdminLoadingSkeleton rows={7} />;
 
   return (
     <div className="space-y-5">
+      {imageToast ? (
+        <div
+          className={cx(
+            "fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl",
+            imageToast.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          )}
+        >
+          {imageToast.message}
+        </div>
+      ) : null}
       <AdminSectionCard>
         <div className="space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row">
@@ -695,6 +953,7 @@ function FoodsPage({ refreshKey }) {
       >
         {items.map((food) => {
           const imageState = getImageState(food);
+          const excluded = isFoodExcluded(food);
           return (
             <tr key={food.food_id || food.id} className="h-16 transition hover:bg-slate-50">
               <td className="px-5 py-3.5">
@@ -713,12 +972,21 @@ function FoodsPage({ refreshKey }) {
                 <p className="mt-1 text-[13px] font-medium text-slate-500">{formatNumber(food.protein, "g")} protein</p>
               </td>
               <td className="px-5 py-3.5">
-                <AdminStatusPill status={food.menu_eligible ? "valid" : "invalid"}>{food.menu_eligible ? "Được gợi ý" : "Tắt gợi ý"}</AdminStatusPill>
+                <AdminStatusPill status={excluded ? "error" : food.menu_eligible ? "valid" : "invalid"}>
+                  {excluded ? "Đã loại khỏi gợi ý" : food.menu_eligible ? "Được gợi ý" : "Tắt gợi ý"}
+                </AdminStatusPill>
               </td>
               <td className="px-5 py-3.5"><AdminStatusPill status={imageState.status}>{imageState.label}</AdminStatusPill></td>
               <td className="px-5 py-3.5">
                 <div className="flex justify-end gap-2">
                   <AdminButton variant="subtle" className="h-9 px-3 text-xs" onClick={() => setSelected(food)}>Mở</AdminButton>
+                  <AdminButton
+                    variant={excluded ? "success" : "danger"}
+                    className="h-9 px-3 text-xs"
+                    onClick={() => excluded ? restoreFood(food) : excludeFood(food)}
+                  >
+                    {excluded ? "Khôi phục" : "Loại khỏi thực đơn"}
+                  </AdminButton>
                 </div>
               </td>
             </tr>
@@ -728,14 +996,32 @@ function FoodsPage({ refreshKey }) {
 
       <Pagination page={page} totalPages={totalPages} total={data.total} onPage={setPage} />
 
-      <FoodDetailDrawer food={selected} open={Boolean(selected)} onClose={() => setSelected(null)} onToggleEligible={(food) => updateFood(food, { menu_eligible: !food.menu_eligible })} onEditImage={(food) => setImageFood(food)} />
-      <FoodImageEditDrawer food={imageFood} open={Boolean(imageFood)} onClose={() => setImageFood(null)} onSaved={loadFoods} />
+      <FoodDetailDrawer
+        food={selected}
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        onToggleEligible={(food) => updateFood(food, { menu_eligible: !food.menu_eligible })}
+        onEditImage={(food) => setImageFood(food)}
+        onExcludeFood={excludeFood}
+        onRestoreFood={restoreFood}
+      />
+      <FoodImageEditDrawer
+        food={imageFood}
+        open={Boolean(imageFood)}
+        onClose={() => setImageFood(null)}
+        onSaved={loadFoods}
+        onImageUpdated={handleImageUpdated}
+        onFeedback={notifyImageToast}
+        onExcludeFood={excludeFood}
+        onRestoreFood={restoreFood}
+      />
     </div>
   );
 }
 
-function FoodDetailDrawer({ food, open, onClose, onToggleEligible, onEditImage }) {
+function FoodDetailDrawer({ food, open, onClose, onToggleEligible, onEditImage, onExcludeFood, onRestoreFood }) {
   const imageState = getImageState(food);
+  const excluded = isFoodExcluded(food);
   return (
     <AdminDrawer
       open={open}
@@ -748,6 +1034,9 @@ function FoodDetailDrawer({ food, open, onClose, onToggleEligible, onEditImage }
           <AdminButton variant="subtle" icon="edit" className="flex-1" onClick={() => onEditImage(food)}>Sửa ảnh</AdminButton>
           <AdminButton className="flex-1" variant={food?.menu_eligible ? "danger" : "success"} onClick={() => onToggleEligible(food)}>
             {food?.menu_eligible ? "Tắt gợi ý" : "Bật gợi ý"}
+          </AdminButton>
+          <AdminButton className="flex-1" variant={excluded ? "success" : "danger"} onClick={() => excluded ? onRestoreFood(food) : onExcludeFood(food)}>
+            {excluded ? "Khôi phục gợi ý" : "Loại khỏi thực đơn"}
           </AdminButton>
         </div>
       }
@@ -765,6 +1054,10 @@ function FoodDetailDrawer({ food, open, onClose, onToggleEligible, onEditImage }
             <MiniLine label="Nhóm món" value={CATEGORY_MAP[food?.category] || food?.category || "-"} />
             <MiniLine label="Khẩu phần" value={food?.serving || food?.serving_display || "-"} />
             <MiniLine label="Serving gợi ý" value={food?.recommended_serving_g ? `${food.recommended_serving_g}g` : "-"} />
+            <MiniLine
+              label="Gợi ý thực đơn"
+              value={<AdminStatusPill status={excluded ? "error" : food?.menu_eligible ? "valid" : "invalid"}>{excluded ? "Đã loại khỏi thực đơn" : food?.menu_eligible ? "Được gợi ý" : "Tắt gợi ý"}</AdminStatusPill>}
+            />
             <MiniLine label="Trạng thái ảnh" value={<AdminStatusPill status={imageState.status}>{imageState.label}</AdminStatusPill>} />
           </div>
         </AdminSectionCard>
@@ -780,21 +1073,48 @@ function FoodDetailDrawer({ food, open, onClose, onToggleEligible, onEditImage }
 
 function FoodImagesPage({ refreshKey }) {
   const [tab, setTab] = useState("pending");
+  const [page, setPage] = useState(1);
   const [data, setData] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [imageFood, setImageFood] = useState(null);
+  const [imageToast, setImageToast] = useState(null);
+  const imageToastTimerRef = useRef(null);
+  const pageSize = 100;
 
-  const paramsByTab = {
-    pending: { image_status: "pexels_pending", limit: 60 },
-    real: { image_status: "verified_real", limit: 60 },
-    placeholder: { limit: 60 },
-    errors: { missing_image: true, limit: 60 },
-  };
+  function notifyImageToast(type, message) {
+    if (imageToastTimerRef.current) {
+      clearTimeout(imageToastTimerRef.current);
+    }
+    setImageToast({ type, message });
+    imageToastTimerRef.current = setTimeout(() => {
+      setImageToast(null);
+    }, 3500);
+  }
+
+  useEffect(() => () => {
+    if (imageToastTimerRef.current) {
+      clearTimeout(imageToastTimerRef.current);
+    }
+  }, []);
+
+  function changeTab(nextTab) {
+    setTab(nextTab);
+    setPage(1);
+  }
+
+  function buildImageParams(nextTab, nextPage) {
+    const base = { limit: pageSize, offset: (nextPage - 1) * pageSize };
+    if (nextTab === "pending") return { ...base, image_status: "pexels_pending" };
+    if (nextTab === "real") return { ...base, image_status: "verified_real" };
+    if (nextTab === "placeholder") return { ...base };
+    if (nextTab === "errors") return { ...base, missing_image: true };
+    return base;
+  }
 
   function loadImages() {
     setLoading(true);
-    adminGet("/foods", paramsByTab[tab] || paramsByTab.pending)
+    adminGet("/foods", buildImageParams(tab, page))
       .then((response) => {
         setData(response || { items: [], total: 0 });
         setError("");
@@ -803,7 +1123,61 @@ function FoodImagesPage({ refreshKey }) {
       .finally(() => setLoading(false));
   }
 
-  useEffect(loadImages, [tab, refreshKey]);
+  function handleImageUpdated(updatedImage) {
+    if (!updatedImage) return;
+    const updatedId = String(updatedImage.food_id || updatedImage.id || "");
+    if (!updatedId) return;
+
+    setData((prev) => {
+      const mappedItems = asArray(prev.items).map((item) => {
+        const itemId = String(item.food_id || item.id || "");
+        if (itemId !== updatedId) return item;
+        return {
+          ...item,
+          ...updatedImage,
+          image_url: updatedImage.image_url ?? updatedImage.url ?? item.image_url,
+          image_status: updatedImage.status || updatedImage.image_status || item.image_status,
+          image_verified:
+            typeof updatedImage.image_verified === "boolean" ? updatedImage.image_verified : item.image_verified,
+          image_source_type: updatedImage.image_source_type || item.image_source_type,
+          image_quality_note: updatedImage.image_quality_note ?? item.image_quality_note,
+        };
+      });
+
+      let nextItems = mappedItems;
+      if (tab === "pending") {
+        nextItems = mappedItems.filter((item) => getImageState(item).status === "pexels_pending");
+      } else if (tab === "real") {
+        nextItems = mappedItems.filter((item) => getImageState(item).status === "verified_real");
+      } else if (tab === "errors") {
+        nextItems = mappedItems.filter((item) => !item?.image_url);
+      }
+
+      return {
+        ...prev,
+        items: nextItems,
+        total: tab === "placeholder" ? prev.total : nextItems.length,
+      };
+    });
+
+    setImageFood((prev) => {
+      if (!prev) return prev;
+      const prevId = String(prev.food_id || prev.id || "");
+      if (prevId !== updatedId) return prev;
+      return {
+        ...prev,
+        ...updatedImage,
+        image_url: updatedImage.image_url ?? updatedImage.url ?? prev.image_url,
+        image_status: updatedImage.status || updatedImage.image_status || prev.image_status,
+        image_verified:
+          typeof updatedImage.image_verified === "boolean" ? updatedImage.image_verified : prev.image_verified,
+        image_source_type: updatedImage.image_source_type || prev.image_source_type,
+        image_quality_note: updatedImage.image_quality_note ?? prev.image_quality_note,
+      };
+    });
+  }
+
+  useEffect(loadImages, [tab, page, refreshKey]);
 
   const tabs = [
     { value: "pending", label: "Cần duyệt" },
@@ -812,7 +1186,9 @@ function FoodImagesPage({ refreshKey }) {
     { value: "errors", label: "Lỗi ảnh" },
   ];
 
+  const totalPages = Math.max(1, Math.ceil((data.total || 0) / pageSize));
   const items = tab === "placeholder" ? applyLocalFoodFilter(asArray(data.items), "placeholder") : asArray(data.items);
+  const pendingCount = tab === "pending" ? data.total || 0 : 0;
 
   async function patchImage(food, patch) {
     const id = food?.food_id || food?.id;
@@ -831,20 +1207,94 @@ function FoodImagesPage({ refreshKey }) {
     });
   }
 
+  function reject(food) {
+    patchImage(food, {
+      image_url: null,
+      image_alt_vi: food.image_alt_vi || food.name || null,
+      image_source_type: "placeholder",
+      image_verified: false,
+      image_quality_note: "Ảnh Pexels bị từ chối",
+    });
+  }
+
+  async function excludeFood(food) {
+    const id = food?.food_id || food?.id;
+    if (!id) return;
+    try {
+      const result = await adminPost(`/foods/${id}/exclude-from-recommendations`, {
+        reason: "Admin loại khỏi thực đơn gợi ý từ duyệt ảnh",
+      });
+      handleImageUpdated(result?.food || result);
+      loadImages();
+      notifyImageToast("success", result?.message || "Đã loại món khỏi gợi ý thực đơn.");
+    } catch (error) {
+      notifyImageToast("error", error.message || "Không thể loại món khỏi gợi ý.");
+    }
+  }
+
+  async function restoreFood(food) {
+    const id = food?.food_id || food?.id;
+    if (!id) return;
+    try {
+      const result = await adminPost(`/foods/${id}/restore-to-recommendations`, {});
+      handleImageUpdated(result?.food || result);
+      loadImages();
+      notifyImageToast("success", result?.message || "Đã khôi phục món vào gợi ý.");
+    } catch (error) {
+      notifyImageToast("error", error.message || "Không thể khôi phục món.");
+    }
+  }
+
+  function findAnother(food) {
+    const id = food?.food_id || food?.id;
+    if (!id) return;
+    adminPost(`/food-images/${id}/refetch`, {})
+      .then((result) => {
+        handleImageUpdated(result);
+        loadImages();
+        notifyImageToast("success", "Đã tìm ảnh khác từ Pexels.");
+        setImageFood(null);
+      })
+      .catch((error) => notifyImageToast("error", error.message || "Không thể tìm ảnh khác. Vui lòng thử lại."));
+  }
+
   if (loading) return <AdminLoadingSkeleton rows={6} />;
 
   return (
     <div className="space-y-5">
+      {imageToast ? (
+        <div
+          className={cx(
+            "fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl",
+            imageToast.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          )}
+        >
+          {imageToast.message}
+        </div>
+      ) : null}
       <AdminSectionCard>
-        <AdminFilterChips items={tabs} value={tab} onChange={setTab} />
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <AdminFilterChips items={tabs} value={tab} onChange={changeTab} />
+            <div className="flex items-center gap-3">
+              <AdminStatusPill status={tab === "pending" && pendingCount ? "warning" : "valid"}>
+                {tab === "pending" ? `${formatNumber(pendingCount)} ảnh chờ duyệt` : `${formatNumber(data.total || 0)} mục`}
+              </AdminStatusPill>
+            </div>
+          </div>
+          {tab === "pending" ? <p className="text-sm text-slate-500">Tab này chỉ hiển thị ảnh Pexels chưa duyệt có URL hợp lệ.</p> : null}
+        </div>
       </AdminSectionCard>
       {error ? <AdminEmptyState icon="errors" title="Không tải được ảnh món ăn" description={error} /> : null}
       {items.length ? (
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {items.map((food) => {
             const imageState = getImageState(food);
+            const excluded = isFoodExcluded(food);
             return (
-              <article key={food.food_id || food.id} className="overflow-hidden rounded-[20px] bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
+              <article key={food.food_id || food.id} className={cx("overflow-hidden rounded-[20px] bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,0.08)]", excluded && "opacity-70")}>
                 <FoodThumb food={food} size="preview" />
                 <div className="space-y-4 p-5">
                   <div className="min-w-0">
@@ -853,12 +1303,16 @@ function FoodImagesPage({ refreshKey }) {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <AdminStatusPill status={imageState.status}>{imageState.label}</AdminStatusPill>
+                    {excluded ? <AdminStatusPill status="error">Đã loại khỏi thực đơn</AdminStatusPill> : null}
                     <span className="text-xs font-semibold text-slate-400">ID {food.food_id}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                     <AdminButton variant="subtle" className="h-9 px-2 text-xs" onClick={() => setImageFood(food)}>Xem</AdminButton>
                     <AdminButton variant="subtle" className="h-9 px-2 text-xs" onClick={() => setImageFood(food)}>Sửa</AdminButton>
                     <AdminButton variant="success" className="h-9 px-2 text-xs" disabled={!food.image_url} onClick={() => approve(food)}>Duyệt</AdminButton>
+                    <AdminButton variant={excluded ? "success" : "danger"} className="h-9 px-2 text-xs" onClick={() => excluded ? restoreFood(food) : excludeFood(food)}>
+                      {excluded ? "Khôi phục" : "Loại món"}
+                    </AdminButton>
                   </div>
                 </div>
               </article>
@@ -868,123 +1322,459 @@ function FoodImagesPage({ refreshKey }) {
       ) : (
         <AdminEmptyState icon="image" title="Không có ảnh trong nhóm này" description="Danh sách hiện không có ảnh phù hợp với tab đang chọn." />
       )}
-      <FoodImageEditDrawer food={imageFood} open={Boolean(imageFood)} onClose={() => setImageFood(null)} onSaved={loadImages} />
+      <Pagination page={page} totalPages={totalPages} total={data.total} onPage={setPage} />
+      <FoodImageEditDrawer
+        food={imageFood}
+        open={Boolean(imageFood)}
+        onClose={() => setImageFood(null)}
+        onSaved={loadImages}
+        onImageUpdated={handleImageUpdated}
+        onReject={(food) => reject(food)}
+        onFindAnother={(food) => findAnother(food)}
+        onFeedback={notifyImageToast}
+        onExcludeFood={excludeFood}
+        onRestoreFood={restoreFood}
+      />
     </div>
   );
 }
 
-function FoodImageEditDrawer({ food, open, onClose, onSaved }) {
-  const [form, setForm] = useState(null);
-  const [saving, setSaving] = useState(false);
+  function FoodImageEditDrawer({ food, open, onClose, onSaved, onImageUpdated, onReject, onFindAnother, onFeedback, onExcludeFood, onRestoreFood }) {
+  const [draftImageUrl, setDraftImageUrl] = useState("");
+  const [draftStatus, setDraftStatus] = useState("pending");
+  const [draftNote, setDraftNote] = useState("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [showAdvancedImageOptions, setShowAdvancedImageOptions] = useState(false);
   const [message, setMessage] = useState("");
+  const urlInputRef = useRef(null);
 
   useEffect(() => {
-    if (!food) return;
-    setForm({
-      image_url: food.image_url || "",
-      image_alt_vi: food.image_alt_vi || "",
-      image_source_type: food.image_source_type || "placeholder",
-      image_verified: Boolean(food.image_verified),
-      image_quality_note: food.image_quality_note || "",
-    });
+    setDraftImageUrl(food?.image_url || food?.url || "");
+    setDraftStatus(food?.status || food?.image_status || getDraftImageStatus(food) || "pending");
+    setDraftNote(food?.note || food?.image_quality_note || "");
+    setImageLoadError(false);
+    setShowAdvancedImageOptions(false);
     setMessage("");
-  }, [food]);
+  }, [food?.id, food?.status, food?.image_url, food?.url, food?.note, food?.image_status, food?.image_quality_note]);
 
-  if (!open || !form) return null;
+  useEffect(() => {
+    if (open) return;
+    setIsSaving(false);
+    setIsUpdatingStatus(false);
+    setImageLoadError(false);
+    setShowAdvancedImageOptions(false);
+    setMessage("");
+  }, [open]);
 
-  async function save(extraPatch = {}) {
+  useEffect(() => {
+    setImageLoadError(false);
+  }, [draftImageUrl]);
+
+  if (!open || !food) return null;
+
+  const excluded = isFoodExcluded(food);
+  const cleanUrl = draftImageUrl.trim();
+  const urlIsValid = isValidImageUrl(cleanUrl);
+  const currentImage = cleanUrl;
+  const hasPreviewError = Boolean(currentImage && imageLoadError);
+  const statusMeta = getImageStatusMeta(draftStatus);
+  const currentImageSource = food?.image_source_type || (cleanUrl ? "manual_url" : "placeholder");
+  const hasChanges =
+    cleanUrl !== String(food.image_url || food.url || "").trim() ||
+    draftStatus !== String(food?.status || food?.image_status || getDraftImageStatus(food) || "pending") ||
+    draftNote !== String(food.note || food.image_quality_note || "");
+
+  function emitFeedback(type, feedbackMessage) {
+    setMessage(feedbackMessage);
+    onFeedback?.(type, feedbackMessage);
+  }
+
+  function buildPayload(nextStatus) {
+    return buildImagePatch({
+      food,
+      imageUrl: cleanUrl,
+      status: nextStatus,
+      sourceType: currentImageSource,
+      qualityNote: draftNote,
+    });
+  }
+
+  function buildUpdatedImage(payload, result, nextStatus) {
+    const merged = {
+      ...food,
+      ...payload,
+      ...(result || {}),
+      id: food?.id ?? food?.food_id,
+      food_id: food?.food_id ?? food?.id,
+      image_url: payload.image_url ?? result?.image_url ?? result?.url ?? (cleanUrl || null),
+      status: nextStatus,
+      image_status: nextStatus,
+    };
+
+    return merged;
+  }
+
+  async function handleSaveImageChanges(event) {
+    event?.preventDefault?.();
     const id = food?.food_id || food?.id;
-    if (!id) return;
-    setSaving(true);
+    if (!id || isSaving || isUpdatingStatus) return;
+    if (cleanUrl && !urlIsValid) {
+      emitFeedback("error", "URL ảnh không hợp lệ.");
+      return;
+    }
+
+    setIsSaving(true);
     setMessage("");
     try {
-      const patch = {
-        image_url: form.image_url.trim() || null,
-        image_alt_vi: form.image_alt_vi.trim() || food?.name || null,
-        image_source_type: form.image_source_type || "placeholder",
-        image_verified: Boolean(form.image_verified),
-        image_quality_note: form.image_quality_note.trim() || null,
-        ...extraPatch,
-      };
-      if (!patch.image_url) {
-        patch.image_source_type = "placeholder";
-        patch.image_verified = false;
-      }
-      await adminPatch(`/foods/${id}`, patch);
-      setMessage("Đã lưu thay đổi ảnh.");
-      if (onSaved) onSaved();
-    } catch (err) {
-      setMessage(err.message || "Không thể lưu ảnh.");
+      const payload = buildPayload(draftStatus);
+      console.log("[FOOD IMAGE SAVE PAYLOAD]", id, payload);
+      const result = await adminPatch(`/foods/${id}`, payload);
+      const updatedImage = buildUpdatedImage(payload, result, draftStatus);
+
+      setDraftStatus(draftStatus);
+      setDraftImageUrl(updatedImage.image_url || "");
+      setDraftNote(updatedImage.image_quality_note || "");
+      setImageLoadError(false);
+      onImageUpdated?.(updatedImage);
+      onSaved?.();
+      emitFeedback("success", "Đã lưu thay đổi ảnh.");
+      onClose?.();
+    } catch (error) {
+      console.error("[FOOD IMAGE SAVE ERROR]", error);
+      emitFeedback("error", error.message || "Không thể lưu thay đổi ảnh. Vui lòng thử lại.");
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   }
 
-  function verifyReal() {
-    save({
-      image_source_type: "real",
-      image_verified: true,
-      image_quality_note: form.image_quality_note.trim() || "Ảnh thật đã kiểm duyệt",
-    });
+  async function handleApproveImage() {
+    const id = food?.food_id || food?.id;
+    if (!id || isUpdatingStatus || isSaving) return;
+    if (cleanUrl && !urlIsValid) {
+      emitFeedback("error", "URL ảnh không hợp lệ.");
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    setMessage("");
+    try {
+      const payload = buildPayload("approved");
+      console.log("[FOOD IMAGE APPROVE SAVE PAYLOAD]", id, payload);
+      const result = await adminPatch(`/foods/${id}`, payload);
+      const updatedImage = buildUpdatedImage(payload, result, "approved");
+
+      setDraftStatus("approved");
+      setDraftImageUrl(updatedImage.image_url || "");
+      setDraftNote(updatedImage.image_quality_note || "");
+      setImageLoadError(false);
+      onImageUpdated?.(updatedImage);
+      onSaved?.();
+      emitFeedback("success", "Đã duyệt và lưu ảnh.");
+      onClose?.();
+    } catch (error) {
+      console.error("[FOOD IMAGE APPROVE SAVE ERROR]", error);
+      emitFeedback("error", error.message || "Không thể duyệt ảnh. Vui lòng thử lại.");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   }
 
-  const imageState = getImageState({ ...food, ...form });
+  async function handleRejectImage() {
+    const id = food?.food_id || food?.id;
+    if (!id || isUpdatingStatus || isSaving) return;
+    if (cleanUrl && !urlIsValid) {
+      emitFeedback("error", "URL ảnh không hợp lệ.");
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    setMessage("");
+    try {
+      const payload = buildPayload("rejected");
+      console.log("[FOOD IMAGE REJECT SAVE PAYLOAD]", id, payload);
+      const result = await adminPatch(`/foods/${id}`, payload);
+      const updatedImage = buildUpdatedImage(payload, result, "rejected");
+
+      setDraftStatus("rejected");
+      setDraftImageUrl(updatedImage.image_url || "");
+      setDraftNote(updatedImage.image_quality_note || "");
+      setImageLoadError(false);
+      onImageUpdated?.(updatedImage);
+      onSaved?.();
+      emitFeedback("success", "Đã từ chối ảnh.");
+      onClose?.();
+    } catch (error) {
+      console.error("[FOOD IMAGE REJECT SAVE ERROR]", error);
+      emitFeedback("error", error.message || "Không thể từ chối ảnh. Vui lòng thử lại.");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }
+
+  async function handlePasteImageUrl() {
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (!text) return;
+      setDraftImageUrl(text.trim());
+      setTimeout(() => urlInputRef.current?.focus(), 0);
+      setMessage("");
+    } catch {
+      emitFeedback("error", "Không thể đọc nội dung clipboard.");
+    }
+  }
+
+  async function handleCopyImageUrl() {
+    if (!cleanUrl) return;
+    try {
+      await navigator.clipboard?.writeText(cleanUrl);
+      emitFeedback("success", "Đã sao chép URL ảnh.");
+    } catch {
+      emitFeedback("error", "Không thể sao chép URL ảnh.");
+    }
+  }
+
+  function handleOpenOriginalImage() {
+    if (!cleanUrl) return;
+    window.open(cleanUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function handleChangeImage() {
+    setTimeout(() => urlInputRef.current?.focus(), 0);
+  }
+
+  const imageStatusBadgeClass =
+    statusMeta.className === "status-approved"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : statusMeta.className === "status-rejected"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
 
   return (
-    <AdminDrawer
-      open={open}
-      onClose={onClose}
-      title="Sửa ảnh món ăn"
-      subtitle={food?.name}
-      footer={
-        <div className="flex gap-3">
-          <AdminButton variant="subtle" className="flex-1" onClick={onClose}>Đóng</AdminButton>
-          <AdminButton className="flex-1" icon="check" disabled={saving} onClick={() => save()}>
-            {saving ? "Đang lưu" : "Lưu ảnh"}
-          </AdminButton>
-        </div>
-      }
-    >
-      <div className="space-y-5">
-        <FoodThumb food={{ ...food, image_url: form.image_url, image_alt_vi: form.image_alt_vi }} size="contain" />
-        <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trạng thái ảnh</p>
-            <p className="mt-1 text-sm font-bold text-slate-900">{food?.food_id}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-4">
+      <button type="button" aria-label="Đóng" className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
+      <section className="relative flex w-[min(820px,calc(100vw-32px))] max-h-[82vh] flex-col overflow-hidden rounded-[24px] bg-white shadow-2xl">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[#e5edf0] px-[22px] py-[18px] bg-white">
+          <div className="min-w-0">
+            <h3 className="text-xl font-extrabold text-[#081832]">Sửa ảnh món ăn</h3>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-500">{food?.name || "Chưa có tên món"}</p>
           </div>
-          <AdminStatusPill status={imageState.status}>{imageState.label}</AdminStatusPill>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+            aria-label="Đóng"
+          >
+            <Icon name="close" className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-[22px] py-[18px]">
+          <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1fr)_300px]">
+            <section className="space-y-3">
+              <div className="image-preview-card">
+                <div className="image-preview-frame">
+                  {currentImage && !imageLoadError ? (
+                    <img
+                      src={currentImage}
+                      alt={food.image_alt_vi || food.name || "Ảnh món ăn"}
+                      onLoad={() => setImageLoadError(false)}
+                      onError={() => setImageLoadError(true)}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-red-500 ring-1 ring-red-100">
+                        <Icon name="image" className="h-6 w-6" />
+                      </span>
+                      <p className="mt-4 text-sm font-extrabold text-[#081832]">Không tải được ảnh</p>
+                      <p className="mt-1 text-sm font-medium text-slate-500">Không tải được ảnh. Vui lòng kiểm tra URL.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="image-actions-row">
+                <button
+                  type="button"
+                  onClick={handleOpenOriginalImage}
+                  disabled={!cleanUrl}
+                  className={cx(
+                    "inline-flex h-10 items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
+                    cleanUrl ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-100 bg-slate-50 text-slate-300"
+                  )}
+                >
+                  Mở ảnh gốc
+                </button>
+                <AdminButton variant="subtle" className="h-10 px-3" disabled={!cleanUrl} onClick={handleCopyImageUrl}>Sao chép URL</AdminButton>
+                <AdminButton variant="subtle" className="h-10 px-3" onClick={handleChangeImage}>Thay ảnh</AdminButton>
+              </div>
+
+              <div className="image-url-inline">
+                <div className="field-header">
+                  <label htmlFor="food-image-url">URL ảnh</label>
+                  <AdminButton variant="subtle" className="h-8 px-3 text-xs" onClick={handlePasteImageUrl}>Dán</AdminButton>
+                </div>
+                <input
+                  id="food-image-url"
+                  ref={urlInputRef}
+                  className={cx("admin-input", cleanUrl && !urlIsValid && "border-red-300 focus:border-red-300 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.12)]")}
+                  value={draftImageUrl}
+                  onChange={(event) => {
+                    setDraftImageUrl(event.target.value);
+                    setImageLoadError(false);
+                    setMessage("");
+                  }}
+                  placeholder="https://..."
+                />
+                <p className="field-hint">Sửa link để thay ảnh, preview sẽ cập nhật theo URL này.</p>
+                {!cleanUrl ? (
+                  <p className="mt-2 text-xs font-semibold text-slate-500">Nhập URL ảnh mới hoặc chọn ảnh khác.</p>
+                ) : !urlIsValid ? (
+                  <p className="mt-2 text-xs font-semibold text-red-600">URL ảnh không hợp lệ.</p>
+                ) : imageLoadError ? (
+                  <p className="mt-2 text-xs font-semibold text-red-600">Không tải được ảnh từ URL này.</p>
+                ) : null}
+              </div>
+            </section>
+
+            <aside className="image-side-panel">
+              <div className="compact-card image-status-compact">
+                <div className="status-top">
+                  <strong className="text-sm font-extrabold text-[#081832]">Trạng thái ảnh</strong>
+                  <span className={cx("image-status-badge", imageStatusBadgeClass)}>{statusMeta.label}</span>
+                </div>
+
+                <div className="meta-row">
+                  <span>ID</span>
+                  <strong>#{food?.id || food?.food_id || "-"}</strong>
+                </div>
+
+                <div className="meta-row">
+                  <span>Nguồn</span>
+                  <strong>{getImageSourceLabel(food?.image_source_type || (cleanUrl ? "manual_url" : "placeholder"))}</strong>
+                </div>
+
+                <div className="meta-row">
+                  <span>Gợi ý</span>
+                  <AdminStatusPill status={excluded ? "error" : food?.menu_eligible ? "valid" : "invalid"}>
+                    {excluded ? "Đã loại khỏi thực đơn" : food?.menu_eligible ? "Được gợi ý" : "Tắt gợi ý"}
+                  </AdminStatusPill>
+                </div>
+              </div>
+
+              <div className="compact-card space-y-3">
+                <div>
+                  <p className="text-sm font-extrabold text-[#081832]">Duyệt ảnh</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Duyệt xong hệ thống sẽ lưu và đóng cửa sổ.</p>
+                </div>
+
+                {isPendingStatus(draftStatus) ? (
+                  <div className="approval-actions">
+                    <AdminButton
+                      variant="success"
+                      icon="check"
+                      disabled={isSaving || isUpdatingStatus || (cleanUrl ? !urlIsValid : false) || imageLoadError}
+                      onClick={handleApproveImage}
+                    >
+                      {isUpdatingStatus ? "Đang duyệt..." : "Duyệt ảnh"}
+                    </AdminButton>
+                    <AdminButton
+                      variant="subtle"
+                      disabled={isSaving || isUpdatingStatus}
+                      onClick={handleRejectImage}
+                    >
+                      {isUpdatingStatus ? "Đang xử lý..." : "Từ chối ảnh"}
+                    </AdminButton>
+                  </div>
+                ) : isApprovedStatus(draftStatus) ? (
+                  <p className="text-sm font-semibold text-emerald-700">Ảnh này đã được duyệt.</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-red-700">Ảnh này đã bị từ chối.</p>
+                    <AdminButton
+                      variant="subtle"
+                      icon="refresh"
+                      disabled={isSaving || isUpdatingStatus}
+                      onClick={() => onFindAnother?.(food)}
+                    >
+                      Tìm ảnh khác
+                    </AdminButton>
+                    <AdminButton
+                      variant="success"
+                      icon="check"
+                      disabled={isSaving || isUpdatingStatus || (cleanUrl ? !urlIsValid : false) || imageLoadError}
+                      onClick={handleApproveImage}
+                    >
+                      {isUpdatingStatus ? "Đang duyệt..." : "Duyệt lại"}
+                    </AdminButton>
+                  </>
+                )}
+              </div>
+
+              <div className="compact-card space-y-3">
+                <div>
+                  <p className="text-sm font-extrabold text-[#081832]">Thực đơn gợi ý</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Loại món sẽ chặn recommender chọn món này cho thực đơn mới.</p>
+                </div>
+                <AdminButton
+                  variant={excluded ? "success" : "danger"}
+                  disabled={isSaving || isUpdatingStatus}
+                  onClick={() => excluded ? onRestoreFood?.(food) : onExcludeFood?.(food)}
+                >
+                  {excluded ? "Khôi phục gợi ý" : "Loại món khỏi gợi ý"}
+                </AdminButton>
+              </div>
+
+              <div className="compact-card">
+                <button
+                  type="button"
+                  className="advanced-toggle"
+                  onClick={() => setShowAdvancedImageOptions((value) => !value)}
+                  aria-expanded={showAdvancedImageOptions}
+                >
+                  <span>Tùy chọn nâng cao</span>
+                  <span className={cx("transition-transform", showAdvancedImageOptions && "rotate-180")}>⌄</span>
+                </button>
+
+                {showAdvancedImageOptions ? (
+                  <div className="advanced-panel">
+                    <div>
+                      <label htmlFor="food-image-note" className="mb-2 block text-sm font-extrabold text-[#081832]">Ghi chú ảnh</label>
+                      <textarea
+                        id="food-image-note"
+                        className="admin-input min-h-[88px] resize-none py-3"
+                        value={draftNote}
+                        onChange={(event) => {
+                          setDraftNote(event.target.value);
+                          setMessage("");
+                        }}
+                        placeholder="Ghi chú nội bộ cho ảnh này..."
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {message ? (
+                <p className={cx("rounded-2xl px-4 py-3 text-sm font-semibold", message.includes("Không") || message.includes("không") || message.includes("lỗi") ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700")}>{message}</p>
+              ) : null}
+            </aside>
+          </div>
         </div>
 
-        <FormField label="URL ảnh">
-          <input className="admin-input" value={form.image_url} onChange={(event) => setForm((prev) => ({ ...prev, image_url: event.target.value }))} placeholder="https://example.com/image.jpg" />
-        </FormField>
-        <FormField label="Mô tả ảnh">
-          <input className="admin-input" value={form.image_alt_vi} onChange={(event) => setForm((prev) => ({ ...prev, image_alt_vi: event.target.value }))} placeholder="Mô tả ngắn bằng tiếng Việt" />
-        </FormField>
-        <FormField label="Nguồn ảnh">
-          <select className="admin-input" value={form.image_source_type} onChange={(event) => setForm((prev) => ({ ...prev, image_source_type: event.target.value }))}>
-            <option value="placeholder">placeholder</option>
-            <option value="pexels">pexels</option>
-            <option value="real">real</option>
-            <option value="wikimedia">wikimedia</option>
-            <option value="unsplash">unsplash</option>
-          </select>
-        </FormField>
-        <label className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-          <input type="checkbox" checked={form.image_verified} onChange={(event) => setForm((prev) => ({ ...prev, image_verified: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-          Ảnh đã kiểm duyệt
-        </label>
-        <FormField label="Ghi chú chất lượng">
-          <textarea className="admin-input min-h-[96px] resize-none py-3" value={form.image_quality_note} onChange={(event) => setForm((prev) => ({ ...prev, image_quality_note: event.target.value }))} />
-        </FormField>
-        {form.image_source_type === "pexels" && !form.image_verified ? (
-          <AdminButton variant="success" icon="check" disabled={saving || !form.image_url.trim()} onClick={verifyReal}>
-            Duyệt thành ảnh thật
+        <footer className="image-editor-footer">
+          <AdminButton variant="subtle" disabled={isSaving || isUpdatingStatus} onClick={onClose}>Đóng</AdminButton>
+          <AdminButton
+            icon="check"
+            disabled={isSaving || isUpdatingStatus || (!hasChanges && !showAdvancedImageOptions) || (cleanUrl ? !urlIsValid : false) || imageLoadError}
+            onClick={handleSaveImageChanges}
+          >
+            {isSaving ? "Đang lưu..." : "Lưu thay đổi"}
           </AdminButton>
-        ) : null}
-        {message ? <p className="rounded-2xl bg-blue-50 p-4 text-sm font-semibold text-blue-700">{message}</p> : null}
-      </div>
-    </AdminDrawer>
+        </footer>
+      </section>
+    </div>
   );
 }
 

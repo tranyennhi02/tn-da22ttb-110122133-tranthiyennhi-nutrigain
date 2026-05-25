@@ -32,9 +32,9 @@ TREND_MESSAGES = {
     "increasing": "Bạn đang tăng cân tốt. Hãy tiếp tục duy trì kế hoạch ăn uống.",
     "stable": "Cân nặng chưa thay đổi trong lần cập nhật gần nhất. Hãy kiểm tra lại lượng kcal đã ăn.",
     "decreasing": "Cân nặng đang giảm nhẹ. Có thể bạn cần tăng kcal hoặc theo dõi bữa ăn sát hơn.",
-    "not_enough_data": "Hãy cập nhật cân nặng mỗi 3 ngày để NutriGain theo dõi xu hướng chính xác hơn.",
+    "not_enough_data": "Hãy cập nhật cân nặng hằng ngày để biểu đồ chính xác hơn.",
 }
-INITIAL_WEIGHT_MESSAGE = "Đã ghi nhận cân nặng ban đầu. Hãy cập nhật lại sau 3 ngày để theo dõi xu hướng tăng cân."
+INITIAL_WEIGHT_MESSAGE = "Đã ghi nhận cân nặng ban đầu. Hãy cập nhật cân nặng hằng ngày để theo dõi xu hướng tăng cân."
 PROFILE_INITIAL_NOTE = "Cân nặng khởi tạo từ hồ sơ"
 PROFILE_UPDATE_NOTE = "Cân nặng cập nhật từ hồ sơ"
 
@@ -46,6 +46,37 @@ def _round_optional(value: float | None, digits: int = 1) -> float | None:
 
 
 class WeightLogService:
+    @staticmethod
+    def _profile_payload(profile: UserProfileEntity | None) -> dict | None:
+        if profile is None:
+            return None
+        return {
+            "weight_kg": profile.weight_kg,
+            "height_cm": profile.height_cm,
+            "age": profile.age,
+            "sex": profile.sex,
+            "gender": profile.gender or profile.sex,
+            "activity_level": profile.activity_level,
+            "surplus_kcal": profile.surplus_kcal,
+            "favorite_foods": profile.favorite_foods,
+            "disliked_foods": profile.disliked_foods,
+            "disliked_food_groups": profile.disliked_food_groups,
+            "target_weight_kg": profile.target_weight_kg,
+            "target_duration_value": profile.target_duration_value,
+            "target_duration_unit": profile.target_duration_unit,
+            "target_duration_months": profile.target_duration_months,
+            "target_gain_rate_kg_per_month": profile.target_gain_rate_kg_per_month,
+            "weight_gain_speed": profile.weight_gain_speed,
+            "diet_type": profile.diet_type,
+            "budget_level": profile.budget_level,
+            "items_per_meal": profile.items_per_meal,
+            "breakfast_time": profile.breakfast_time,
+            "lunch_time": profile.lunch_time,
+            "dinner_time": profile.dinner_time,
+            "meal_reminder_enabled": bool(profile.meal_reminder_enabled),
+            "updated_at": profile.updated_at.isoformat(timespec="seconds") if profile.updated_at else None,
+        }
+
     @staticmethod
     def to_payload(row: WeightLog) -> dict:
         created_at = _as_vn_datetime(row.created_at)
@@ -199,6 +230,45 @@ class WeightLogService:
         next_milestone_date = milestone_date
         return chart_points, next_milestone_date
 
+    @staticmethod
+    def _daily_chart_points(all_logs: list[WeightLog]) -> list[dict]:
+        if not all_logs:
+            return []
+
+        latest_by_date: dict[date, WeightLog] = {}
+        for log in all_logs:
+            existing = latest_by_date.get(log.log_date)
+            if existing is None:
+                latest_by_date[log.log_date] = log
+                continue
+
+            existing_updated = getattr(existing, "updated_at", None) or getattr(existing, "created_at", None) or datetime.min
+            current_updated = getattr(log, "updated_at", None) or getattr(log, "created_at", None) or datetime.min
+            if current_updated >= existing_updated:
+                latest_by_date[log.log_date] = log
+
+        sorted_dates = sorted(latest_by_date.keys())
+        if not sorted_dates:
+            return []
+
+        start_date = sorted_dates[0]
+        chart_points: list[dict] = []
+        for log_date in sorted_dates:
+            log = latest_by_date[log_date]
+            chart_points.append(
+                {
+                    "date": log_date.isoformat(),
+                    "log_date": log_date,
+                    "weight_kg": float(log.weight_kg),
+                    "label": "initial" if log_date == start_date else "daily",
+                    "is_milestone": False,
+                    "source": getattr(log, "source", None),
+                    "log_id": getattr(log, "id", None),
+                    "note": getattr(log, "note", None),
+                }
+            )
+        return chart_points
+
     def sync_profile_weight(
         self,
         db: Session,
@@ -284,7 +354,47 @@ class WeightLogService:
             db.rollback()
             return None
 
-    def list_logs(self, db: Session, user: User, range_days: int | None = 30, mode: str = "milestones") -> list[dict]:
+    def save_daily_log(self, db: Session, user: User, weight_kg: float, source: str = "weight_trend_update") -> dict:
+        log_date = today_vn()
+        saved = self.upsert_weight_log(
+            db,
+            user_id=user.id,
+            weight_kg=weight_kg,
+            log_date=log_date,
+            note=None,
+            source=source,
+        )
+
+        if saved is None:
+            return {
+                "success": False,
+                "weight_kg": weight_kg,
+                "log_date": log_date.isoformat(),
+                "profile": None,
+                "chart_points": [],
+                "summary": self.summary(db, user),
+            }
+
+        profile = db.scalar(select(UserProfileEntity).where(UserProfileEntity.user_id == user.id))
+        rows = list(
+            db.scalars(
+                select(WeightLog)
+                .where(WeightLog.user_id == user.id)
+                .order_by(WeightLog.log_date.asc())
+            )
+        )
+        chart_points = self._daily_chart_points(rows)
+
+        return {
+            "success": True,
+            "weight_kg": float(saved["weight_kg"]),
+            "log_date": log_date.isoformat(),
+            "profile": self._profile_payload(profile),
+            "chart_points": chart_points,
+            "summary": self.summary(db, user),
+        }
+
+    def list_logs(self, db: Session, user: User, range_days: int | None = 30, mode: str = "daily") -> list[dict]:
         query = select(WeightLog).where(WeightLog.user_id == user.id).order_by(WeightLog.log_date.asc())
         all_logs = list(db.scalars(query))
         if not all_logs:
@@ -306,6 +416,19 @@ class WeightLogService:
                 cutoff = today - timedelta(days=max(range_days, 0))
                 milestones = [m for m in milestones if m["date"] >= cutoff.isoformat()]
             return milestones
+
+        if mode == "daily":
+            points = self._daily_chart_points(all_logs)
+            if range_days is not None:
+                cutoff = today - timedelta(days=max(range_days, 0))
+                points = [p for p in points if date.fromisoformat(p["date"]) >= cutoff]
+            return points
+
+        if mode in {"raw", "all"}:
+            if range_days is not None:
+                cutoff = today - timedelta(days=max(range_days, 0))
+                all_logs = [l for l in all_logs if l.log_date >= cutoff]
+            return [self.to_payload(row) for row in all_logs]
 
         if range_days is not None:
             cutoff = today - timedelta(days=max(range_days, 0))
@@ -381,18 +504,12 @@ class WeightLogService:
             elif gained_kg < 0: trend = "decreasing"
             else: trend = "stable"
 
-        today = today_vn()
-        chart_points, next_milestone_date = self._milestone_points(rows, today, profile_weight=profile_weight)
+        chart_points = self._daily_chart_points(rows)
         last_log_date = latest_log.log_date if latest_log else None
-
-        latest_milestone_date = next_milestone_date - timedelta(days=3) if start_log and next_milestone_date else today
-        days_since_latest_milestone = (today - latest_milestone_date).days if start_log else 0
-        should_checkin = days_since_latest_milestone >= 3
 
         print("[MILESTONE POINTS FINAL]", {
             "user_id": user.id,
             "profile_weight": profile.weight_kg if profile else None,
-            "today": today,
             "chart_points": chart_points,
         })
 
@@ -425,13 +542,13 @@ class WeightLogService:
             "latest_log_date": last_log_date,
             "latest_log_weight": _round_optional(latest_log_weight),
             "all_logs_count": len(rows),
-            "latest_milestone_date": latest_milestone_date,
-            "next_checkin_date": next_milestone_date,
-            "next_milestone_date": next_milestone_date,
+            "latest_milestone_date": None,
+            "next_checkin_date": None,
+            "next_milestone_date": None,
             "chart_points": chart_points,
             "milestone_points": chart_points,
-            "days_since_latest_milestone": days_since_latest_milestone,
-            "should_checkin": should_checkin,
+            "days_since_latest_milestone": None,
+            "should_checkin": False,
             "message": INITIAL_WEIGHT_MESSAGE if len(rows) <= 1 else TREND_MESSAGES.get(trend, "not_enough_data"),
         }
 

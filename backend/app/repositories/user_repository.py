@@ -17,6 +17,17 @@ class UserRepository:
         query = select(User).where(User.email == email.strip().lower())
         return self.db.scalar(query)
 
+    def get_by_google_sub(self, google_sub: str) -> User | None:
+        query = select(User).where(User.google_sub == str(google_sub or "").strip())
+        return self.db.scalar(query)
+
+    def list_local_google_users(self) -> list[User]:
+        query = select(User).where(
+            func.lower(User.auth_provider) == "google",
+            User.email.ilike("%@nutrigain.local"),
+        )
+        return list(self.db.scalars(query))
+
     def create_user(
         self,
         email: str,
@@ -24,6 +35,7 @@ class UserRepository:
         full_name: str | None = None,
         role: str = "USER",
         auth_provider: str = "email",
+        google_sub: str | None = None,
     ) -> User:
         user = User(
             email=email.strip().lower(),
@@ -31,6 +43,7 @@ class UserRepository:
             full_name=full_name,
             role=role,
             auth_provider=auth_provider,
+            google_sub=google_sub,
         )
         self.db.add(user)
         self.db.commit()

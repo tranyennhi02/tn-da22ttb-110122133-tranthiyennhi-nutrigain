@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 
 import { performLogout, readSession, submitLogin } from "./controllers/authController";
 import { saveUserProfile, submitRecommendation } from "./controllers/recommendationController";
@@ -128,6 +128,26 @@ function syncAuthToken(authResult) {
   }
 }
 
+function syncSessionUser(currentUser, setSession) {
+  if (!currentUser?.email) return;
+  setSession((current) => {
+    if (!current) return current;
+    const next = {
+      ...current,
+      user: {
+        ...(current.user || {}),
+        ...currentUser,
+      },
+      email: currentUser.email,
+      name: currentUser.full_name || currentUser.email,
+      role: (currentUser.role || current.role || "USER").toUpperCase(),
+      status: (currentUser.status || current.status || "ACTIVE").toUpperCase(),
+    };
+    localStorage.setItem("nutrigain_auth", JSON.stringify(next));
+    return next;
+  });
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => readSession());
@@ -140,8 +160,11 @@ export default function App() {
   const [justLoggedIn, setJustLoggedIn] = useState(false);
   const [profileFormMode, setProfileFormMode] = useState("register_onboarding");
   const [locationPath, setLocationPath] = useState(() => window.location.pathname);
+  const [authLoadTimedOut, setAuthLoadTimedOut] = useState(false);
+  const fetchedTokenRef = useRef("");
 
-  const userEmail = useMemo(() => session?.email || "", [session]);
+  const sessionToken = useMemo(() => session?.accessToken || "", [session?.accessToken]);
+  const userEmail = useMemo(() => authUser?.email || session?.email || "", [authUser?.email, session?.email]);
   const isAdminUser = useCallback((user) => ["ADMIN", "SUPER_ADMIN"].includes(String(user?.role || "").toUpperCase()), []);
   const isPasswordAuthRoute = locationPath === "/forgot-password" || locationPath === "/reset-password";
 
@@ -182,18 +205,46 @@ export default function App() {
     if (isPasswordAuthRoute) {
       return;
     }
-    if (!session) {
+    if (!sessionToken) {
+      fetchedTokenRef.current = "";
       setAppView("checking");
       return;
     }
     if (justLoggedIn) {
       return;
     }
+    if (fetchedTokenRef.current === sessionToken) {
+      if (authUser) {
+        if (appView === "checking") {
+          if (isAdminUser(authUser)) {
+            setAppView("admin");
+          } else if (isProfileComplete(authUser?.profile)) {
+            setAppView("dashboard");
+          } else {
+            setAppView("onboarding");
+          }
+        }
+        return;
+      }
+      // Safety valve: if token was marked fetched but user state is empty, fetch again.
+      fetchedTokenRef.current = "";
+    }
+
+    if (!fetchedTokenRef.current) {
+      setAuthLoadTimedOut(false);
+    }
+
+    if (fetchedTokenRef.current === sessionToken) {
+      return;
+    }
+    fetchedTokenRef.current = sessionToken;
+
     let cancelled = false;
 
     async function syncProfile() {
       setAppView("checking");
       try {
+        console.log("[AUTH LOAD ME START]");
         const rawUser = await fetchCurrentUser();
         if (!rawUser) {
           throw new Error("No user profile session returned from API or server offline");
@@ -201,14 +252,16 @@ export default function App() {
         const currentUser = normalizeUserProfileArrays(rawUser);
         const profile = currentUser?.profile;
         if (cancelled) return;
-        console.log("[AFTER LOGIN /users/me]", currentUser);
+        console.log("[AUTH LOAD ME SUCCESS]", currentUser);
         setAuthUser(currentUser);
+        syncSessionUser(currentUser, setSession);
         if (isAdminUser(currentUser)) {
           navigateTo(window.location.pathname.startsWith("/admin") ? window.location.pathname : "/admin/overview");
           setAppView("admin");
           return;
         }
         const hasProfile = Boolean(profile);
+        const profileComplete = isProfileComplete(profile);
         if (hasProfile) {
           setProfileFormState(mapUserProfileToFormState(profile));
           setProfileFormMode("edit_after_auth");
@@ -220,12 +273,30 @@ export default function App() {
         setInitialMealResult(null);
         setInitialSection("overview");
         clearOnboardingFlag();
-        console.log("[AUTH REDIRECT]", hasProfile ? "user_profile_form_prefilled" : "user_profile_form_empty");
+
+        // Phase 1: If user already has a complete profile, go directly to dashboard
+        if (profileComplete) {
+          console.log("[AUTH REDIRECT] profile_complete -> dashboard");
+          navigateTo(window.location.pathname === "/health-education" ? "/health-education" : "/dashboard");
+          setAppView("dashboard");
+          return;
+        }
+
+        // If user has a profile but it's incomplete (old user), send them to account settings
+        if (hasProfile) {
+          console.log("[AUTH REDIRECT] incomplete_profile -> account settings");
+          setInitialSection("account");
+          navigateTo("/dashboard");
+          setAppView("dashboard");
+          return;
+        }
+
+        console.log("[AUTH REDIRECT] no_profile -> onboarding");
         navigateTo("/onboarding");
         setAppView("onboarding");
         return;
       } catch (error) {
-        console.error("Failed to load user from stored session:", error);
+        console.error("[AUTH LOAD ME ERROR]", error);
         performLogout();
         clearOnboardingFlag();
         clearProfileCacheKeys();
@@ -234,25 +305,37 @@ export default function App() {
           setSession(null);
         }
         return;
+      } finally {
+        if (!cancelled) {
+          console.log("[AUTH LOAD ME DONE]");
+        }
       }
-      clearOnboardingFlag();
-      setProfileFormMode("register_onboarding");
-      setProfileFormState(defaultFormState);
-      setInitialMealResult(null);
-      setInitialSection("overview");
-      navigateTo("/onboarding");
-      if (!cancelled) setAppView("onboarding");
     }
 
     syncProfile();
     return () => {
       cancelled = true;
     };
-  }, [session, isAdminUser, isPasswordAuthRoute]);
+  }, [sessionToken, justLoggedIn, isAdminUser, isPasswordAuthRoute, authUser, appView]);
+
+  useEffect(() => {
+    if (!sessionToken || appView !== "checking") {
+      setAuthLoadTimedOut(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setAuthLoadTimedOut(true);
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [sessionToken, appView]);
 
   async function handleUserAuthSuccess(authResult) {
     setJustLoggedIn(true);
+    setAuthLoadTimedOut(false);
     syncAuthToken(authResult);
+    fetchedTokenRef.current = authResult?.accessToken || "";
     setSession(authResult);
     setAuthUser(null);
     setProfileFormState(defaultFormState);
@@ -263,14 +346,16 @@ export default function App() {
     clearProfileCacheKeys();
 
     try {
+      console.log("[AUTH LOAD ME START]");
       const rawUser = await fetchCurrentUser();
       if (!rawUser) {
         throw new Error("Could not fetch user profile after login");
       }
       const currentUser = normalizeUserProfileArrays(rawUser);
-      
-      console.log("[AUTH SUCCESS USER]", currentUser);
+
+      console.log("[AUTH LOAD ME SUCCESS]", currentUser);
       setAuthUser(currentUser);
+      syncSessionUser(currentUser, setSession);
       if (isAdminUser(currentUser)) {
         navigateTo("/admin/overview");
         setJustLoggedIn(false);
@@ -281,17 +366,27 @@ export default function App() {
       const profile = currentUser?.profile;
       const formState = mapUserProfileToFormState(profile);
       const hasProfile = Boolean(profile);
+      const profileComplete = isProfileComplete(profile);
       setProfileFormState(formState);
       setProfileFormMode(hasProfile ? "edit_after_auth" : "register_onboarding");
       setInitialMealResult(null);
       setInitialSection("overview");
+      setJustLoggedIn(false);
       console.log("[PROFILE FORM PREFILL]", formState);
+
+      // Phase 1: If user already has a complete profile, go directly to dashboard (skip onboarding)
+      if (profileComplete) {
+        console.log("[AUTH REDIRECT] profile_complete -> dashboard");
+        navigateTo(window.location.pathname === "/health-education" ? "/health-education" : "/dashboard");
+        setAppView("dashboard");
+        return;
+      }
+
       console.log("[AUTH REDIRECT]", hasProfile ? "user_profile_form_prefilled" : "user_profile_form_empty");
       navigateTo("/onboarding");
       setAppView("onboarding");
-      setJustLoggedIn(false);
     } catch (error) {
-      console.error("Failed to load user after auth", error);
+      console.error("[AUTH LOAD ME ERROR]", error);
       performLogout();
       clearOnboardingFlag();
       clearProfileCacheKeys();
@@ -300,6 +395,8 @@ export default function App() {
       setAuthUser(null);
       setAppView("checking");
       throw error;
+    } finally {
+      console.log("[AUTH LOAD ME DONE]");
     }
   }
 
@@ -320,6 +417,7 @@ export default function App() {
     setAppView("checking");
     setInitialMealResult(null);
     setInitialSection("overview");
+    setAuthLoadTimedOut(false);
     navigateTo("/login");
   }
 
@@ -378,7 +476,7 @@ export default function App() {
     }
 
     let generatedResult = null;
-    if (generateMeal) {
+    if (generateMeal && isProfileComplete(merged)) {
       generatedResult = await submitRecommendation(merged);
     }
 
@@ -432,6 +530,35 @@ export default function App() {
   }
 
   if (appView === "checking") {
+    if (authLoadTimedOut) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-6">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900">Không thể tải thông tin tài khoản.</h2>
+            <p className="mt-2 text-sm text-slate-600">Vui lòng tải lại hoặc đăng xuất để đăng nhập lại.</p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => window.location.reload()}
+              >
+                Tải lại
+              </button>
+              <button
+                type="button"
+                className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
+                onClick={() => {
+                  handleLogout();
+                }}
+              >
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
         <div className="flex flex-col items-center">
@@ -466,10 +593,11 @@ export default function App() {
       onLogout={handleLogout}
       initialFormState={profileFormState}
       initialResult={initialMealResult}
-      initialSection={initialSection}
+      initialSection={locationPath === "/health-education" ? "health-education" : initialSection}
       onRequireProfile={handleRequireProfile}
       onEditProfile={() => setAppView("onboarding")}
       onProfileUpdate={handleProfileUpdate}
+      onNavigatePath={navigateTo}
     />
   );
 }
@@ -505,6 +633,10 @@ export function mapUserProfileToFormState(profile) {
     weight_gain_speed: profile.weight_gain_speed || gainSpeed,
     target_weight: profile.target_weight_kg ?? "",
     target_weight_kg: profile.target_weight_kg ?? "",
+    target_duration_value: profile.target_duration_value ?? profile.target_duration_months ?? "",
+    target_duration_unit: profile.target_duration_unit || "months",
+    target_duration_months: profile.target_duration_months ?? "",
+    target_gain_rate_kg_per_month: profile.target_gain_rate_kg_per_month ?? "",
     meal_complexity: complexity,
     items_per_meal: profile.items_per_meal ?? 4,
     diet_style: dietStyle,
@@ -515,6 +647,10 @@ export function mapUserProfileToFormState(profile) {
     unfavorite_foods: foodListToInput(normalizedProfile.disliked_foods),
     disliked_foods: normalizedProfile.disliked_foods,
     disliked_food_groups: normalizedProfile.disliked_food_groups,
+    meal_reminder_enabled: Boolean(profile.meal_reminder_enabled),
+    breakfast_time: profile.breakfast_time || "07:00",
+    lunch_time: profile.lunch_time || "12:00",
+    dinner_time: profile.dinner_time || "18:30",
     save_user_data: true,
   };
 }

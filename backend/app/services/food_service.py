@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -42,6 +44,17 @@ def _serialize_profile_list(value: object) -> str:
     return ";".join(items) if items else ""
 
 
+DEFAULT_MEAL_REMINDER_TIMES = {
+    "breakfast_time": "07:00",
+    "lunch_time": "12:00",
+    "dinner_time": "18:30",
+}
+
+SAFE_GAIN_MIN_KG_PER_MONTH = 0.5
+SAFE_GAIN_MAX_KG_PER_MONTH = 1.0
+WEEKS_PER_MONTH = 4
+
+
 class FoodService:
     @staticmethod
     def food_to_payload(food: Food) -> dict:
@@ -74,6 +87,10 @@ class FoodService:
             "protein": float(food.protein_per_serving_clean or food.protein or 0.0),
             "fat": float(food.fat_per_serving_clean or food.fat or 0.0),
             "carbs": float(food.carbs_per_serving_clean or food.carbs or 0.0),
+            "menu_eligible": bool(food.menu_eligible),
+            "excluded_from_recommendation": bool(getattr(food, "excluded_from_recommendation", False)),
+            "admin_rejected": bool(getattr(food, "admin_rejected", False)),
+            "exclusion_reason": getattr(food, "exclusion_reason", None),
         }
 
     @staticmethod
@@ -193,10 +210,19 @@ class UserService:
             "disliked_foods": _parse_profile_list(profile.disliked_foods),
             "disliked_food_groups": _parse_profile_list(profile.disliked_food_groups),
             "target_weight_kg": profile.target_weight_kg,
+            "target_duration_value": profile.target_duration_value,
+            "target_duration_unit": profile.target_duration_unit,
+            "target_duration_months": profile.target_duration_months,
+            "target_gain_rate_kg_per_month": profile.target_gain_rate_kg_per_month,
             "weight_gain_speed": profile.weight_gain_speed,
             "diet_type": profile.diet_type,
             "budget_level": profile.budget_level,
             "items_per_meal": profile.items_per_meal,
+            "breakfast_time": profile.breakfast_time,
+            "lunch_time": profile.lunch_time,
+            "dinner_time": profile.dinner_time,
+            "meal_reminder_enabled": bool(profile.meal_reminder_enabled),
+            "reminder_email": profile.reminder_email,
             "updated_at": profile.updated_at.isoformat(timespec="seconds"),
         }
 
@@ -217,6 +243,7 @@ class UserService:
             "height_cm": profile.height_cm if profile else None,
             "diet_type": profile.diet_type if profile else None,
             "items_per_meal": profile.items_per_meal if profile else None,
+            "meal_reminder_enabled": bool(profile.meal_reminder_enabled) if profile else False,
         })
         payload = self.user_to_payload(user)
         payload["profile"] = self.profile_to_payload(profile)
@@ -250,6 +277,7 @@ class UserService:
         print("[PUT PROFILE] user_id=", user.id)
         print("[PUT PROFILE] raw payload=", payload)
         values = _dump_model(payload, exclude_unset=True)
+        values.pop("reminder_email", None)
         if payload.weight_kg is not None:
             values["weight_kg"] = payload.weight_kg
         print("[PUT PROFILE] update_data=", values)
@@ -267,6 +295,47 @@ class UserService:
             .populate_existing()
             .first()
         )
+
+        current_weight = values.get("weight_kg") or getattr(current_profile, "weight_kg", None)
+        target_weight = values.get("target_weight_kg") or getattr(current_profile, "target_weight_kg", None)
+        duration_value = values.get("target_duration_value")
+        duration_unit = values.get("target_duration_unit") or getattr(current_profile, "target_duration_unit", None) or "months"
+        if duration_value is None:
+            duration_value = values.get("target_duration_months")
+        print("[PROFILE TARGET VALIDATION]", {
+            "current_weight_kg": current_weight,
+            "target_weight_kg": target_weight,
+            "target_duration_value": duration_value,
+            "target_duration_unit": duration_unit,
+        })
+        if duration_value is not None and duration_value <= 0:
+            print("[PROFILE TARGET REJECTED]", {"reason": "invalid_duration", "duration_value": duration_value})
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vui lòng nhập thời gian hợp lệ.")
+        if current_weight is not None and target_weight is not None:
+            current_weight = float(current_weight)
+            target_weight = float(target_weight)
+            if target_weight <= current_weight:
+                print("[PROFILE TARGET REJECTED]", {"reason": "target_not_greater_than_current", "current_weight_kg": current_weight, "target_weight_kg": target_weight})
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cân nặng mục tiêu phải lớn hơn cân nặng hiện tại.")
+            if duration_value is not None:
+                duration_months = float(duration_value) / WEEKS_PER_MONTH if str(duration_unit).lower() == "weeks" else float(duration_value)
+                if duration_months > 0:
+                    required_gain_per_month = (target_weight - current_weight) / duration_months
+                    min_months = math.ceil((target_weight - current_weight) / SAFE_GAIN_MAX_KG_PER_MONTH)
+                    if required_gain_per_month > SAFE_GAIN_MAX_KG_PER_MONTH:
+                        print("[PROFILE TARGET REJECTED]", {
+                            "reason": "gain_too_fast",
+                            "required_gain_per_month": required_gain_per_month,
+                            "min_months": min_months,
+                            "min_weeks": min_months * WEEKS_PER_MONTH,
+                        })
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Thời gian mục tiêu quá ngắn. Vui lòng chọn tối thiểu khoảng {min_months} tháng.",
+                        )
+                    values["target_duration_unit"] = "weeks" if str(duration_unit).lower() == "weeks" else "months"
+                    values["target_duration_months"] = duration_months
+                    values["target_gain_rate_kg_per_month"] = required_gain_per_month
         
         target_weight = values.get("target_weight_kg")
         height = values.get("height_cm") or (getattr(current_profile, "height_cm", None) if current_profile else None)
@@ -302,6 +371,17 @@ class UserService:
             grp_list = _parse_profile_list(values["disliked_food_groups"])
             values["disliked_food_groups"] = _serialize_profile_list(grp_list)
 
+        if values.get("meal_reminder_enabled"):
+            for key, default_value in DEFAULT_MEAL_REMINDER_TIMES.items():
+                if not values.get(key):
+                    values[key] = getattr(current_profile, key, None) if current_profile else None
+                if not values.get(key):
+                    values[key] = default_value
+
+        reminder_fields_present = any(
+            key in values for key in ("meal_reminder_enabled", "breakfast_time", "lunch_time", "dinner_time")
+        )
+
         profile = UserRepository(db).upsert_profile(user.id, values)
         if payload.weight_kg is not None:
             profile.weight_kg = payload.weight_kg
@@ -309,6 +389,14 @@ class UserService:
         db.add(profile)
         db.commit()
         db.refresh(profile)
+        print("[PROFILE TARGET SAVED]", {
+            "current_user_id": user.id,
+            "target_weight_kg": profile.target_weight_kg,
+            "target_duration_value": getattr(profile, "target_duration_value", None),
+            "target_duration_unit": getattr(profile, "target_duration_unit", None),
+            "target_duration_months": getattr(profile, "target_duration_months", None),
+            "target_gain_rate_kg_per_month": getattr(profile, "target_gain_rate_kg_per_month", None),
+        })
 
         print("[PROFILE UPDATE SAVED WEIGHT]", {
             "current_user_id": user.id,
@@ -317,6 +405,15 @@ class UserService:
             "saved_target_weight_kg": profile.target_weight_kg,
             "updated_at": str(profile.updated_at) if profile.updated_at else None,
         })
+
+        if reminder_fields_present:
+            print("[MEAL REMINDER SETTINGS SAVED]", {
+                "user_id": user.id,
+                "meal_reminder_enabled": bool(profile.meal_reminder_enabled),
+                "breakfast_time": profile.breakfast_time,
+                "lunch_time": profile.lunch_time,
+                "dinner_time": profile.dinner_time,
+            })
 
         if profile.weight_kg is not None:
             WeightLogService().upsert_weight_log_from_profile_update(user, profile.weight_kg, db, source="profile_update")

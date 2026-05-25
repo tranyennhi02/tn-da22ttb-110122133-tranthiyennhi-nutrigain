@@ -29,6 +29,20 @@ RESET_LINK_EXPIRED_MESSAGE = "Liên kết đặt lại mật khẩu đã hết h
 RESET_LINK_USED_MESSAGE = "Liên kết đặt lại mật khẩu đã được sử dụng."
 
 
+def _is_local_email(email: str | None) -> bool:
+    lowered = str(email or "").strip().lower()
+    return lowered.endswith(".local") or "@nutrigain.local" in lowered
+
+
+def _is_real_email(email: str | None) -> bool:
+    normalized = str(email or "").strip().lower()
+    return bool(EMAIL_RE.match(normalized)) and not _is_local_email(normalized)
+
+
+def _normalize_google_sub(google_sub: str | None) -> str:
+    return str(google_sub or "").strip()
+
+
 class AuthService:
     @staticmethod
     def _validate_email(email: str) -> str:
@@ -233,10 +247,13 @@ class AuthService:
             ) from exc
 
         aud = google_data.get("aud")
-        email = google_data.get("email")
+        email = str(google_data.get("email") or "").strip().lower()
+        google_sub = _normalize_google_sub(google_data.get("sub"))
         name = google_data.get("name") or google_data.get("given_name") or (email.split("@")[0] if email else "Google User")
 
-        if not email:
+        print(f"[GOOGLE LOGIN EMAIL] email={email}")
+
+        if not _is_real_email(email):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token Google không hợp lệ.",
@@ -250,7 +267,12 @@ class AuthService:
             )
 
         repository = UserRepository(db)
-        user = repository.get_by_email(email)
+        user = repository.get_by_google_sub(google_sub) if google_sub else None
+        if user is None:
+            user = repository.get_by_email(email)
+
+        if user and str(user.email or "").strip().lower() == "admin@nutrigain.local" and email != "admin@nutrigain.local":
+            user = None
 
         if user is None:
             dummy_password = secrets.token_hex(16)
@@ -263,6 +285,7 @@ class AuthService:
                     full_name=name,
                     role="USER",
                     auth_provider="google",
+                    google_sub=google_sub or None,
                 )
             except IntegrityError as exc:
                 db.rollback()
@@ -270,6 +293,19 @@ class AuthService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Email đã được đăng ký bằng phương thức khác.",
                 ) from exc
+        else:
+            user.auth_provider = "google"
+            if google_sub:
+                user.google_sub = google_sub
+            if user.email != email:
+                user.email = email
+            if name:
+                user.full_name = name
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        print(f"[GOOGLE LOGIN USER] user_id={user.id}, email={user.email}")
 
         if not user.is_active or str(getattr(user, "status", "") or "").upper() == "LOCKED":
             raise HTTPException(

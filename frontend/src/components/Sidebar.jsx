@@ -1,13 +1,15 @@
 import NutriGainLogo from "./NutriGainLogo";
+import { BookOpen } from "lucide-react";
 
 const menuItems = [
-  { id: "overview", label: "Tổng quan", icon: DashboardIcon },
-  { id: "journal", label: "Nhật ký ăn uống", icon: JournalIcon },
-  { id: "charts", label: "Theo dõi tăng cân", icon: ChartIcon },
-  { id: "meal-plan", label: "Kế hoạch bữa ăn", icon: MealIcon },
-  { id: "account", label: "Tài khoản", icon: UserIcon },
-  { id: "notifications", label: "Thông báo", icon: BellIcon },
-  { id: "help", label: "Hỗ trợ", icon: HelpIcon },
+  { id: "overview", label: "Tổng quan", path: "/dashboard", icon: DashboardIcon },
+  { id: "journal", label: "Thống kê ăn uống", path: "/dashboard", icon: JournalIcon },
+  { id: "charts", label: "Theo dõi tăng cân", path: "/dashboard", icon: ChartIcon },
+  { id: "meal-plan", label: "Kế hoạch bữa ăn", path: "/dashboard", icon: MealIcon },
+  { id: "health-education", label: "Giáo dục sức khỏe", path: "/health-education", icon: HealthEducationSidebarItem },
+  { id: "account", label: "Tài khoản", path: "/dashboard", icon: UserIcon },
+  { id: "notifications", label: "Thông báo", path: "/dashboard", icon: BellIcon },
+  { id: "help", label: "Hỗ trợ", path: "/dashboard", icon: HelpIcon },
 ];
 
 export default function Sidebar({
@@ -54,7 +56,7 @@ export default function Sidebar({
                     ? "bg-brand-navy text-white shadow-xl shadow-brand-navy/20"
                     : "text-brand-text-sub hover:bg-white hover:text-brand-navy hover:shadow-sm"
                 }`}
-                onClick={() => onNavigate?.(item.id)}
+                onClick={() => onNavigate?.(item.id, item.path)}
               >
                 <span
                   className={`grid h-9 w-9 place-items-center rounded-xl transition ${
@@ -118,6 +120,10 @@ function ChartIcon() {
 
 function MealIcon() {
   return <IconBase><path d="M6 3v18" /><path d="M10 3v7a4 4 0 0 1-8 0V3" /><path d="M18 3v18" /><path d="M18 3c2 2 3 4 3 7s-1 5-3 7" /></IconBase>;
+}
+
+function HealthEducationSidebarItem() {
+  return <BookOpen className="h-5 w-5" strokeWidth={2} />;
 }
 
 function FoodIcon() {

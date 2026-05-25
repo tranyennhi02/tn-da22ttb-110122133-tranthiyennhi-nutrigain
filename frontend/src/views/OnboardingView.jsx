@@ -4,6 +4,7 @@ import { updateUserProfile, postRegenerateMealPlan, fetchCurrentUser } from "../
 import { mapFormStateToBackendProfile } from "../App";
 import { normalizePayload } from "../models/recommendationModel";
 import NutriGainLogo from "../components/NutriGainLogo";
+import { buildWeightGainPlan, formatKgRate } from "../utils/weightGainPlan.js";
 import {
   asianBmiLabel,
   bmiPreviewMessage,
@@ -15,6 +16,87 @@ import { foodListToInput, parseFoodList } from "../utils/profileFormUtils.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function safeNum(v) { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; }
+
+const SAFE_GAIN_MIN_KG_PER_MONTH = 0.5;
+const SAFE_GAIN_MAX_KG_PER_MONTH = 1;
+const WEEKS_PER_MONTH = 4;
+
+const validateWeightGoalTimeline = ({
+  currentWeightKg,
+  targetWeightKg,
+  durationValue,
+  durationUnit,
+}) => {
+  const current = Number(currentWeightKg);
+  const target = Number(targetWeightKg);
+  const duration = Number(durationValue);
+
+  if (!Number.isFinite(current) || current <= 0) {
+    return {
+      ok: false,
+      severity: "error",
+      error: "Vui lòng nhập cân nặng hiện tại hợp lệ.",
+    };
+  }
+
+  if (!Number.isFinite(target) || target <= current) {
+    return {
+      ok: false,
+      severity: "error",
+      error: "Cân nặng mục tiêu phải lớn hơn cân nặng hiện tại.",
+    };
+  }
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return {
+      ok: false,
+      severity: "error",
+      error: "Vui lòng nhập thời gian mục tiêu hợp lệ.",
+    };
+  }
+
+  const weightToGain = target - current;
+  const durationMonths = durationUnit === "weeks" ? duration / WEEKS_PER_MONTH : duration;
+
+  if (!Number.isFinite(durationMonths) || durationMonths <= 0) {
+    return {
+      ok: false,
+      severity: "error",
+      error: "Vui lòng nhập thời gian mục tiêu hợp lệ.",
+    };
+  }
+
+  const gainPerMonth = weightToGain / durationMonths;
+  const minMonths = Math.ceil(weightToGain / SAFE_GAIN_MAX_KG_PER_MONTH);
+  const minWeeks = minMonths * WEEKS_PER_MONTH;
+
+  if (gainPerMonth > SAFE_GAIN_MAX_KG_PER_MONTH) {
+    return {
+      ok: false,
+      severity: "error",
+      weightToGain,
+      durationMonths,
+      gainPerMonth,
+      minMonths,
+      minWeeks,
+      error: `Mục tiêu này cần tăng khoảng ${gainPerMonth.toFixed(1)}kg/tháng, vượt mức khuyến nghị 0,5–1kg/tháng. Vui lòng chọn tối thiểu khoảng ${minMonths} tháng hoặc ${minWeeks} tuần.`,
+    };
+  }
+
+  return {
+    ok: true,
+    severity: gainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH ? "info" : "success",
+    weightToGain,
+    durationMonths,
+    gainPerMonth,
+    minMonths,
+    minWeeks,
+    message:
+      gainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH
+        ? "Tốc độ này khá chậm và an toàn, phù hợp nếu bạn muốn tăng cân bền vững."
+        : "Tốc độ tăng cân này phù hợp với mức khuyến nghị 0,5–1kg/tháng.",
+  };
+};
 
 function getVietnamDateString() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -44,6 +126,10 @@ function buildRegeneratePayload(formData, freshProfile = null) {
       gain_speed: freshProfile.weight_gain_speed || formData.gain_speed,
       weight_gain_speed: freshProfile.weight_gain_speed || formData.weight_gain_speed,
       target_weight: freshProfile.target_weight_kg ?? formData.target_weight,
+      target_duration_value: freshProfile.target_duration_value ?? freshProfile.target_duration_months ?? formData.target_duration_value,
+      target_duration_unit: freshProfile.target_duration_unit || formData.target_duration_unit,
+      target_duration_months: freshProfile.target_duration_months ?? formData.target_duration_months,
+      target_gain_rate_kg_per_month: freshProfile.target_gain_rate_kg_per_month ?? formData.target_gain_rate_kg_per_month,
       diet_style: freshProfile.diet_type || formData.diet_style,
       diet_type: freshProfile.diet_type || formData.diet_type,
       budget_level: freshProfile.budget_level || formData.budget_level,
@@ -107,8 +193,14 @@ const INIT = {
   sex: "", weight: "", height: "", age: "",
   activity: "moderate", goal_type: "gain", gain_speed: "slow",
   target_weight: "", meal_complexity: "balanced", items_per_meal: 4,
+  target_duration_value: "", target_duration_unit: "months",
+  target_duration_months: "", target_gain_rate_kg_per_month: "",
   diet_style: "balanced", budget_level: "standard",
   favorite_foods: "", unfavorite_foods: "",
+  meal_reminder_enabled: false,
+  breakfast_time: "07:00",
+  lunch_time: "12:00",
+  dinner_time: "18:30",
   save_user_data: true,
 };
 
@@ -257,23 +349,40 @@ function StepActivity({ data, update }) {
 }
 
 // ─── StepGoal ────────────────────────────────────────────────────────────────
-function StepGoal({ data, update, errors }) {
+function StepGoal({ data, update, errors, validation }) {
   function handle(e){ update(e.target.name, e.target.value); }
-  const speeds = [
-    { v:"slow", title:"Chậm và ổn định", desc:"+300 kcal/ngày" },
-    { v:"medium", title:"Vừa phải", desc:"+400 kcal/ngày" },
-    { v:"fast", title:"Nhanh hơn", desc:"+500 kcal/ngày" },
-  ];
+  const weightGoalValidation = validation || validateWeightGoalTimeline({
+    currentWeightKg: data.weight || data.weight_kg,
+    targetWeightKg: data.target_weight || data.target_weight_kg,
+    durationValue: data.target_duration_value || data.target_duration_months,
+    durationUnit: data.target_duration_unit,
+  });
+  const durationLabel = weightGoalValidation.durationValue != null ? `${weightGoalValidation.durationValue} ${weightGoalValidation.durationUnit === "weeks" ? "tuần" : "tháng"}` : "...";
+  const rateLabel = weightGoalValidation.requiredGainPerMonth != null ? formatKgRate(weightGoalValidation.requiredGainPerMonth) : "...";
+  const isBlocked = !weightGoalValidation.ok;
   return (
     <div className="space-y-6">
-      <NumberField label="Cân nặng mục tiêu" name="target_weight" value={data.target_weight} onChange={handle} placeholder="65" unit="kg" error={errors.target_weight} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumberField label="Cân nặng mục tiêu" name="target_weight" value={data.target_weight} onChange={handle} placeholder="65" unit="kg" error={errors.target_weight} />
+        <NumberField label="Bạn muốn đạt mục tiêu trong bao lâu?" name="target_duration_value" value={data.target_duration_value} onChange={handle} placeholder="12" unit={data.target_duration_unit === "weeks" ? "tuần" : "tháng"} error={errors.target_duration_value} />
+      </div>
       <div>
-        <p className="mb-3 text-sm font-bold text-[#0F172A]">Tốc độ tăng cân</p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {speeds.map(s=>(
-            <OptionCard key={s.v} selected={data.gain_speed===s.v} onClick={()=>update("gain_speed",s.v)} title={s.title} desc={s.desc} />
-          ))}
-        </div>
+        <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Đơn vị thời gian</label>
+        <select
+          name="target_duration_unit"
+          value={data.target_duration_unit || "months"}
+          onChange={handle}
+          className="h-[52px] w-full rounded-2xl border-2 border-[#E2E8F0] bg-white px-4 text-base font-semibold text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-[#10B981]/10"
+        >
+          <option value="months">Tháng</option>
+          <option value="weeks">Tuần</option>
+        </select>
+        {errors.target_duration_unit ? <p className="mt-1 text-xs font-semibold text-[#EF4444]">{errors.target_duration_unit}</p> : null}
+      </div>
+      <div className={`rounded-2xl border p-4 text-sm font-semibold ${isBlocked ? "border-rose-200 bg-rose-50/80 text-rose-800" : "border-[#D1FAE5] bg-[#ECFDF5] text-[#065F46]"}`}>
+        <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {weightGoalValidation.weightToGain != null ? formatKgRate(weightGoalValidation.weightToGain) : "..."}kg trong {durationLabel}, tương đương khoảng {rateLabel}kg/tháng.</p>
+        <p className="mt-2">{weightGoalValidation.ok ? weightGoalValidation.message : weightGoalValidation.error}</p>
+        <p className={`mt-2 text-xs font-medium ${isBlocked ? "text-rose-700" : "text-[#047857]"}`}>NutriGain chỉ hỗ trợ ước tính tham khảo, không thay thế tư vấn từ chuyên gia dinh dưỡng.</p>
       </div>
     </div>
   );
@@ -322,6 +431,42 @@ function StepDiet({ data, update }) {
             <OptionCard key={c.v} selected={data.meal_complexity===c.v} onClick={()=>update("meal_complexity",c.v)} title={c.title} />
           ))}
         </div>
+      </div>
+      <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-[#0F172A]">Nhắc giờ ăn</p>
+            <p className="mt-1 text-sm text-[#64748B]">NutriGain sẽ gửi email nhắc bạn khi đến giờ ăn.</p>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-bold text-[#0F172A]">
+            <input
+              type="checkbox"
+              checked={Boolean(data.meal_reminder_enabled)}
+              onChange={(event)=>update("meal_reminder_enabled", event.target.checked)}
+              className="h-5 w-5 rounded border-[#CBD5E1] text-[#10B981] focus:ring-[#10B981]"
+            />
+            Bật nhắc giờ ăn qua email
+          </label>
+        </div>
+        {data.meal_reminder_enabled && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {[
+              ["breakfast_time", "Giờ ăn sáng", "07:00"],
+              ["lunch_time", "Giờ ăn trưa", "12:00"],
+              ["dinner_time", "Giờ ăn tối", "18:30"],
+            ].map(([name, label, fallback]) => (
+              <label key={name} className="block">
+                <span className="mb-1.5 block text-sm font-bold text-[#0F172A]">{label}</span>
+                <input
+                  type="time"
+                  value={data[name] || fallback}
+                  onChange={(event)=>update(name, event.target.value || fallback)}
+                  className="h-[46px] w-full rounded-2xl border-2 border-[#E2E8F0] bg-white px-3 text-sm font-semibold text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-[#10B981]/10"
+                />
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -471,16 +616,20 @@ function validateProfile(data) {
   if (!height) errs.height = "Vui lòng nhập chiều cao hợp lệ";
   if (!safeNum(data.age)) errs.age = "Vui lòng nhập tuổi hợp lệ";
   if (!data.activity && !data.activity_level) errs.activity = "Vui lòng chọn mức độ vận động";
-  if (!data.gain_speed && !data.weight_gain_speed) errs.gain_speed = "Vui lòng chọn tốc độ tăng cân";
   if (!data.diet_style && !data.diet_type) errs.diet_style = "Vui lòng chọn chế độ ăn";
   if (!data.budget_level) errs.budget_level = "Vui lòng chọn ngân sách";
   if (!data.meal_complexity && !data.items_per_meal) errs.meal_complexity = "Vui lòng chọn số món mỗi bữa";
 
   const target = safeNum(data.target_weight || data.target_weight_kg);
+  const durationValue = data.target_duration_value === "" || data.target_duration_value == null
+    ? (data.target_duration_months === "" || data.target_duration_months == null ? null : Number(data.target_duration_months))
+    : Number(data.target_duration_value);
+  const durationUnit = data.target_duration_unit || "months";
+  const weightGainPlan = buildWeightGainPlan(weight, target, durationValue, durationUnit);
   if (!target) {
     errs.target_weight = "Vui lòng nhập cân nặng mục tiêu hợp lệ";
   } else if (weight && target <= weight) {
-    errs.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
+    errs.target_weight = "Cân nặng mục tiêu phải lớn hơn cân nặng hiện tại.";
   } else if (height > 0) {
     const targetBmi = target / ((height / 100) ** 2);
     if (targetBmi >= 23.0) {
@@ -488,6 +637,17 @@ function validateProfile(data) {
       const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
       errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
     }
+  }
+  if (!data.target_duration_value && !data.target_duration_months) {
+    errs.target_duration_value = "Vui lòng nhập thời gian hợp lệ.";
+  } else if (weightGainPlan.fieldErrors.target_duration_value) {
+    errs.target_duration_value = weightGainPlan.fieldErrors.target_duration_value;
+  }
+  if (!data.target_duration_unit) {
+    errs.target_duration_unit = "Vui lòng chọn đơn vị thời gian.";
+  }
+  if (!errs.target_weight && weightGainPlan.fieldErrors.target_weight) {
+    errs.target_weight = weightGainPlan.fieldErrors.target_weight;
   }
   return errs;
 }
@@ -512,6 +672,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   const [errors, setErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [finishError, setFinishError] = useState("");
+  const [profileSaveNotice, setProfileSaveNotice] = useState("");
   const [regenerateFailed, setRegenerateFailed] = useState(false);
   const [regenerateErrorMsg, setRegenerateErrorMsg] = useState("");
 
@@ -532,12 +693,20 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       weight_gain_speed: profile.weight_gain_speed ?? prev.weight_gain_speed,
       target_weight: profile.target_weight_kg ?? prev.target_weight,
       target_weight_kg: profile.target_weight_kg ?? prev.target_weight_kg,
+      target_duration_value: profile.target_duration_value ?? profile.target_duration_months ?? prev.target_duration_value,
+      target_duration_unit: profile.target_duration_unit ?? prev.target_duration_unit ?? "months",
+      target_duration_months: profile.target_duration_months ?? prev.target_duration_months,
+      target_gain_rate_kg_per_month: profile.target_gain_rate_kg_per_month ?? prev.target_gain_rate_kg_per_month,
       meal_complexity: profile.items_per_meal === 3 ? "simple" : profile.items_per_meal === 5 ? "full" : prev.meal_complexity,
       diet_style: profile.diet_type === "low_carb" ? "high_protein" : profile.diet_type ?? prev.diet_style,
       budget_level: profile.budget_level ?? prev.budget_level,
       favorite_foods: profile.favorite_foods !== undefined && profile.favorite_foods !== null ? foodListToInput(profile.favorite_foods) : prev.favorite_foods,
       unfavorite_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? foodListToInput(profile.disliked_foods) : prev.unfavorite_foods,
       disliked_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? parseFoodList(profile.disliked_foods) : prev.disliked_foods,
+      meal_reminder_enabled: Boolean(profile.meal_reminder_enabled),
+      breakfast_time: profile.breakfast_time || prev.breakfast_time || "07:00",
+      lunch_time: profile.lunch_time || prev.lunch_time || "12:00",
+      dinner_time: profile.dinner_time || prev.dinner_time || "18:30",
     }));
   }, [user]);
 
@@ -562,6 +731,15 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   const progressPct = totalVisible > 1 ? Math.round((progressStep / (totalVisible - 1)) * 100) : 0;
   const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
   const canGenerateMealPlan = classifyAsianBMI(currentBmi) === "underweight";
+  const weightGoalValidation = useMemo(
+    () => validateWeightGoalTimeline({
+      currentWeightKg: data.weight || data.weight_kg,
+      targetWeightKg: data.target_weight || data.target_weight_kg,
+      durationValue: data.target_duration_value || data.target_duration_months,
+      durationUnit: data.target_duration_unit,
+    }),
+    [data.weight, data.weight_kg, data.target_weight, data.target_weight_kg, data.target_duration_value, data.target_duration_months, data.target_duration_unit]
+  );
 
   const stepTitles = {
     welcome: "Chào mừng đến NutriGain",
@@ -583,6 +761,25 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       if (field === "height_cm") next.height = value;
       if (field === "target_weight") next.target_weight_kg = value;
       if (field === "target_weight_kg") next.target_weight = value;
+      if (field === "target_duration_value") next.target_duration_months = value;
+      if (field === "target_duration_months") next.target_duration_value = value;
+      const weightGainPlan = buildWeightGainPlan(
+        next.weight || next.weight_kg,
+        next.target_weight || next.target_weight_kg,
+        next.target_duration_value || next.target_duration_months,
+        next.target_duration_unit,
+      );
+      if (weightGainPlan.durationMonths !== null) next.target_duration_months = weightGainPlan.durationMonths;
+      if (weightGainPlan.requiredGainPerMonth !== null) next.target_gain_rate_kg_per_month = weightGainPlan.requiredGainPerMonth;
+      if (weightGainPlan.suggestedSpeed) {
+        next.gain_speed = weightGainPlan.suggestedSpeed;
+        next.weight_gain_speed = weightGainPlan.suggestedSpeed;
+      }
+      if (field === "meal_reminder_enabled" && value) {
+        next.breakfast_time = next.breakfast_time || "07:00";
+        next.lunch_time = next.lunch_time || "12:00";
+        next.dinner_time = next.dinner_time || "18:30";
+      }
       return next;
     });
     setErrors(p => ({ ...p, [field]: "", _step: "" }));
@@ -593,6 +790,20 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   function goNext() {
     const errs = validateStep(stepName, data);
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+
+    if (stepName === "goal") {
+      console.log("[WEIGHT GOAL VALIDATION]", weightGoalValidation);
+      if (!weightGoalValidation.ok) {
+        console.warn("[WEIGHT GOAL BLOCKED]", weightGoalValidation);
+        setErrors((current) => ({
+          ...current,
+          target_weight: weightGoalValidation.error || current.target_weight,
+          target_duration_value: weightGoalValidation.error || current.target_duration_value,
+          target_duration_unit: weightGoalValidation.error || current.target_duration_unit,
+        }));
+        return;
+      }
+    }
     
     if (stepName === "body") {
       const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
@@ -620,6 +831,24 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       return;
     }
 
+    const finalWeightGoalValidation = validateWeightGoalTimeline({
+      currentWeightKg: data.weight || data.weight_kg,
+      targetWeightKg: data.target_weight || data.target_weight_kg,
+      durationValue: data.target_duration_value || data.target_duration_months,
+      durationUnit: data.target_duration_unit,
+    });
+    if (!finalWeightGoalValidation.ok) {
+      console.warn("[WEIGHT GOAL BLOCKED]", finalWeightGoalValidation);
+      setErrors((current) => ({
+        ...current,
+        target_weight: finalWeightGoalValidation.error || current.target_weight,
+        target_duration_value: finalWeightGoalValidation.error || current.target_duration_value,
+        target_duration_unit: finalWeightGoalValidation.error || current.target_duration_unit,
+      }));
+      setFinishError(finalWeightGoalValidation.error || "Vui lòng chọn thời gian dài hơn.");
+      return;
+    }
+
     const validationErrors = validateProfile(data);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -629,6 +858,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
 
     setIsSaving(true);
     setFinishError("");
+    setProfileSaveNotice("");
     setRegenerateFailed(false);
     setRegenerateErrorMsg("");
     try {
@@ -651,6 +881,9 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       
       // Update user profile via API
       const result = await updateUserProfile(backendProfile);
+      if (backendProfile.meal_reminder_enabled) {
+        setProfileSaveNotice("Đã lưu giờ nhắc bữa ăn.");
+      }
       console.log("[PROFILE PUT RESULT] =", result);
       const updatedUser = await fetchCurrentUser();
       console.log("[PROFILE REFRESH /users/me] =", updatedUser);
@@ -712,6 +945,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       }
     } catch (error) {
       console.error("Onboarding error:", error);
+      setProfileSaveNotice("");
       setFinishError(error?.message || "Không thể lưu hồ sơ. Vui lòng kiểm tra thông tin và thử lại.");
       setIsSaving(false);
     }
@@ -822,13 +1056,18 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
             {errors._step}
           </div>
         )}
+        {profileSaveNotice && (
+          <div className="mb-4 rounded-2xl border border-[#A7F3D0] bg-[#ECFDF5] px-4 py-3 text-sm font-semibold text-[#047857]">
+            {profileSaveNotice}
+          </div>
+        )}
 
         {/* Step content */}
         {stepName==="welcome" && <StepWelcome onNext={goNext} />}
         {stepName==="gender" && <StepGender data={data} update={update} />}
         {stepName==="body" && <StepBody data={data} update={update} errors={errors} onLogout={onLogout} />}
         {stepName==="activity" && <StepActivity data={data} update={update} />}
-        {stepName==="goal" && <StepGoal data={data} update={update} errors={errors} onChange={handleChange} />}
+        {stepName==="goal" && <StepGoal data={data} update={update} errors={errors} validation={weightGoalValidation} onChange={handleChange} />}
         {stepName==="diet" && <StepDiet data={data} update={update} />}
         {stepName==="foods" && <StepFoods data={data} update={update} onChange={handleChange} />}
         {stepName==="summary" && (
@@ -854,8 +1093,10 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
             )}
 
             {/* 3. Primary Next Button */}
-            <button onClick={goNext}
-              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition hover:bg-[#047857]">
+            <button
+              onClick={goNext}
+              disabled={stepName === "goal" && !weightGoalValidation.ok}
+              className={`flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition ${stepName === "goal" && !weightGoalValidation.ok ? "cursor-not-allowed bg-slate-300 shadow-none" : "bg-[#10B981] hover:bg-[#047857]"}`}>
               Tiếp tục →
             </button>
           </div>

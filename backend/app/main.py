@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.database import Base, engine, wait_for_database
 from app.core.migrations import ensure_database_schema
 from app.models import entities  # noqa: F401
+from app.services.meal_reminder_service import start_meal_reminder_scheduler, stop_meal_reminder_scheduler
 
 
 app = FastAPI(title=settings.app_name)
@@ -96,6 +97,12 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_database_schema(engine)
     run_db_repairs()
+    start_meal_reminder_scheduler()
 
 
 app.include_router(router)
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    stop_meal_reminder_scheduler()

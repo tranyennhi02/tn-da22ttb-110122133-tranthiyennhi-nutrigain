@@ -235,6 +235,20 @@ Nếu muốn chạy nền:
 docker compose up -d --build
 ```
 
+### Chạy tính năng nhận diện ảnh AI (CLIP) local
+
+Để tránh lỗi vượt quá bộ nhớ khi đóng gói Docker, các dependency AI (torch, transformers) không được cài mặc định. Để kiểm thử tính năng nhận diện nguyên liệu trên máy cá nhân:
+
+```powershell
+.venv\Scripts\pip.exe install -r backend\requirements-ai.txt
+$env:INGREDIENT_RECOGNITION_PROVIDER="clip"
+$env:HF_HOME="D:\DOANTOTNGHIEP\NutriGain\.cache\hf"
+$env:TRANSFORMERS_CACHE="D:\DOANTOTNGHIEP\NutriGain\.cache\hf\transformers"
+$env:HF_HUB_CACHE="D:\DOANTOTNGHIEP\NutriGain\.cache\hf\hub"
+```
+
+Sau đó chạy backend local bằng `.venv` để demo AI.
+
 ### Truy cập dịch vụ
 
 | Dịch vụ | Địa chỉ |

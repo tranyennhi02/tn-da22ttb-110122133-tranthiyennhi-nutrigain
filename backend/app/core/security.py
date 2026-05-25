@@ -79,9 +79,19 @@ def create_access_token(
     expires_delta: timedelta | None = None,
 ) -> str:
     now = int(time.time())
-    expire_seconds = int(
-        (expires_delta or timedelta(minutes=settings.access_token_expire_minutes)).total_seconds()
-    )
+    if expires_delta is not None:
+        expire_seconds = max(1, int(expires_delta.total_seconds()))
+    else:
+        minutes = getattr(settings, "access_token_expire_minutes", None)
+        try:
+            minutes = int(minutes)
+        except (TypeError, ValueError):
+            minutes = 60 * 24
+
+        if minutes <= 0:
+            minutes = 60 * 24
+
+        expire_seconds = int(timedelta(minutes=minutes).total_seconds())
     header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
     payload: dict[str, Any] = {
         "sub": str(subject),

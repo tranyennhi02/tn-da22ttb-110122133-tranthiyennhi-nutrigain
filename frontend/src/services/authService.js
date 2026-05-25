@@ -1,5 +1,18 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const AUTH_STORAGE_KEY = "nutrigain_auth";
+const AUTH_CACHE_KEYS = [
+  "access_token",
+  "token",
+  "authToken",
+  "refresh_token",
+  "user",
+  "currentUser",
+  "googleUser",
+  "nutrigain_user",
+  "profile",
+  "nutrigain_profile",
+  AUTH_STORAGE_KEY,
+];
 const PROFILE_CACHE_KEYS = [
   "nutritionProfile",
   "onboardingData",
@@ -13,6 +26,38 @@ const PROFILE_CACHE_KEYS = [
   "nutrigain_disliked_foods",
   "nutrigain_disliked_food_groups",
 ];
+
+export function clearAuthStorage() {
+  for (const key of AUTH_CACHE_KEYS) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+
+  for (const key of PROFILE_CACHE_KEYS) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("profile") || key.startsWith("mealPlan") || key.startsWith("weightSummary") || key.startsWith("nutritionProfile"))) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const k of keysToRemove) {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    }
+  } catch {}
+
+  try {
+    if (window?.google?.accounts?.id?.disableAutoSelect) {
+      window.google.accounts.id.disableAutoSelect();
+    }
+  } catch {}
+}
 
 async function requestAuth(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -90,6 +135,9 @@ export async function loginWithGoogle(idToken) {
   if (!idToken) {
     throw new Error("Token Google không hợp lệ.");
   }
+
+  clearAuthStorage();
+
   const data = await requestAuth("/api/v1/auth/google", {
     id_token: idToken,
   });
@@ -123,24 +171,7 @@ export async function resetPassword({ token, newPassword, confirmPassword }) {
 
 
 export function logout() {
-  localStorage.removeItem(AUTH_STORAGE_KEY);
-  for (const key of PROFILE_CACHE_KEYS) {
-    localStorage.removeItem(key);
-    sessionStorage.removeItem(key);
-  }
-  try {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith("profile") || key.startsWith("mealPlan") || key.startsWith("weightSummary") || key.startsWith("nutritionProfile"))) {
-        keysToRemove.push(key);
-      }
-    }
-    for (const k of keysToRemove) {
-      localStorage.removeItem(k);
-      sessionStorage.removeItem(k);
-    }
-  } catch {}
+  clearAuthStorage();
 }
 
 export function getSession() {

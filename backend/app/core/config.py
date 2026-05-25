@@ -14,8 +14,15 @@ def _int_env(name: str, default: int) -> int:
         return default
     try:
         return int(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return default
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Settings:
@@ -23,6 +30,7 @@ class Settings:
     app_env: str = os.getenv("APP_ENV", "development")
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = _int_env("APP_PORT", 8000)
+    app_timezone: str = os.getenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh")
 
     database_url: str = os.getenv(
         "DATABASE_URL",
@@ -45,10 +53,16 @@ class Settings:
     google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID", None)
     reset_password_token_expire_minutes: int = _int_env("RESET_PASSWORD_TOKEN_EXPIRE_MINUTES", 30)
     smtp_host: str = os.getenv("SMTP_HOST", "")
-    smtp_port: int = _int_env("SMTP_PORT", 0)
+    smtp_port: int = _int_env("SMTP_PORT", 587)
     smtp_user: str = os.getenv("SMTP_USER", "")
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     smtp_from: str = os.getenv("SMTP_FROM", "")
+    smtp_use_tls: bool = _bool_env("SMTP_USE_TLS", True)
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_vision_model: str = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
 
 
 settings = Settings()
