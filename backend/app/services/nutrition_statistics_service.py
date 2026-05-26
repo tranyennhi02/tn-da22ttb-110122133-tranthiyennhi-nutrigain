@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.entities import Food, Meal, MealConsumptionLog, MealPlanItem
+from app.models.entities import Food, FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlanItem
 
 
 class NutritionStatisticsService:
@@ -18,9 +18,8 @@ class NutritionStatisticsService:
         "breakfast": "Bữa sáng",
         "lunch": "Bữa trưa",
         "dinner": "Bữa tối",
-        "snack": "Bữa phụ",
     }
-    MEAL_ORDER = ["breakfast", "lunch", "dinner", "snack"]
+    MEAL_ORDER = ["breakfast", "lunch", "dinner"]
 
     def _to_number(self, value, default: float = 0.0) -> float:
         try:
@@ -32,10 +31,181 @@ class NutritionStatisticsService:
 
     def _normalize_meal_type(self, meal_type: str | None) -> str:
         key = str(meal_type or "").strip().lower()
-        return key if key in self.MEAL_LABELS else "snack"
+        return key if key in self.MEAL_ORDER else ""
 
     def _meal_label(self, meal_type: str | None) -> str:
         return self.MEAL_LABELS.get(self._normalize_meal_type(meal_type), "Bữa ăn")
+
+    def _parse_date(self, value: str | None, fallback: date | None = None) -> date:
+        if value:
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        return fallback or self._local_now().date()
+
+    def _parse_month(self, value: str | None) -> tuple[int, int]:
+        source = value or self._local_now().strftime("%Y-%m")
+        try:
+            year_text, month_text = source.split("-")
+            return int(year_text), int(month_text)
+        except (TypeError, ValueError):
+            now = self._local_now()
+            return now.year, now.month
+
+    def _parse_year(self, value: str | None) -> int:
+        try:
+            return int(value) if value else self._local_now().year
+        except (TypeError, ValueError):
+            return self._local_now().year
+
+    def _history_totals(self, items: list[dict]) -> dict:
+        return {
+            "calories": round(sum(self._to_number(item.get("calories")) for item in items), 2),
+            "protein": round(sum(self._to_number(item.get("protein")) for item in items), 2),
+            "fat": round(sum(self._to_number(item.get("fat")) for item in items), 2),
+            "carbs": round(sum(self._to_number(item.get("carbs")) for item in items), 2),
+        }
+
+    def _history_food_name(self, food: Food | None, meal_item: MealPlanItem | None, fallback: str | None = None) -> str:
+        return (
+            getattr(food, "display_name", None)
+            or getattr(food, "dish_name_vi", None)
+            or getattr(food, "name_vi", None)
+            or getattr(food, "name", None)
+            or getattr(meal_item, "reason", None)
+            or fallback
+            or "Món ăn"
+        )
+
+    def _history_serving_display(self, food: Food | None, meal_item: MealPlanItem | None) -> str:
+        return (
+            getattr(meal_item, "serving_display", None)
+            or getattr(food, "serving_display", None)
+            or getattr(food, "portion_display", None)
+            or "Theo kế hoạch"
+        )
+
+    def _history_image_url(self, food: Food | None, meal_item: MealPlanItem | None) -> str | None:
+        return (
+            getattr(meal_item, "image_url", None)
+            or getattr(food, "image_url", None)
+            or getattr(food, "image", None)
+            or None
+        )
+
+    def get_eating_history(
+        self,
+        db: Session,
+        user,
+        mode: str = "day",
+        date_value: str | None = None,
+        month_value: str | None = None,
+        year_value: str | None = None,
+    ) -> dict:
+        normalized_mode = mode if mode in {"day", "month", "year"} else "day"
+        query = (
+            db.query(FoodLogItem, FoodLog, MealPlanItem, Meal, Food)
+            .join(FoodLog, FoodLogItem.food_log_id == FoodLog.id)
+            .outerjoin(MealPlanItem, FoodLogItem.meal_plan_item_id == MealPlanItem.id)
+            .outerjoin(Meal, MealPlanItem.meal_id == Meal.id)
+            .outerjoin(Food, Food.food_id == FoodLogItem.food_id)
+            .filter(FoodLog.user_id == user.id)
+            .filter(FoodLogItem.status == "eaten")
+            .filter(FoodLogItem.meal_type.in_(self.MEAL_ORDER))
+        )
+
+        if normalized_mode == "day":
+            target_date = self._parse_date(date_value)
+            query = query.filter(FoodLog.log_date == target_date)
+        elif normalized_mode == "month":
+            target_year, target_month = self._parse_month(month_value)
+            query = query.filter(func.extract("year", FoodLog.log_date) == target_year).filter(func.extract("month", FoodLog.log_date) == target_month)
+        else:
+            target_year = self._parse_year(year_value)
+            query = query.filter(func.extract("year", FoodLog.log_date) == target_year)
+
+        items: list[dict] = []
+        seen_keys: set[tuple] = set()
+        rows = query.order_by(FoodLog.log_date.asc(), FoodLogItem.created_at.asc(), FoodLogItem.id.asc()).all()
+        for log_item, food_log, meal_item, meal, food in rows:
+            meal_type = self._normalize_meal_type(log_item.meal_type or getattr(meal, "meal_type", None))
+            if meal_type not in self.MEAL_ORDER:
+                continue
+            eaten_at = log_item.updated_at or log_item.created_at or datetime.combine(food_log.log_date, time.min)
+            meal_plan_id = getattr(meal, "meal_plan_id", None)
+            key = (food_log.log_date.isoformat(), meal_plan_id, meal_type, log_item.meal_plan_item_id, str(log_item.food_id or ""))
+            seen_keys.add(key)
+            items.append({
+                "id": log_item.meal_plan_item_id or log_item.id,
+                "meal_plan_id": meal_plan_id,
+                "meal_plan_item_id": log_item.meal_plan_item_id,
+                "meal_type": meal_type,
+                "meal_title": self._meal_label(meal_type),
+                "food_id": str(log_item.food_id or getattr(meal_item, "food_id", "") or ""),
+                "name": self._history_food_name(food, meal_item, log_item.custom_name),
+                "serving_display": self._history_serving_display(food, meal_item),
+                "calories": round(self._to_number(log_item.kcal or getattr(meal_item, "kcal", 0.0)), 2),
+                "protein": round(self._to_number(log_item.protein or getattr(meal_item, "protein", 0.0)), 2),
+                "fat": round(self._to_number(log_item.fat or getattr(meal_item, "fat", 0.0)), 2),
+                "carbs": round(self._to_number(log_item.carbs or getattr(meal_item, "carbs", 0.0)), 2),
+                "image_url": self._history_image_url(food, meal_item),
+                "eaten_date": food_log.log_date.isoformat(),
+                "eaten_at": eaten_at.isoformat() if eaten_at else None,
+            })
+
+        log_query = (
+            db.query(MealConsumptionLog, MealPlanItem, Meal, Food)
+            .outerjoin(Meal, (MealConsumptionLog.meal_plan_id == Meal.meal_plan_id) & (func.lower(Meal.meal_type) == func.lower(MealConsumptionLog.meal_type)))
+            .outerjoin(MealPlanItem, (MealPlanItem.meal_id == Meal.id) & (MealPlanItem.food_id == MealConsumptionLog.food_id))
+            .outerjoin(Food, Food.food_id == MealConsumptionLog.food_id)
+            .filter(MealConsumptionLog.user_id == user.id)
+            .filter(MealConsumptionLog.status == "eaten")
+            .filter(MealConsumptionLog.meal_type.in_(self.MEAL_ORDER))
+        )
+
+        if normalized_mode == "day":
+            target_date = self._parse_date(date_value)
+            log_query = log_query.filter(func.date(MealConsumptionLog.consumed_at) == target_date)
+        elif normalized_mode == "month":
+            target_year, target_month = self._parse_month(month_value)
+            log_query = log_query.filter(func.extract("year", MealConsumptionLog.consumed_at) == target_year).filter(func.extract("month", MealConsumptionLog.consumed_at) == target_month)
+        else:
+            target_year = self._parse_year(year_value)
+            log_query = log_query.filter(func.extract("year", MealConsumptionLog.consumed_at) == target_year)
+
+        for log, meal_item, meal, food in log_query.order_by(MealConsumptionLog.consumed_at.asc(), MealConsumptionLog.id.asc()).all():
+            meal_type = self._normalize_meal_type(log.meal_type or getattr(meal, "meal_type", None))
+            if meal_type not in self.MEAL_ORDER:
+                continue
+            eaten_at = log.consumed_at or log.created_at
+            eaten_date = eaten_at.date() if eaten_at else self._local_now().date()
+            key = (eaten_date.isoformat(), log.meal_plan_id, meal_type, getattr(meal_item, "id", None), str(log.food_id or ""))
+            if key in seen_keys:
+                continue
+            items.append({
+                "id": getattr(meal_item, "id", None) or log.id,
+                "meal_plan_id": log.meal_plan_id,
+                "meal_plan_item_id": getattr(meal_item, "id", None),
+                "meal_type": meal_type,
+                "meal_title": self._meal_label(meal_type),
+                "food_id": str(log.food_id or getattr(meal_item, "food_id", "") or ""),
+                "name": self._history_food_name(food, meal_item, str(log.food_id or "")),
+                "serving_display": self._history_serving_display(food, meal_item),
+                "calories": round(self._to_number(log.kcal or getattr(meal_item, "kcal", 0.0)), 2),
+                "protein": round(self._to_number(log.protein or getattr(meal_item, "protein", 0.0)), 2),
+                "fat": round(self._to_number(getattr(meal_item, "fat", 0.0)), 2),
+                "carbs": round(self._to_number(getattr(meal_item, "carbs", 0.0)), 2),
+                "image_url": self._history_image_url(food, meal_item),
+                "eaten_date": eaten_date.isoformat(),
+                "eaten_at": eaten_at.isoformat() if eaten_at else None,
+            })
+
+        items.sort(key=lambda item: (item.get("eaten_date") or "", item.get("eaten_at") or "", item.get("meal_type") or ""))
+        return {
+            "items": items,
+            "totals": self._history_totals(items),
+        }
 
     def _local_now(self) -> datetime:
         return datetime.now(self.VN_TZ)

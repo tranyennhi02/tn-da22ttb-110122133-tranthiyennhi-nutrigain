@@ -7,8 +7,6 @@ import re
 import unicodedata
 from typing import Any
 
-from PIL import Image
-
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -110,15 +108,8 @@ def recognize_ingredients_with_clip(image_bytes: bytes, filename: str | None = N
     try:
         return recognize_with_clip(image_bytes)
     except Exception as exc:
-        logger.warning("[CLIP INGREDIENT ERROR] %s", exc)
-        return ingredient_response(
-            success=False,
-            ingredients=[],
-            raw_labels=[],
-            confidence=0,
-            method="clip",
-            message=FAIL_MESSAGE,
-        )
+        logger.exception("[CLIP INGREDIENT ERROR] %s", exc)
+        raise
 
 
 def recognize_with_clip(image_bytes: bytes) -> dict[str, Any]:
@@ -127,6 +118,11 @@ def recognize_with_clip(image_bytes: bytes) -> dict[str, Any]:
     except Exception as exc:
         logger.info("[CLIP MODEL STATUS] loaded=false")
         raise RuntimeError("Torch is unavailable for CLIP") from exc
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Pillow is unavailable for CLIP") from exc
 
     model, processor = get_clip_model()
     loaded = model is not None and processor is not None

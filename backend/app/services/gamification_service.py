@@ -72,21 +72,35 @@ class GamificationService:
         ).scalar() or 0
 
         # pick challenge
-        if meal_count_today == 0:
+        if include_today:
+            today_challenge = {
+                "key": "first_complete_day",
+                "title": "Ăn đều hôm nay",
+                "description": "Bạn đã hoàn thành đủ bữa sáng, trưa và tối hôm nay.",
+                "status": "completed",
+            }
+        elif meal_count_today > 0:
+            today_challenge = {
+                "key": "first_complete_day",
+                "title": "Ăn đều hôm nay",
+                "description": "Hoàn thành đủ bữa sáng, trưa và tối hôm nay.",
+                "status": "in_progress",
+            }
+        else:
             today_challenge = {
                 "key": "mark_one_meal",
                 "title": "Đánh dấu một bữa đã ăn",
                 "description": "Chỉ cần bắt đầu bằng một bữa bạn đã hoàn thành.",
                 "status": "not_started",
             }
-        elif not has_weight_log_today:
+        if meal_count_today > 0 and not include_today and not has_weight_log_today:
             today_challenge = {
                 "key": "update_today_weight",
                 "title": "Cập nhật cân nặng hôm nay",
                 "description": "Ghi lại cân nặng giúp biểu đồ theo dõi chính xác hơn.",
                 "status": "not_started",
             }
-        else:
+        elif meal_count_today > 0 and not include_today:
             today_challenge = {
                 "key": "small_step_today",
                 "title": "Một bước nhỏ hôm nay",
@@ -122,6 +136,8 @@ class GamificationService:
             UserChallenge.challenge_key == challenge_key,
             UserChallenge.challenge_date == today,
         ).first()
+        if row and row.status == "completed":
+            return {"success": True, "message": "Bạn đã hoàn thành việc này hôm nay.", "summary": self.get_summary(db, user)}
         if not row:
             row = UserChallenge(
                 user_id=user.id,

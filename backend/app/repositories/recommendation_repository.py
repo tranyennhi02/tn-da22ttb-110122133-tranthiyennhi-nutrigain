@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import bindparam, func, inspect, select, text
 from sqlalchemy.orm import Session
 
-from app.models.entities import FoodLog, FoodLogItem, Meal, MealPlan, MealPlanItem, RecommendationRequest
+from app.models.entities import FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlan, MealPlanItem, RecommendationRequest
 
 
 def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
@@ -426,16 +426,44 @@ class RecommendationRepository:
                 "food_log": None,
             }
 
+        today = datetime.utcnow().date()
         food_log = self.db.scalar(
             select(FoodLog)
             .where(FoodLog.user_id == user_id)
-            .where(FoodLog.log_date == datetime.utcnow().date())
+            .where(FoodLog.log_date == today)
         )
-        eaten_item_ids = {
-            int(item.meal_plan_item_id)
-            for item in (food_log.items if food_log is not None else [])
-            if item.meal_plan_item_id is not None
-        }
+        eaten_by_item_id = {}
+        eaten_by_food_id = {}
+        if food_log is not None:
+            for log_item in food_log.items:
+                if str(log_item.status or "").lower() != "eaten":
+                    continue
+                eaten_at = log_item.updated_at or log_item.created_at
+                eaten_meta = {
+                    "eaten_at": eaten_at.isoformat() if eaten_at else None,
+                    "eaten_date": food_log.log_date.isoformat() if food_log.log_date else today.isoformat(),
+                }
+                if log_item.meal_plan_item_id is not None:
+                    eaten_by_item_id[int(log_item.meal_plan_item_id)] = eaten_meta
+                if log_item.food_id is not None:
+                    eaten_by_food_id[str(log_item.food_id)] = eaten_meta
+
+        consumption_logs = self.db.execute(
+            select(MealConsumptionLog)
+            .where(MealConsumptionLog.user_id == user_id)
+            .where(MealConsumptionLog.meal_plan_id == meal_plan.id)
+            .where(MealConsumptionLog.status == "eaten")
+            .where(func.date(MealConsumptionLog.consumed_at) == today)
+        ).scalars().all()
+        for log in consumption_logs:
+            if log.food_id is None:
+                continue
+            eaten_at = log.consumed_at or log.created_at
+            eaten_by_food_id[str(log.food_id)] = {
+                "eaten_at": eaten_at.isoformat() if eaten_at else None,
+                "eaten_date": eaten_at.date().isoformat() if eaten_at else today.isoformat(),
+            }
+
         food_ids = [
             str(item.food_id)
             for meal in meal_plan.meals
@@ -448,6 +476,12 @@ class RecommendationRepository:
             items = []
             for item in meal.items:
                 metadata = food_metadata.get(str(item.food_id), {})
+                eaten_meta = (
+                    eaten_by_item_id.get(int(item.id))
+                    or eaten_by_food_id.get(str(item.food_id))
+                    or eaten_by_food_id.get(str(item.id))
+                )
+                is_eaten = eaten_meta is not None
                 items.append(
                     {
                         "id": item.id,
@@ -464,8 +498,10 @@ class RecommendationRepository:
                         "protein": item.protein,
                         "fat": item.fat,
                         "carbs": item.carbs,
-                        "status": "eaten" if item.id in eaten_item_ids else "suggested",
-                        "is_eaten": item.id in eaten_item_ids,
+                        "status": "eaten" if is_eaten else "suggested",
+                        "is_eaten": is_eaten,
+                        "eaten_at": eaten_meta.get("eaten_at") if eaten_meta else None,
+                        "eaten_date": eaten_meta.get("eaten_date") if eaten_meta else None,
                     }
                 )
             meals.append(

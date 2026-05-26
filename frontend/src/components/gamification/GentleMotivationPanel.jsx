@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Flame, Heart, Leaf, Sparkles, Star, Target, Trophy } from "lucide-react";
 import { getGamificationSummary, completeGamificationChallenge } from "../../services/apiService";
 
-export default function GentleMotivationPanel({ onAction }) {
+export default function GentleMotivationPanel({ onAction, refreshKey = 0 }) {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -22,10 +22,14 @@ export default function GentleMotivationPanel({ onAction }) {
     }
     load();
     return () => (mounted = false);
-  }, []);
+  }, [refreshKey]);
 
   async function handleCompleteChallenge() {
     if (!summary?.today_challenge) return;
+    if (summary.today_challenge.key === "first_complete_day") {
+      if (onAction) onAction();
+      return;
+    }
     setCompleting(true);
     try {
       await completeGamificationChallenge(summary.today_challenge.key);
@@ -50,6 +54,7 @@ export default function GentleMotivationPanel({ onAction }) {
         { key: "weight-check", title: "Theo dõi cân nặng" },
       ];
   const challengeDone = String(summary?.today_challenge?.status || "").toLowerCase() === "completed";
+  const pendingEatingStreak = summary?.today_challenge?.key === "first_complete_day" && !challengeDone;
   const encouragement = summary?.encouragement || "Ăn đều hơn một chút cũng là tiến bộ.";
 
   return (
@@ -158,6 +163,14 @@ export default function GentleMotivationPanel({ onAction }) {
             {challengeDone ? (
               <button className="w-full rounded-xl bg-indigo-100 py-3 text-sm font-bold text-indigo-400 cursor-not-allowed" type="button" disabled>
                 Đã hoàn thành
+              </button>
+            ) : pendingEatingStreak ? (
+              <button
+                onClick={onAction}
+                className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-black text-white shadow-md transition hover:bg-indigo-700"
+                type="button"
+              >
+                Mở Nhật ký
               </button>
             ) : (
               <button

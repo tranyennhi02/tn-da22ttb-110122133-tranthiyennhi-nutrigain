@@ -32,7 +32,7 @@ class ErrorBoundary extends Component {
 }
 
 import { loadTodayMealPlan, regenerateMealPlan, saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
-import { fetchCurrentUser, fetchWeightLogSummary, fetchWeightLogs, saveWeightLog, toggleMealConsumption } from "../services/apiService";
+import { completeGamificationChallenge, fetchCurrentUser, fetchEatingHistory, fetchWeightLogSummary, fetchWeightLogs, getAuthHeaders, getAuthToken, saveWeightLog, toggleMealConsumption } from "../services/apiService";
 import { mapUserProfileToFormState } from "../App";
 import { normalizeProfilePayload, foodListToInput } from "../utils/profileFormUtils.js";
 import AccountPanel from "../components/AccountPanel";
@@ -87,7 +87,6 @@ const mealLabels = {
   breakfast: "Bữa sáng",
   lunch: "Bữa trưa",
   dinner: "Bữa tối",
-  snack: "Bữa phụ",
 };
 
 const mealKeysByLabel = Object.fromEntries(Object.entries(mealLabels).map(([key, label]) => [label, key]));
@@ -96,8 +95,9 @@ const mealAccents = {
   breakfast: "green",
   lunch: "blue",
   dinner: "orange",
-  snack: "green",
 };
+
+const EAT_REGULARLY_CHALLENGE_KEY = "first_complete_day";
 
 const defaultFoodImage = "/images/placeholders/food-default.svg";
 const dislikedFoodsStorageKey = "nutrigain_disliked_foods";
@@ -133,6 +133,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const [favoriteMeals, setFavoriteMeals] = useState(() => new Set());
   const [ratings, setRatings] = useState({});
   const [mealLog, setMealLog] = useState({ entries: {}, manualItems: [] });
+  const [didCompleteEatingStreakToday, setDidCompleteEatingStreakToday] = useState(false);
+  const didCompleteEatingStreakTodayRef = useRef(false);
+  const [gamificationRefreshKey, setGamificationRefreshKey] = useState(0);
+  const [eatingHistoryRefreshKey, setEatingHistoryRefreshKey] = useState(0);
   const [addToMealRequest, setAddToMealRequest] = useState(null);
   const [dislikeRequest, setDislikeRequest] = useState(null);
   const [didLoadToday, setDidLoadToday] = useState(false);
@@ -170,25 +174,73 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     () => buildEffectiveTarget(result, nutritionTarget),
     [result, nutritionTarget],
   );
+
   useEffect(() => {
-    if (didLoadToday || initialResult || result || profileOutOfScopeResult) return;
+    didCompleteEatingStreakTodayRef.current = didCompleteEatingStreakToday;
+  }, [didCompleteEatingStreakToday]);
+
+  async function handleEatingDayCompleted() {
+    if (didCompleteEatingStreakTodayRef.current) {
+      console.log("[GAMIFICATION SKIP] already completed today in frontend ref");
+      return;
+    }
+    didCompleteEatingStreakTodayRef.current = true;
+    try {
+      console.log("[GAMIFICATION COMPLETE START]", EAT_REGULARLY_CHALLENGE_KEY);
+      const response = await completeGamificationChallenge(EAT_REGULARLY_CHALLENGE_KEY);
+      console.log("[GAMIFICATION COMPLETE SUCCESS]", response);
+      setDidCompleteEatingStreakToday(true);
+      setGamificationRefreshKey((value) => value + 1);
+    } catch (error) {
+      didCompleteEatingStreakTodayRef.current = false;
+      console.error("[GAMIFICATION COMPLETE FAILED]", error);
+    }
+  }
+
+  useEffect(() => {
+    if (didLoadToday || profileOutOfScopeResult) return;
+
     let cancelled = false;
+
     async function hydrateTodayPlan() {
       setDidLoadToday(true);
+
       try {
         const today = await loadTodayMealPlan();
+        console.log("[TODAY PLAN RAW]", today);
+        console.log("[HYDRATE CHECK]", {
+          has_plan: today?.has_plan,
+          status: today?.meal_plan?.status,
+          has_meal_plan: Boolean(today?.meal_plan),
+          meals_is_array: Array.isArray(today?.meals),
+          meals_length: Array.isArray(today?.meals) ? today.meals.length : null,
+        });
+        console.log("[TODAY RAW MEALS]", JSON.stringify(today?.meals || today?.meal_plan, null, 2));
+
         if (!cancelled && today?.has_plan && ["valid", "minor_adjustment", "major_adjustment"].includes(today?.meal_plan?.status)) {
-          setResult(adaptTodayMealPlanResponse(today, nutritionTarget));
+          const adapted = adaptTodayMealPlanResponse(today, nutritionTarget);
+          console.log("[TODAY PLAN ADAPTED]", adapted);
+          console.log("[ADAPTED MEALS EATEN FLAGS]", JSON.stringify(adapted?.meal_plan, null, 2));
+
+          setResult(adapted);
+
+          const hydratedLog = buildMealLogFromAdaptedResult(adapted);
+          console.log("[HYDRATED MEAL LOG]", hydratedLog);
+          console.log("[HYDRATED MEAL LOG ENTRIES COUNT]", Object.keys(hydratedLog.entries || {}).length);
+
+          setMealLog(hydratedLog);
         }
-      } catch {
-        // Dashboard can still create a fresh plan; loading today's plan is a convenience.
+      } catch (error) {
+        console.error("[TODAY PLAN HYDRATE FAILED]", error);
       }
     }
+
     hydrateTodayPlan();
+
     return () => {
       cancelled = true;
     };
-  }, [didLoadToday, initialResult, nutritionTarget, profileOutOfScopeResult, result]);
+  }, [didLoadToday, nutritionTarget, profileOutOfScopeResult]);
   useEffect(() => {
     if (resultOutOfScopeNotice && !profileOutOfScopeNotice) {
       setResult(null);
@@ -312,6 +364,24 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       if (name === "height_cm") next.height = val;
       if (name === "target_weight") next.target_weight_kg = val;
       if (name === "target_weight_kg") next.target_weight = val;
+      if (name === "meal_complexity") {
+        const itemsPerMeal = itemsCountFromMealComplexity(val);
+        next.meal_complexity = val;
+        next.items_per_meal = itemsPerMeal;
+      }
+      if (name === "items_per_meal") {
+        const itemsPerMeal = Number(val);
+        next.items_per_meal = itemsPerMeal;
+        next.meal_complexity = mealComplexityFromItemsCount(itemsPerMeal);
+      }
+      if (name === "diet_style") {
+        next.diet_style = val;
+        next.diet_type = val;
+      }
+      if (name === "diet_type") {
+        next.diet_type = val;
+        next.diet_style = val;
+      }
       return next;
     });
     setSubmitError("");
@@ -407,26 +477,33 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       });
 
       // 2. Tạo lại thực đơn bằng POST /api/v1/meal-plans/regenerate
+      // Phase 1: new seed EVERY regenerate call — never reuse cached seed
+      const regenSeed = Date.now();
+      const currentAvailableIngredients = formState.available_ingredients || [];
+      console.log("[REGENERATE AVAILABLE INGREDIENTS NORMALIZED]", currentAvailableIngredients);
       const data = await regenerateMealPlan(freshProfile ? mapUserProfileToFormState(freshProfile) : formState, {
         previousMealPlanId,
         targetKcal: freshProfile ? undefined : effectiveTarget.targetCalories,
         excludePreviousItems: true,
-        randomSeed: Date.now(),
+        randomSeed: regenSeed,
+        generation_seed: regenSeed,
+        available_ingredients: currentAvailableIngredients,
+        ingredients: currentAvailableIngredients,
         profile: freshProfile,
       });
 
       // 3. Reload thông tin user mới nhất
       try {
-        const currentUser = await fetchCurrentUser();
+        const latestUser = await fetchCurrentUser();
         try { await fetchWeightLogSummary(); } catch {}
-        if (currentUser && typeof onProfileUpdate === "function") {
-          onProfileUpdate(currentUser);
+        if (latestUser && typeof onProfileUpdate === "function") {
+          onProfileUpdate(latestUser);
         }
-        const profile = currentUser?.profile;
-        if (profile) {
+        const latestProfile = latestUser?.profile;
+        if (latestProfile) {
           setFormState((current) => ({
             ...current,
-            ...mapUserProfileToFormState(profile),
+            ...mapUserProfileToFormState(latestProfile),
           }));
         }
       } catch (profileErr) {
@@ -441,6 +518,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       setGenerationNotice(isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "");
       setActiveSection((current) => (current === "meal-plan" ? "meal-plan" : "overview"));
       window.scrollTo({ top: 0, behavior: "smooth" });
+
     } catch (err) {
       // Giữ lại trạng thái cũ nếu có lỗi
       setResult(previousResult);
@@ -455,17 +533,56 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     await requestRecommendation();
   }
 
-  async function submitMealPlanSetup() {
+  async function submitMealPlanSetup(setupSnapshot = {}) {
     if (isSubmitting) return;
+    const itemsPerMeal = Number(formState.items_per_meal || itemsCountFromMealComplexity(formState.meal_complexity));
+    const rawIngredients = setupSnapshot?.available_ingredients || selectedIngredients || [];
+    const availableIngredients = Array.from(
+      new Set(
+        rawIngredients
+          .map((x) => String(x || "").trim())
+          .filter(Boolean)
+      )
+    );
+    // Phase 1: New seed EVERY submit — never reuse old state seed
+    const generationSeed = Date.now();
+    const mergedSettings = {
+      ...formState,
+      items_per_meal: itemsPerMeal,
+      meal_complexity: mealComplexityFromItemsCount(itemsPerMeal),
+      diet_type: formState.diet_type || formState.diet_style || "balanced",
+      diet_style: formState.diet_style || formState.diet_type || "balanced",
+      available_ingredients: availableIngredients,
+      ingredients: availableIngredients,
+      generation_seed: generationSeed,
+    };
+    // Phase 1: Required payload debug log
+    console.log("[MEAL SETUP SUBMIT INGREDIENT SOURCE]", {
+      setupSnapshotAvailable: setupSnapshot?.available_ingredients,
+      selectedIngredientsState: selectedIngredients,
+    });
+    console.log("[MEAL SETUP SUBMIT PAYLOAD SAFE]", {
+      available_ingredients: availableIngredients,
+      generation_seed: generationSeed,
+      items_per_meal: itemsPerMeal,
+      diet_type: mergedSettings.diet_type,
+      budget_level: mergedSettings.budget_level,
+    });
     setSubmitError("");
     setIsSubmitting(true);
     setShowMealPlanSetup(false); // Hide the modal while generating
 
     try {
-      await saveUserProfile(formState);
-      const data = await regenerateMealPlan(formState, {
-        ingredients: selectedIngredients,
-        source: "manual-setup-submit"
+      setFormState(mergedSettings);
+      await saveUserProfile(mergedSettings);
+      const data = await regenerateMealPlan(mergedSettings, {
+        ingredients: availableIngredients,
+        available_ingredients: availableIngredients,
+        generation_seed: generationSeed,
+        randomSeed: generationSeed,
+        source: "manual-setup-submit",
+        profile: mergedSettings,
+        items_per_meal: itemsPerMeal,
       });
       setResult(data);
       setGenerationNotice("Đã tạo thực đơn phù hợp.");
@@ -477,6 +594,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       setIsSubmitting(false);
     }
   }
+
 
   function handleEditProfile() {
     // If parent provided an onEditProfile handler (App.jsx), delegate to it
@@ -536,7 +654,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     }
 
     const currentItems = result.meal_plan[mealKey] || [];
-    const expectedCount = expectedItemsPerMeal(formState.meal_complexity ?? formState.items_per_meal);
+    const expectedCount = expectedItemsPerMeal(formState.items_per_meal ?? formState.meal_complexity);
     if (currentItems.length >= expectedCount && options.replaceIndex == null && !options.allowExtra) {
       setAddToMealRequest({ food, mealKey });
       return { status: "needs_choice" };
@@ -681,13 +799,17 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
             onEditProfile={handleEditProfile}
             isSubmitting={isSubmitting}
             handleSidebarNavigate={handleSidebarNavigate}
+            gamificationRefreshKey={gamificationRefreshKey}
+            onEatingDayCompleted={handleEatingDayCompleted}
+            eatingHistoryRefreshKey={eatingHistoryRefreshKey}
+            onEatingHistoryChanged={() => setEatingHistoryRefreshKey((value) => value + 1)}
           />
         )}
       </div>
       <AddToMealModal
         request={addToMealRequest}
         meals={meals}
-        expectedCount={expectedItemsPerMeal(formState.meal_complexity ?? formState.items_per_meal)}
+        expectedCount={expectedItemsPerMeal(formState.items_per_meal ?? formState.meal_complexity)}
         onAdd={handleAddToMeal}
         onClose={() => setAddToMealRequest(null)}
       />
@@ -703,9 +825,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           onIngredientAdd={(ing) => setSelectedIngredients(prev => [...prev, ing])}
           onIngredientRemove={(ing) => setSelectedIngredients(prev => prev.filter(x => x !== ing))}
           onIngredientsReplace={(ings) => setSelectedIngredients(ings)}
+          onIngredientsAddMany={(ings) => setSelectedIngredients(prev => [...new Set([...prev, ...(ings || [])])])}
           onChange={handleProfileChange}
           onClose={() => setShowMealPlanSetup(false)}
-          onSubmit={submitMealPlanSetup}
+          onSubmit={() => submitMealPlanSetup({ available_ingredients: selectedIngredients })}
           isSubmitting={isSubmitting}
           submitError={submitError}
         />
@@ -806,10 +929,44 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
   );
 }
 
-function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, onIngredientRemove, onIngredientsReplace, onChange, onClose, onSubmit, isSubmitting, submitError }) {
+function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, onIngredientRemove, onIngredientsReplace, onIngredientsAddMany, onChange, onClose, onSubmit, isSubmitting, submitError }) {
   const [recognizing, setRecognizing] = useState(false);
   const [manualIng, setManualIng] = useState("");
+  const [quickSuggestionsOpen, setQuickSuggestionsOpen] = useState(false);
   const fileInputRef = useRef(null);
+
+  function CompactSelect({ label, name, value, options }) {
+    return (
+      <label className="block">
+        <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">{label}</span>
+        <div className="relative">
+          <select
+            name={name}
+            value={value}
+            onChange={onChange}
+            className="h-[52px] w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-11 text-sm font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <svg
+            viewBox="0 0 24 24"
+            className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+      </label>
+    );
+  }
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -818,20 +975,57 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const token = localStorage.getItem("auth_token");
+      const token = getAuthToken();
+      console.log("[INGREDIENT IMAGE UPLOAD START]", {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      console.log("[INGREDIENT IMAGE AUTH TOKEN CHECK]", {
+        hasToken: Boolean(token),
+        tokenPrefix: token ? token.slice(0, 12) : null,
+      });
+
       const res = await fetch("/api/v1/ingredients/recognize-image", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
+        headers: getAuthHeaders(),
         body: formData,
       });
-      const data = await res.json();
-      if (data.success && data.ingredients?.length > 0) {
-        onIngredientsReplace([...new Set([...selectedIngredients, ...data.ingredients])]);
+
+      const rawText = await res.text();
+
+      console.log("[INGREDIENT IMAGE UPLOAD RESPONSE]", {
+        status: res.status,
+        ok: res.ok,
+        contentType: res.headers.get("content-type"),
+        rawText,
+      });
+
+      let data = null;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch (parseError) {
+        throw new Error(
+          `Backend không trả JSON hợp lệ. Status ${res.status}. Nội dung: ${rawText?.slice(0, 160) || "rỗng"}`
+        );
+      }
+
+      console.log("[INGREDIENT IMAGE UPLOAD PARSED DATA]", data);
+
+      if (!res.ok) {
+        throw new Error(data?.message || data?.detail || `Nhận diện ảnh thất bại. Status ${res.status}`);
+      }
+
+      const ingredients = Array.isArray(data?.ingredients) ? data.ingredients : [];
+
+      if (data?.success && ingredients.length > 0) {
+        if (typeof onIngredientsAddMany === "function") onIngredientsAddMany(ingredients); else onIngredientsReplace([...new Set([...selectedIngredients, ...ingredients])]);
       } else {
-        alert(data.message || "Không nhận diện được nguyên liệu.");
+        throw new Error(data?.message || "Không nhận diện được nguyên liệu trong ảnh.");
       }
     } catch (err) {
-      alert("Lỗi tải ảnh: " + err.message);
+      alert("Lỗi tải ảnh: " + (err.message || "Không thể nhận diện ảnh."));
     } finally {
       setRecognizing(false);
       e.target.value = "";
@@ -846,91 +1040,200 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
   };
 
   const quickChips = ["Thịt heo", "Thịt bò", "Thịt gà", "Trứng", "Đậu hũ", "Rau cải", "Cà chua", "Nấm", "Cà rốt"];
+  const ingredientCount = selectedIngredients.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-[28px] shadow-2xl animate-fade-in flex flex-col">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white/95 backdrop-blur z-10 rounded-t-[28px]">
-          <div>
-            <h2 className="text-2xl font-black text-slate-900">Thiết lập thực đơn hôm nay</h2>
-            <p className="text-sm font-semibold text-slate-500 mt-1">Cập nhật nguyên liệu và nhu cầu của bạn</p>
-          </div>
-          <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 transition">
-            ✕
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+      <div className="relative flex w-full max-w-[1180px] max-h-[calc(100vh-48px)] flex-col overflow-hidden rounded-[32px] border border-slate-200/70 bg-[#fbfbf8] shadow-2xl shadow-slate-950/25 animate-fade-in">
+        <button
+          onClick={onClose}
+          type="button"
+          className="absolute right-7 top-7 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+          aria-label="Đóng modal thiết lập thực đơn"
+        >
+          ✕
+        </button>
 
-        <div className="p-6 space-y-8 flex-1">
-          <section>
-            <h3 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
-              <span className="text-emerald-500">🥩</span> Nguyên liệu sẵn có
-            </h3>
-            
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-emerald-900">Tải ảnh tủ lạnh / nguyên liệu</p>
-                  <p className="text-xs text-emerald-700 mt-1">AI sẽ nhận diện và tự động thêm vào danh sách</p>
-                </div>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  ref={fileInputRef} 
-                  onChange={handleImageUpload} 
-                  className="hidden" 
-                />
-                <button 
-                  type="button" 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={recognizing}
-                  className="px-4 py-2 bg-white text-emerald-700 text-sm font-bold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition shadow-sm"
-                >
-                  {recognizing ? "Đang quét..." : "📸 Tải ảnh lên"}
-                </button>
+        <header className="px-8 pt-7 pb-5 pr-24">
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">THIẾT LẬP THỰC ĐƠN</p>
+          <h2 className="mt-2 text-[34px] font-black tracking-[-0.03em] text-slate-950">Thiết lập thực đơn hôm nay</h2>
+          <p className="mt-3 max-w-[760px] text-sm leading-6 text-slate-500">
+            Cập nhật nhanh nguyên liệu, cân nặng và cách chia bữa để hệ thống tạo thực đơn sát hơn với hôm nay.
+          </p>
+        </header>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-8 py-5 lg:overflow-visible">
+          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[1fr_360px] lg:items-center lg:gap-6">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <span className="text-sm font-black">1</span>
               </div>
-
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="Nhập nguyên liệu..." 
-                  className="flex-1 h-12 px-4 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-sm"
-                  value={manualIng}
-                  onChange={e => setManualIng(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addManual()}
-                />
-                <button 
-                  type="button" 
-                  onClick={addManual}
-                  className="px-6 rounded-xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition"
-                >
-                  Thêm
-                </button>
-              </div>
-
               <div>
-                <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Chọn nhanh</p>
-                <div className="flex flex-wrap gap-2">
-                  {quickChips.map(chip => (
+                <div className="text-lg font-black text-slate-950">Thông tin hôm nay</div>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Cập nhật nhanh để thực đơn hôm nay sát với cơ thể hiện tại.</p>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Cân nặng hiện tại (kg)</span>
+              <div className="relative">
+                <input
+                  type="number"
+                  name="weight_kg"
+                  min="20"
+                  max="200"
+                  step="0.1"
+                  value={formState.weight_kg || formState.weight || ""}
+                  onChange={onChange}
+                  className="h-[52px] w-full rounded-2xl border border-slate-200 bg-white px-4 pr-12 text-lg font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  placeholder="Ví dụ: 47"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">kg</span>
+              </div>
+            </label>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[280px_300px_1fr] lg:items-start lg:gap-5">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <span className="text-sm font-black">2</span>
+              </div>
+              <div>
+                <div className="text-lg font-black text-slate-950">Nguyên liệu sẵn có</div>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Tải ảnh hoặc nhập nhanh nguyên liệu bạn đang có.</p>
+              </div>
+            </div>
+
+            <div className="rounded-[22px] border border-dashed border-emerald-200 bg-emerald-50/70 p-4 transition hover:border-emerald-300 hover:bg-emerald-50">
+              <input
+                type="file"
+                accept="image/*"
+                ref={fileInputRef}
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={recognizing}
+                className="flex h-full min-h-[120px] w-full flex-col items-center justify-center gap-3 rounded-[18px] bg-white px-4 text-center shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-sm">
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-sm font-black text-emerald-900">Tải ảnh nguyên liệu</div>
+                  <div className="mt-1 text-xs font-medium text-emerald-700">AI sẽ nhận diện và thêm vào danh sách.</div>
+                </div>
+                <div className="inline-flex h-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700">
+                  {recognizing ? "Đang nhận diện ảnh..." : "Chọn ảnh để nhận diện"}
+                </div>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Nhập nguyên liệu</span>
+                  <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-100">
+                    <input
+                      type="text"
+                      placeholder="Nhập nguyên liệu (ví dụ: trứng, rau cải...)"
+                      className="h-[44px] min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                      value={manualIng}
+                      onChange={(e) => setManualIng(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addManual()}
+                    />
                     <button
-                      key={chip}
                       type="button"
-                      onClick={() => !selectedIngredients.includes(chip) && onIngredientAdd(chip)}
-                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:border-emerald-500 hover:text-emerald-700 transition"
+                      onClick={addManual}
+                      className="h-[44px] rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800"
                     >
-                      + {chip}
+                      Thêm
                     </button>
-                  ))}
+                  </div>
+                </label>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => setQuickSuggestionsOpen((value) => !value)}
+                    className="inline-flex h-[52px] items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
+                  >
+                    <span>Gợi ý nhanh</span>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className={`h-4 w-4 text-slate-400 transition-transform ${quickSuggestionsOpen ? "rotate-180" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
                 </div>
               </div>
 
-              {selectedIngredients.length > 0 && (
-                <div className="pt-4 border-t border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Đã chọn ({selectedIngredients.length})</p>
+              {quickSuggestionsOpen ? (
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
                   <div className="flex flex-wrap gap-2">
-                    {selectedIngredients.map(ing => (
-                      <span key={ing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 text-sm font-bold">
-                        {ing}
-                        <button type="button" onClick={() => onIngredientRemove(ing)} className="w-4 h-4 rounded-full bg-emerald-200 text-emerald-900 flex items-center justify-center hover:bg-emerald-300">✕</button>
+                    {quickChips.map((chip) => {
+                      const selected = selectedIngredients.includes(chip);
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => {
+                            if (!selected) {
+                              onIngredientAdd(chip);
+                            }
+                          }}
+                          className={selected
+                            ? "h-9 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-700"
+                            : "h-9 rounded-full border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"}
+                        >
+                          {selected ? `✓ ${chip}` : `+ ${chip}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {ingredientCount > 0 && (
+                <div className="rounded-[20px] border border-emerald-100 bg-emerald-50/60 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Nguyên liệu đã chọn</p>
+                      <p className="mt-1 text-xs font-medium text-emerald-700">{ingredientCount} nguyên liệu sẵn có sẽ được ưu tiên cover nếu DB có món phù hợp.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onIngredientsReplace([])}
+                      className="text-[11px] font-bold text-emerald-700 underline decoration-emerald-300 underline-offset-4"
+                    >
+                      Xóa tất cả
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedIngredients.map((ing) => (
+                      <span key={ing} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">
+                        <span>{ing}</span>
+                        <button
+                          type="button"
+                          onClick={() => onIngredientRemove(ing)}
+                          className="grid h-5 w-5 place-items-center rounded-full bg-emerald-100 text-[11px] text-emerald-700 transition hover:bg-emerald-200"
+                          aria-label={`Xóa ${ing}`}
+                        >
+                          ×
+                        </button>
                       </span>
                     ))}
                   </div>
@@ -939,65 +1242,90 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
             </div>
           </section>
 
-          <section>
-            <h3 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
-              <span className="text-orange-500">⚙️</span> Cấu hình thực đơn
-            </h3>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <ProfileSelect
+          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[320px_1fr] lg:items-start lg:gap-6">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <span className="text-sm font-black">3</span>
+              </div>
+              <div>
+                <div className="text-lg font-black text-slate-950">Cấu hình thực đơn</div>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Chọn cách chia bữa và mức ngân sách để hệ thống cân bằng tốt hơn.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <CompactSelect
                 label="Chế độ ăn"
                 name="diet_style"
                 value={formState.diet_style || "balanced"}
                 onChange={onChange}
                 options={[
-                  { value: "balanced", label: "Cân bằng" },
+                  { value: "balanced", label: "Ăn cân bằng" },
                   { value: "eat_clean", label: "Eat Clean" },
                   { value: "high_protein", label: "Giàu Protein" },
                   { value: "vegetarian", label: "Ăn chay" },
                 ]}
               />
-              <ProfileSelect
+              <CompactSelect
                 label="Số món mỗi bữa"
                 name="meal_complexity"
                 value={formState.meal_complexity || "balanced"}
                 onChange={onChange}
                 options={[
-                  { value: "simple", label: "Đơn giản - 3 món/bữa" },
-                  { value: "balanced", label: "Cân bằng - 4 món/bữa" },
-                  { value: "full", label: "Đầy đủ - 5 món/bữa" },
+                  { value: "simple", label: "3 món / bữa" },
+                  { value: "balanced", label: "4 món / bữa" },
+                  { value: "full", label: "5 món / bữa" },
                 ]}
               />
-              <div className="sm:col-span-2">
-                <ProfileSelect
-                  label="Ngân sách"
-                  name="budget_level"
-                  value={formState.budget_level || "standard"}
-                  onChange={onChange}
-                  options={[
-                    { value: "standard", label: "Tiêu chuẩn" },
-                    { value: "low", label: "Tiết kiệm" },
-                    { value: "high", label: "Linh hoạt" },
-                  ]}
-                />
-              </div>
+              <CompactSelect
+                label="Ngân sách"
+                name="budget_level"
+                value={formState.budget_level || "standard"}
+                onChange={onChange}
+                options={[
+                  { value: "standard", label: "Tiêu chuẩn" },
+                  { value: "low", label: "Tiết kiệm" },
+                  { value: "high", label: "Linh hoạt" },
+                ]}
+              />
             </div>
           </section>
         </div>
 
-        <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-[28px]">
-          {submitError && (
-            <div className="mb-4 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-bold border border-red-100">
-              {submitError}
-            </div>
-          )}
-          <button
-            onClick={onSubmit}
-            disabled={isSubmitting || recognizing}
-            className="w-full h-14 rounded-2xl bg-emerald-600 text-white font-black text-lg hover:bg-emerald-700 disabled:opacity-60 transition shadow-lg shadow-emerald-600/20"
-          >
-            {isSubmitting ? "Đang tạo thực đơn..." : "Cập nhật và tạo thực đơn"}
-          </button>
-        </div>
+        <footer className="flex items-center justify-between gap-4 border-t border-slate-100 bg-white px-8 py-5">
+          <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">🛡</span>
+            <span>Thông tin này sẽ được dùng để tạo thực đơn hôm nay.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-[52px] rounded-[18px] border border-slate-200 bg-white px-6 font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={() => onSubmit({ ...formState, available_ingredients: selectedIngredients, ingredients: selectedIngredients })}
+              disabled={isSubmitting || recognizing}
+              className="inline-flex h-[52px] items-center justify-center rounded-[18px] bg-emerald-600 px-7 text-base font-black text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                  Đang tạo thực đơn...
+                </span>
+              ) : recognizing ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                  Đang nhận diện ảnh...
+                </span>
+              ) : (
+                "Cập nhật và tạo thực đơn"
+              )}
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
   );
@@ -1037,6 +1365,10 @@ function DashboardContent({
   onEditProfile,
   isSubmitting,
   handleSidebarNavigate,
+  gamificationRefreshKey,
+  onEatingDayCompleted,
+  eatingHistoryRefreshKey,
+  onEatingHistoryChanged,
 }) {
   return (
     <main className="px-4 pb-8 pt-4 sm:px-6 xl:px-8">
@@ -1055,8 +1387,10 @@ function DashboardContent({
           consumedNutrition={consumedNutrition}
           generationNotice={generationNotice}
           onRegenerate={onRegenerate}
+          onOpenSetup={onOpenSetup}
           isSubmitting={isSubmitting}
           onNavigate={handleSidebarNavigate}
+          gamificationRefreshKey={gamificationRefreshKey}
         />
       ) : null}
 
@@ -1072,6 +1406,8 @@ function DashboardContent({
           nutritionTarget={nutritionTarget}
           mealLog={mealLog}
           onMealLogChange={onMealLogChange}
+          onEatingDayCompleted={onEatingDayCompleted}
+          eatingHistoryRefreshKey={eatingHistoryRefreshKey}
         />
       ) : null}
 
@@ -1090,8 +1426,11 @@ function DashboardContent({
           onFavorite={onFavorite}
           onRate={onRate}
           onRegenerate={onRegenerate}
+          onOpenSetup={onOpenSetup}
           onOpenDislikeFood={onOpenDislikeFood}
           isSubmitting={isSubmitting}
+          onEatingDayCompleted={onEatingDayCompleted}
+          onEatingHistoryChanged={onEatingHistoryChanged}
         />
       ) : null}
 
@@ -1160,8 +1499,10 @@ function OverviewPage({
   consumedNutrition,
   generationNotice,
   onRegenerate,
+  onOpenSetup,
   isSubmitting,
   onNavigate,
+  gamificationRefreshKey,
 }) {
   const [isExporting, setIsExporting] = useState(false);
 
@@ -1213,14 +1554,22 @@ function OverviewPage({
     : buildDashboardDetailMessages(validation, dataWarnings, { totals: planTotals, targets: nutritionTarget, meals });
   const statusTone = statusToneClass(userStatus.tone);
 
+  const consumed_kcal = consumedNutrition?.calories || 0;
+  const target_kcal = nutritionTarget?.targetCalories || summary?.targetCalories || 0;
+  const remaining_kcal = Math.max(0, target_kcal - consumed_kcal);
+
   function handlePrimaryAction() {
     if (isSubmitting) return;
     if (userStatus.actionKind === "view") {
       onNavigate?.("meal-plan");
       return;
     }
-    if (userStatus.actionKind === "generate") {
-      onOpenSetup?.();
+    if (userStatus.actionKind === "generate" || userStatus.actionKind === "regenerate") {
+      if (onOpenSetup) {
+        onOpenSetup();
+        return;
+      }
+      onRegenerate?.();
       return;
     }
     onRegenerate?.();
@@ -1228,15 +1577,20 @@ function OverviewPage({
 
   return (
     <div className="space-y-5">
-      <section className={`rounded-[28px] border p-6 shadow-sm sm:p-7 ${statusTone.shell}`}>
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
+      <section className="rounded-[24px] bg-white p-6 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] ring-1 ring-slate-100 sm:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className={`text-xs font900 uppercase tracking-[0.18em] ${statusTone.eyebrow}`}>Kết luận hôm nay</p>
-            <h2 className="mt-2 text-3xl font-black leading-tight text-slate-950">
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Kết luận hôm nay</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-900 sm:text-[28px]">
               {userStatus.label}
             </h2>
+            <p className="mt-2 text-[15px] font-semibold text-slate-600">
+              {remaining_kcal > 0 
+                ? `Bạn còn thiếu khoảng ${Math.round(remaining_kcal).toLocaleString("vi-VN")} kcal để sát mục tiêu hôm nay.` 
+                : "Bạn đã đạt hoặc vượt mục tiêu năng lượng hôm nay. Hãy duy trì nhé!"}
+            </p>
             {scoreLabel ? (
-              <p className="mt-2 text-sm font800 text-slate-500">{scoreLabel}</p>
+              <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-[13px] font-bold text-emerald-700">⭐ {scoreLabel}</div>
             ) : null}
             {generationNotice && !isSubmitting ? (
               <p className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font900 text-emerald-800">
@@ -1245,36 +1599,46 @@ function OverviewPage({
             ) : null}
           </div>
 
-          <button
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => onNavigate?.("meal-plan")}
+              disabled={isSubmitting}
+              className="flex h-12 items-center justify-center rounded-2xl bg-white px-6 text-sm font-bold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 transition"
+            >
+              Xem thực đơn
+            </button>
+            <button
             type="button"
             onClick={handlePrimaryAction}
             disabled={isSubmitting}
-            className={`flex min-h-12 w-full items-center justify-center rounded-2xl px-5 py-3 text-sm font900 text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-65 ${statusTone.button}`}
+            className="flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-6 text-sm font-black text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition disabled:opacity-60"
           >
             {isSubmitting ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                {userStatus.actionLabel}
+                  Đang xử lý...
               </span>
-            ) : userStatus.actionLabel}
+            ) : "Tạo lại thực đơn"}
           </button>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <DashboardMetric
-            label="Gợi ý hôm nay"
-            value={`${round(planTotals.calories).toLocaleString("vi-VN")} kcal`}
-            target={`${round(planTotals.protein).toLocaleString("vi-VN")}g đạm`}
+            label="Mục tiêu hôm nay"
+            value={`${Math.round(target_kcal).toLocaleString("vi-VN")} kcal`}
+            sub={`Protein mục tiêu: ${Math.round(nutritionTarget?.proteinTarget || summary?.protein || 0)}g`}
           />
           <DashboardMetric
-            label="Đã ăn hôm nay"
-            value={`${round(consumedNutrition?.calories || 0).toLocaleString("vi-VN")} kcal`}
-            target={`${round(consumedNutrition?.protein || 0).toLocaleString("vi-VN")}g đạm`}
+            label="Đã ăn"
+            value={`${Math.round(consumed_kcal).toLocaleString("vi-VN")} kcal`}
+            sub={`Protein đã ăn: ${Math.round(consumedNutrition?.protein || 0)}g`}
           />
           <DashboardMetric
-            label="Còn thiếu"
-            value={`${round(Math.max(0, (nutritionTarget?.targetCalories || 0) - (consumedNutrition?.calories || 0))).toLocaleString("vi-VN")} kcal`}
-            target={`Mục tiêu: ${round(nutritionTarget?.targetCalories || 0).toLocaleString("vi-VN")}`}
+            label="Còn lại"
+            value={`${Math.round(remaining_kcal).toLocaleString("vi-VN")} kcal`}
+            sub="Cần bổ sung để chạm mục tiêu"
           />
         </div>
 
@@ -1288,13 +1652,13 @@ function OverviewPage({
         </ul>
 
         <div className="mt-6 flex flex-wrap gap-4">
-          <button
-            type="button"
-            onClick={() => onNavigate?.("journal")}
-            className="flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 transition"
-          >
-            Đánh dấu món đã ăn
-          </button>
+
+
+
+
+
+
+
           <button
             type="button"
             onClick={handleExportReport}
@@ -1306,7 +1670,7 @@ function OverviewPage({
         </div>
 
         <p className="mt-5 text-xs font800 text-slate-500">
-          Số liệu đã ăn cập nhật khi bạn đánh dấu món trong Nhật ký.
+
         </p>
 
         <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
@@ -1325,44 +1689,65 @@ function OverviewPage({
         </div>
       </section>
 
-      <GentleMotivationPanel />
+      <div className="grid gap-6 md:grid-cols-2">
 
       {showAdjustmentBox ? (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font800 leading-6 text-amber-950">
-          <h3 className="text-base font-black text-amber-950">Gợi ý điều chỉnh</h3>
-          <ul className="mt-2 space-y-1">
+        <section className="flex flex-col justify-center rounded-[24px] bg-[#FFFBEB] p-6 ring-1 ring-[#FEF3C7]">
+          <div className="flex items-center gap-2 text-amber-600">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <h3 className="text-[13px] font-black uppercase tracking-wider">Gợi ý điều chỉnh</h3>
+          </div>
+            <ul className="mt-4 space-y-3">
             {adjustmentMessages.map((message) => (
-              <li key={message}>{message}</li>
+              <li key={message} className="flex gap-2.5 text-[15px] font-semibold text-amber-900 leading-relaxed">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                {message}
+              </li>
             ))}
           </ul>
         </section>
-      ) : null}
 
-      <section className="glass-panel overflow-hidden">
-        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#ECFDF5] text-2xl">🍽️</div>
+        ) : (
+          <section className="flex flex-col justify-center rounded-[24px] bg-[#ECFDF5] p-6 ring-1 ring-[#D1FAE5]">
+             <div className="mb-3 flex items-center gap-2 text-emerald-600">
+               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+               <h3 className="text-[13px] font-black uppercase tracking-wider">Trạng thái</h3>
+             </div>
+             <p className="text-[15px] font-bold text-emerald-900 leading-relaxed">Thực đơn hôm nay đang khá cân bằng. Bạn đang làm rất tốt!</p>
+          </section>
+        )}
+
+      <section className="flex flex-col justify-center rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-slate-100">
+
+
+
+
+          <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Bữa tiếp theo</p>
+          <div className="mt-3 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-[#10B981]">Bữa tiếp theo</p>
-              <h3 className="mt-1 text-lg font-black text-[#0F172A]">
+              <h3 className="text-xl font-black text-slate-900">
                 {nextMeal ? nextMeal.title : "Đã hoàn thành các bữa"}
               </h3>
               {nextMeal ? (
-                <p className="mt-1 text-sm font-semibold text-[#64748B]">
-                  {nextMeal.items.length} món · {sumItems(nextMeal.items).calories} kcal
+                <p className="mt-1.5 text-[15px] font-semibold text-slate-500">
+                  {nextMeal.items.length} món • {Math.round(sumItems(nextMeal.items).calories)} kcal
                 </p>
               ) : null}
             </div>
+
+            {nextMeal && (
+              <button
+                type="button"
+                onClick={() => onNavigate?.("meal-plan")}
+                disabled={isSubmitting}
+                className="flex h-10 items-center justify-center rounded-xl bg-slate-50 px-5 text-[13px] font-black text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100 transition"
+              >
+                Xem
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigate?.("meal-plan")}
-            disabled={isSubmitting}
-            className="h-12 shrink-0 rounded-2xl border border-emerald-100 bg-white px-6 text-sm font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
-          >
-            Xem thực đơn
-          </button>
-        </div>
+
+
         {isSubmitting ? (
           <div className="border-t border-slate-100 px-5 pb-5">
             <div className="grid gap-2 pt-4">
@@ -1373,56 +1758,95 @@ function OverviewPage({
         ) : null}
       </section>
 
-      <section className="glass-panel overflow-hidden">
+      </div>
+
+      <section className="overflow-hidden rounded-[24px] bg-white shadow-sm ring-1 ring-slate-100">
         <button
           type="button"
-          className="flex w-full items-center justify-between p-5 text-left"
+          className="flex w-full items-center justify-between p-6 text-left hover:bg-slate-50 transition"
           onClick={() => setShowDetails((v) => !v)}
         >
-          <span className="text-sm font-bold text-[#0F172A]">Xem chi tiết dinh dưỡng</span>
-          <svg viewBox="0 0 24 24" className={`h-5 w-5 text-[#64748B] transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <span className="text-[15px] font-bold text-slate-900">Chi tiết dinh dưỡng</span>
+          <svg viewBox="0 0 24 24" className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="m6 9 6 6 6-6" />
           </svg>
         </button>
         {showDetails ? (
-          <div className="border-t border-[#E2E8F0] px-5 pb-5 pt-4 animate-fade-in">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <MacroTarget label="Chất béo" value={planTotals.fat} target={nutritionTarget.fatTarget} tone="orange" />
-              <MacroTarget label="Tinh bột" value={planTotals.carbs} target={nutritionTarget.carbTarget} tone="emerald" />
-              <div className="rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-                <div className="text-xs font-bold uppercase tracking-widest text-[#64748B]">Đánh giá thực đơn</div>
-                <div className="mt-3 text-2xl font-black text-[#0F172A]">{getMealPlanScore(validation, planTotals, nutritionTarget)}%</div>
-              </div>
+          <div className="border-t border-slate-100 bg-slate-50/50 p-6 animate-fade-in">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MiniDetailCard label="Năng lượng" val={consumed_kcal} total={target_kcal} unit="kcal" />
+              <MiniDetailCard label="Protein" val={consumedNutrition?.protein || 0} total={nutritionTarget.proteinTarget} unit="g" />
+              <MiniDetailCard label="Carb" val={consumedNutrition?.carbs || 0} total={nutritionTarget.carbTarget} unit="g" />
+              <MiniDetailCard label="Chất béo" val={consumedNutrition?.fat || 0} total={nutritionTarget.fatTarget} unit="g" />
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <InfoRow label="BMR" value={`${summary.bmr} kcal`} />
-              <InfoRow label="TDEE" value={`${summary.tdee} kcal`} />
-              <InfoRow label="Ngưỡng thấp" value={`${nutritionTarget.minCalories} kcal`} />
-              <InfoRow label="Ngưỡng cao" value={`${nutritionTarget.maxCalories} kcal`} />
+            
+            <div className="mt-4 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleExportReport}
+                disabled={isExporting || isSubmitting}
+                className="text-[13px] font-bold text-emerald-600 hover:text-emerald-700 transition underline disabled:opacity-50"
+              >
+                {isExporting ? "Đang xuất..." : "Xuất báo cáo PDF"}
+              </button>
             </div>
-            {detailMessages.length ? (
-              <div className="mt-4 rounded-2xl bg-white/85 p-4 ring-1 ring-slate-100">
-                <p className="text-sm font900 text-slate-900">Gợi ý và thông tin thêm</p>
-                <ul className="mt-2 space-y-1 text-sm font700 leading-6 text-slate-600">
-                  {detailMessages.map((message) => (
-                    <li key={message}>{message}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           </div>
         ) : null}
       </section>
+      <div className="opacity-95 mt-6">
+        <GentleMotivationPanel onAction={() => onNavigate?.("journal")} refreshKey={gamificationRefreshKey} hideAction={true} />
+      </div>
     </div>
   );
 }
 
-function DashboardMetric({ label, value, target }) {
+function DashboardMetric({ label, value, sub }) {
   return (
-    <div className="rounded-2xl bg-white/90 p-4 ring-1 ring-slate-100">
-      <p className="text-xs font900 uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
-      <p className="mt-1 text-xs font800 text-slate-500">Mục tiêu: {target}</p>
+    <div className="rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-slate-100">
+      <p className="text-[12px] font-black uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-2 text-[28px] font-black text-slate-900">{value}</p>
+      {sub && <p className="mt-1.5 text-[13px] font-bold text-slate-400">{sub}</p>}
+    </div>
+  );
+}
+
+function MiniDetailCard({ label, val, total, unit }) {
+  const v = Math.round(val);
+  const t = Math.round(total);
+  const pct = Math.min(100, Math.round((v / Math.max(t, 1)) * 100));
+  return (
+    <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
+      <div className="mb-3 flex items-end justify-between">
+        <span className="text-sm font-bold text-slate-600">{label}</span>
+        <span className="text-[15px] font-black text-slate-900">{v} / {t} <span className="text-xs text-slate-400">{unit}</span></span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
@@ -1470,12 +1894,11 @@ function statusToneClass(tone) {
 }
 
 function findNextMeal(meals, consumed) {
-  const mealOrder = ["Bữa sáng", "Bữa trưa", "Bữa phụ", "Bữa tối"];
+  const mealOrder = ["Bữa sáng", "Bữa trưa", "Bữa tối"];
   const hour = new Date().getHours();
   let startIdx = 0;
   if (hour >= 11) startIdx = 1;
-  if (hour >= 14) startIdx = 2;
-  if (hour >= 17) startIdx = 3;
+  if (hour >= 17) startIdx = 2;
   for (let i = startIdx; i < mealOrder.length; i++) {
     const meal = meals.find((m) => m.title === mealOrder[i]);
     if (meal && meal.items.length > 0) return meal;
@@ -1531,9 +1954,35 @@ function countUniqueDates(rows) {
   return new Set(rows.map((row) => row.date).filter(Boolean)).size;
 }
 
-function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMealLogChange }) {
+function normalizeEatingHistoryRows(items) {
+  const mealTitleMap = {
+    breakfast: "Bữa sáng",
+    lunch: "Bữa trưa",
+    dinner: "Bữa tối",
+  };
+
+  return (items || []).map((item) => ({
+    id: item.id || `${item.meal_plan_id}-${item.meal_type}-${item.food_id}-${item.eaten_at}`,
+    date: item.eaten_date || item.date || todayInputValue(),
+    eatenAt: item.eaten_at,
+    mealTitle: item.meal_title || mealTitleMap[item.meal_type] || item.meal_type || "Khác",
+    name: item.name || item.food_name,
+    servingDisplay: item.serving_display || item.servingDisplay || item.serving || "Theo kế hoạch",
+    calories: Number(item.calories || 0),
+    protein: Number(item.protein || 0),
+    fat: Number(item.fat || 0),
+    carbs: Number(item.carbs || 0),
+    image: item.image_url || item.image,
+  }));
+}
+
+function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMealLogChange, onEatingDayCompleted, eatingHistoryRefreshKey }) {
   const entries = mealLog?.entries || {};
   const manualItems = mealLog?.manualItems || [];
+  const [historyRows, setHistoryRows] = useState([]);
+  const [historyTotals, setHistoryTotals] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const [periodMode, setPeriodMode] = useState("day");
   const [selectedDate, setSelectedDate] = useState(todayInputValue());
@@ -1577,18 +2026,67 @@ function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMe
     carbs: "",
   });
 
-  const eatenRows = useMemo(() => {
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEatingHistory() {
+      setHistoryLoading(true);
+      setHistoryError("");
+
+      try {
+        const params =
+          periodMode === "day"
+            ? { mode: "day", date: selectedDate }
+            : periodMode === "month"
+              ? { mode: "month", month: selectedMonth }
+              : { mode: "year", year: selectedYear };
+
+        const data = await fetchEatingHistory(params);
+
+        if (cancelled) return;
+
+        const rows = normalizeEatingHistoryRows(data?.items || []);
+        setHistoryRows(rows);
+        setHistoryTotals(data?.totals || null);
+
+        console.log("[EATING HISTORY LOADED]", {
+          params,
+          rows,
+          totals: data?.totals,
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setHistoryError(error.message || "Không thể tải thống kê ăn uống.");
+          setHistoryRows([]);
+          setHistoryTotals(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    loadEatingHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [periodMode, selectedDate, selectedMonth, selectedYear, eatingHistoryRefreshKey]);
+
+  const fallbackRows = useMemo(() => {
     const rows = [];
     meals.forEach((meal) => {
       (meal.items || []).forEach((item) => {
         const entryKey = `${meal.title}-${item.id}`;
         const entry = entries[entryKey];
+        const isEaten = isFoodMarkedEaten(item, entry);
 
-        if (entry?.status === "eaten") {
+        if (isEaten) {
           rows.push({
             id: entryKey,
-            date: entry.date || todayInputValue(),
-            eatenAt: entry.eatenAt,
+            date: entry?.date || item.eaten_date || item.date || todayInputValue(),
+            eatenAt: entry?.eatenAt || item.eaten_at || item.updated_at,
             mealTitle: meal.title,
             name: item.name,
             servingDisplay: item.servingDisplay || item.serving || "Theo kế hoạch",
@@ -1621,17 +2119,56 @@ function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMe
     return rows;
   }, [meals, entries, manualItems]);
 
+  const rowsForPeriod = historyRows.length > 0 || !historyError
+    ? historyRows
+    : fallbackRows;
+
   const filteredRows = useMemo(() => {
     if (periodMode === "day") {
-      return eatenRows.filter((row) => row.date === selectedDate);
+      return rowsForPeriod.filter((row) => row.date === selectedDate);
     }
     if (periodMode === "month") {
-      return eatenRows.filter((row) => row.date?.startsWith(selectedMonth));
+      return rowsForPeriod.filter((row) => row.date?.startsWith(selectedMonth));
     }
-    return eatenRows.filter((row) => row.date?.startsWith(`${selectedYear}-`));
-  }, [eatenRows, periodMode, selectedDate, selectedMonth, selectedYear]);
+    return rowsForPeriod.filter((row) => row.date?.startsWith(`${selectedYear}-`));
+  }, [rowsForPeriod, periodMode, selectedDate, selectedMonth, selectedYear]);
 
-  const actualTotals = sumItems(filteredRows);
+  useEffect(() => {
+    console.log("[JOURNAL ENTRIES]", {
+      keys: Object.keys(entries || {}),
+      entries,
+      periodMode,
+      selectedDate,
+    });
+    console.log("[JOURNAL MEALS LOOKUP]", meals.flatMap((meal) =>
+      (meal.items || []).map((item) => {
+        const lookupKey = `${meal.title}-${item.id}`;
+        const entry = entries[lookupKey];
+        return {
+          mealTitle: meal.title,
+          itemName: item.name,
+          itemId: item.id,
+          foodId: item.food_id,
+          lookupKey,
+          hasEntry: Boolean(entry),
+          entryDate: entry?.date,
+          entryStatus: entry?.status,
+        };
+      }),
+    ));
+    console.log("[JOURNAL FILTER DEBUG]", {
+      periodMode,
+      selectedDate,
+      historyRows,
+      fallbackRows,
+      rowsForPeriod,
+      filteredRows,
+      historyTotals,
+      historyError,
+    });
+  }, [entries, meals, periodMode, selectedDate, historyRows, fallbackRows, rowsForPeriod, filteredRows, historyTotals, historyError]);
+
+  const actualTotals = historyTotals || sumItems(filteredRows);
   const planTotals = sumItems(meals.flatMap((meal) => meal.items || []));
   const planKcalPct = Math.min(Math.round((planTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
 
@@ -1792,6 +2329,17 @@ function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMe
             + Thêm món khác
           </button>
         </div>
+
+        {historyLoading ? (
+          <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+            Đang tải thống kê ăn uống...
+          </div>
+        ) : null}
+        {historyError ? (
+          <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+            {historyError}
+          </div>
+        ) : null}
 
         <div className="mt-8">
           {filteredRows.length === 0 ? (
@@ -2094,8 +2642,10 @@ function MealsPage({
   onOpenSetup,
   onOpenDislikeFood,
   isSubmitting,
+  onEatingDayCompleted,
+  onEatingHistoryChanged,
 }) {
-  const expectedCount = expectedItemsPerMeal(profileSettings?.meal_complexity ?? profileSettings?.items_per_meal);
+  const expectedCount = expectedItemsPerMeal(profileSettings?.items_per_meal ?? profileSettings?.meal_complexity);
   const displayMeals = meals
     .map((meal) => ({ ...meal, items: (meal.items || []).slice(0, expectedCount) }))
     .filter((meal) => meal.items.length > 0);
@@ -2110,25 +2660,64 @@ function MealsPage({
     const entryKey = `${meal.title}-${item.id}`;
     const currentStatus = entries[entryKey]?.status || "suggested";
     const nextStatus = currentStatus === "eaten" ? "suggested" : "eaten";
-
-    onMealLogChange((current) => ({
-      ...current,
+    const mealPlanId =
+      result?.meal_plan?.id ||
+      result?.meal_plan?.meal_plan_id ||
+      result?.id ||
+      result?.meal_plan_id;
+    const mealTypeKey =
+      meal.mealType ||
+      meal.meal_type ||
+      meal.key ||
+      mealKeysByLabel[meal.title] ||
+      String(meal.title || "").toLowerCase();
+    const foodId = item.food_id || item.foodId || item.id;
+    const nextMealLog = {
+      ...mealLog,
       entries: {
-        ...(current.entries || {}),
+        ...(mealLog?.entries || {}),
         [entryKey]: {
-          ...(current.entries?.[entryKey] || {}),
+          ...(mealLog?.entries?.[entryKey] || {}),
           status: nextStatus,
         },
       },
-    }));
+    };
+
+    onMealLogChange(nextMealLog);
 
     try {
-      await toggleMealConsumption({
-        meal_plan_id: result?.meal_plan?.id,
-        meal_type: meal.title,
-        food_id: item.id,
+      console.log("[TOGGLE FOOD IDS]", {
+        item_id: item.id,
+        food_id: item.food_id,
+        foodId: item.foodId,
+        sent_food_id: foodId,
+      });
+      console.log("[TOGGLE MEAL CONSUMPTION PAYLOAD]", {
+        meal_plan_id: mealPlanId,
+        meal_type: mealTypeKey,
+        food_id: foodId,
         is_eaten: nextStatus === "eaten",
       });
+
+      await toggleMealConsumption({
+        meal_plan_id: mealPlanId,
+        meal_type: mealTypeKey,
+        food_id: foodId,
+        is_eaten: nextStatus === "eaten",
+      });
+      const todayAfterToggle = await loadTodayMealPlan();
+      console.log("[TODAY PLAN AFTER TOGGLE]", todayAfterToggle);
+      onEatingHistoryChanged?.();
+      const allEaten = areAllPlannedMealsEaten(nextMealLog, displayMeals);
+      console.log("[MEAL EATEN CHECK]", {
+        nextStatus,
+        allEaten,
+        eatenEntries: Object.values(nextMealLog.entries || {}).filter((entry) => entry.status === "eaten").length,
+        plannedItems: displayMeals.reduce((sum, currentMeal) => sum + (currentMeal.items || []).length, 0),
+      });
+      if (nextStatus === "eaten" && allEaten) {
+        await onEatingDayCompleted?.();
+      }
     } catch (err) {
       console.error("Failed to sync item consumption from meal plan", err);
 
@@ -2161,6 +2750,7 @@ function MealsPage({
         totalFat={displayTotals.fat || validation.totalFat}
         totalCarbs={displayTotals.carbs || validation.totalCarbs}
         onRegenerate={onRegenerate}
+        onOpenSetup={onOpenSetup}
         isSubmitting={isSubmitting}
       />
 
@@ -2228,6 +2818,7 @@ function MealPlanHeader({
   totalKcal,
   totalMeals,
   onRegenerate,
+  onOpenSetup,
   isSubmitting,
 }) {
   return (
@@ -2251,7 +2842,7 @@ function MealPlanHeader({
           <button
             type="button"
             className="h-14 rounded-[24px] bg-[#10B981] px-6 text-sm font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onRegenerate}
+            onClick={onOpenSetup || onRegenerate}
             disabled={isSubmitting}
           >
             {isSubmitting ? "Đang tạo..." : "Tạo lại thực đơn"}
@@ -2265,7 +2856,10 @@ function MealPlanHeader({
 function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, items, totals, balance, accent, entries = {}, onToggleFood }) {
   const expected = Number(expectedCount || 0);
   const isShort = expected > 0 && itemCount < expected;
-  const eatenCount = items.filter((item) => entries[`${mealName}-${item.id}`]?.status === "eaten").length;
+  const eatenCount = items.filter((item) => {
+    const entry = entries[`${mealName}-${item.id}`];
+    return isFoodMarkedEaten(item, entry);
+  }).length;
   const isMealFullyEaten = items.length > 0 && eatenCount === items.length;
 
   return (
@@ -2293,7 +2887,8 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {items.map((item) => {
           const entryKey = `${mealName}-${item.id}`;
-          const isEaten = entries[entryKey]?.status === "eaten";
+          const entry = entries[entryKey];
+          const isEaten = isFoodMarkedEaten(item, entry);
           return (
             <MealFoodCard
               key={item.id}
@@ -2822,7 +3417,15 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
               Cập nhật cân nặng mỗi 3 ngày để NutriGain theo dõi xu hướng tăng cân của bạn.
             </p>
           </div>
-          {/* Update weight button removed per UI-only change request */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={openWeightForm}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700"
+            >
+              Cập nhật cân nặng hôm nay
+            </button>
+          </div>
         </div>
       </section>
 
@@ -5927,15 +6530,14 @@ function buildJournalMealRow(meal, entries, manualItems) {
   const suggested = sumItems(meal.items);
   const actual = meal.items.reduce((acc, item) => {
     const entry = entries[`${meal.title}-${item.id}`] || {};
-    const status = entry.status || "suggested";
-    if (!["eaten", "partial"].includes(status)) return acc;
+    if (!isFoodMarkedEaten(item, entry)) return acc;
     const scaled = scaleItemByPortion(item, entry);
     return addTotals(acc, scaled);
   }, { calories: 0, protein: 0, fat: 0, carbs: 0 });
   const mealManualItems = manualItems.filter((item) => item.mealTitle === meal.title);
   mealManualItems.forEach((item) => addTotals(actual, item));
   const roundedActual = roundTotals(actual);
-  const confirmedCount = meal.items.filter((item) => ["eaten", "partial"].includes(entries[`${meal.title}-${item.id}`]?.status)).length + mealManualItems.length;
+  const confirmedCount = meal.items.filter((item) => isFoodMarkedEaten(item, entries[`${meal.title}-${item.id}`])).length + mealManualItems.length;
   const status = getMealLogStatus(roundedActual, suggested, confirmedCount);
   return {
     ...meal,
@@ -5949,6 +6551,16 @@ function buildJournalMealRow(meal, entries, manualItems) {
 function calculateConsumedNutrition(meals, mealLog) {
   const rows = (meals || []).map((meal) => buildJournalMealRow(meal, mealLog?.entries || {}, mealLog?.manualItems || []));
   return sumJournalRows(rows);
+}
+
+function isFoodMarkedEaten(item, entry) {
+  return (
+    entry?.status === "eaten" ||
+    item?.is_eaten === true ||
+    item?.consumed === true ||
+    item?.eaten === true ||
+    String(item?.status || "").toLowerCase() === "eaten"
+  );
 }
 
 function getMealLogStatus(actual, suggested, confirmedCount) {
@@ -5979,6 +6591,108 @@ function sumItems(items) {
   return roundTotals((items || []).reduce((acc, item) => addTotals(acc, item), { calories: 0, protein: 0, fat: 0, carbs: 0 }));
 }
 
+function areAllPlannedMealsEaten(nextMealLog, meals) {
+  const entries = nextMealLog?.entries || {};
+  const plannedItems = [];
+
+  (meals || []).forEach((meal) => {
+    (meal.items || []).forEach((item) => {
+      plannedItems.push(`${meal.title}-${item.id}`);
+    });
+  });
+
+  if (plannedItems.length === 0) return false;
+
+  return plannedItems.every((key) => entries[key]?.status === "eaten");
+}
+
+function buildMealLogFromAdaptedResult(adaptedResult) {
+  const entries = {};
+
+  const labelMap = {
+    breakfast: "Bữa sáng",
+    lunch: "Bữa trưa",
+    dinner: "Bữa tối",
+  };
+
+  const rawMealPlan = adaptedResult?.meal_plan || {};
+  const mealsSource =
+    rawMealPlan?.meals ||
+    adaptedResult?.meals ||
+    rawMealPlan ||
+    {};
+
+  const ignoredKeys = new Set([
+    "id",
+    "meal_plan_id",
+    "status",
+    "total_kcal",
+    "total_calories",
+    "total_protein",
+    "total_protein_g",
+    "total_fat",
+    "total_fat_g",
+    "total_carbs",
+    "total_carbs_g",
+    "validation",
+    "meal_item_count_summary",
+  ]);
+
+  const mealEntries = Array.isArray(mealsSource)
+    ? mealsSource.map((meal) => [
+        meal?.meal_type || meal?.mealType || meal?.key || meal?.title,
+        meal?.items || meal?.foods || [],
+      ])
+    : Object.entries(mealsSource).filter(([key, value]) => {
+        return !ignoredKeys.has(key) && Array.isArray(value);
+      });
+
+  mealEntries.forEach(([mealKey, items]) => {
+    if (!Array.isArray(items)) return;
+
+    const normalizedMealKey = String(mealKey || "").toLowerCase();
+    const mealTitle = labelMap[normalizedMealKey] || mealKey;
+
+    items.forEach((item) => {
+      const itemId = item.id || item.food_id || item.foodId;
+      console.log("[MEALLOG KEY CHECK]", {
+        mealTitle,
+        itemId: item.id,
+        foodId: item.food_id,
+        generatedKey: `${mealTitle}-${item.id}`,
+        is_eaten: item.is_eaten,
+      });
+      if (!itemId) return;
+
+      const isEaten =
+        item.is_eaten === true ||
+        item.consumed === true ||
+        item.eaten === true ||
+        String(item.status || "").toLowerCase() === "eaten";
+
+      if (!isEaten) return;
+
+      const entryKey = `${mealTitle}-${itemId}`;
+
+      entries[entryKey] = {
+        status: "eaten",
+        date: item.eaten_date || item.date || todayInputValue(),
+        eatenAt: item.eaten_at || item.updated_at || new Date().toISOString(),
+      };
+    });
+  });
+
+  console.log("[BUILD MEAL LOG FROM ADAPTED]", {
+    mealsSource,
+    entries,
+  });
+
+  return {
+    entries,
+    manualItems: [],
+  };
+}
+
 function addTotals(acc, item) {
   acc.calories += Number(item.calories || item.kcal || 0);
   acc.protein += Number(item.protein || 0);
@@ -5994,6 +6708,20 @@ function roundTotals(totals) {
     fat: round(totals.fat),
     carbs: round(totals.carbs),
   };
+}
+
+function mealComplexityFromItemsCount(value) {
+  const n = Number(value);
+  if (n === 3) return "simple";
+  if (n === 5) return "full";
+  return "balanced";
+}
+
+function itemsCountFromMealComplexity(value) {
+  if (Number.isFinite(Number(value))) return Number(value);
+  if (value === "simple") return 3;
+  if (value === "full") return 5;
+  return 4;
 }
 
 function expectedItemsPerMeal(value) {
@@ -6422,10 +7150,30 @@ function adaptTodayMealPlanResponse(today, fallbackTarget) {
   const meals = (today?.meals || []).map((meal) => ({
     meal_type: meal.meal_type || meal.title,
     actual_kcal: round(meal.total_calories ?? meal.actual_kcal),
-    items: Array.isArray(meal.items) ? meal.items : [],
+    items: Array.isArray(meal.items)
+      ? meal.items.filter(Boolean).map((raw, index) => ({
+          ...raw,
+          id: raw.id || raw.food_id || raw.foodId || `${meal.meal_type || meal.title}-${index}`,
+          food_id: raw.food_id || raw.id || raw.foodId || `${meal.meal_type || meal.title}-${index}`,
+          name: raw.name || raw.food_name || raw.dish_name_vi,
+          calories: round(raw.calories ?? raw.kcal ?? raw.kcal_per_serving_clean),
+          protein: round(raw.protein ?? raw.protein_g ?? raw.protein_per_serving_clean),
+          fat: round(raw.fat ?? raw.fat_g ?? raw.fat_per_serving_clean),
+          carbs: round(raw.carbs ?? raw.carbs_g ?? raw.carbs_per_serving_clean),
+          status: raw.status,
+          is_eaten:
+            raw.is_eaten === true ||
+            raw.consumed === true ||
+            raw.eaten === true ||
+            String(raw.status || "").toLowerCase() === "eaten",
+          eaten_at: raw.eaten_at,
+          eaten_date: raw.eaten_date,
+        }))
+      : [],
   }));
 
   return {
+    profile: today?.profile || today?.user_profile || {},
     profile_summary: {
       bmi: fallbackTarget.bmi,
       bmi_status: bmiStatusLabel(fallbackTarget.bmi),
@@ -6522,7 +7270,7 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
   if (Array.isArray(mealPlan.meals)) {
     return mealPlan.meals.filter((meal) => {
       const key = String(meal.meal_type || "").toLowerCase();
-      return key !== "snack" || profileSettings.enable_snack === true;
+      return key !== "snack";
     }).map((meal) => {
       const items = Array.isArray(meal.items) ? meal.items : [];
       const mealType = String(meal.meal_type || "").toLowerCase();
@@ -6546,7 +7294,7 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
 
   return Object.entries(mealPlan)
     .filter(([key, value]) => Array.isArray(value))
-    .filter(([key]) => key !== "snack" || profileSettings.enable_snack === true)
+    .filter(([key]) => key !== "snack")
     .map(([mealKey, items]) => {
       const safeItems = Array.isArray(items) ? items : [];
       const countInfo = itemCountSummary[mealKey] || {};
@@ -6666,6 +7414,7 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
   const imageSourceType = canShowRealImage ? rawImageSourceType : "placeholder";
   return {
     id,
+    food_id: item.food_id || id,
     foodId: id,
     name,
     type: displayCategory,
@@ -6694,6 +7443,12 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
     qualityFlags: item.quality_flags || "",
     menuEligible: item.menu_eligible !== false && item.menu_eligible !== "false",
     mealTitle,
+    is_eaten: item.is_eaten === true || item.consumed === true || item.eaten === true,
+    consumed: item.consumed === true,
+    eaten: item.eaten === true,
+    eaten_at: item.eaten_at,
+    eaten_date: item.eaten_date,
+    updated_at: item.updated_at,
   };
 }
 
@@ -6769,6 +7524,9 @@ function toMealPlanPayload(item, status = "suggested") {
     quality_flags: item.qualityFlags || "",
     score: Number(item.score || 0),
     menu_eligible: item.menuEligible !== false,
+    is_eaten: item.is_eaten === true || item.consumed === true || item.eaten === true,
+    eaten_at: item.eaten_at,
+    eaten_date: item.eaten_date,
   };
 }
 

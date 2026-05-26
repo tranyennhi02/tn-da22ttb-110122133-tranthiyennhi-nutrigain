@@ -405,9 +405,11 @@ class RecommendationInput(BaseModel):
     favorite_foods: list[str] = Field(default_factory=list)
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
+    available_ingredients: list[str] = Field(default_factory=list)
     energy_tolerance_kcal: float | None = Field(default=80.0, ge=0)
     use_personalization: bool = False
     random_seed: int | None = None
+    generation_seed: int | None = None
     exclude_food_ids: list[str] = Field(default_factory=list)
     exclude_meal_plan_id: int | None = None
     min_protein_ratio: float = Field(default=0.90, ge=0.0, le=1.0)
@@ -415,7 +417,7 @@ class RecommendationInput(BaseModel):
     macro_backtracking_attempts: int = Field(default=30, ge=0, le=200)
     save_user_data: bool = False
 
-    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", mode="before")
+    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", "available_ingredients", mode="before")
     @classmethod
     def normalize_food_list(cls, value: Any):
         if value is None or value == "":
@@ -459,10 +461,12 @@ class MealPlanRegenerateInput(BaseModel):
     favorite_foods: list[str] = Field(default_factory=list)
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
+    available_ingredients: list[str] = Field(default_factory=list)
     randomSeed: int | None = None
     random_seed: int | None = None
+    generation_seed: int | None = None
 
-    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", mode="before")
+    @field_validator("favorite_foods", "disliked_foods", "disliked_food_groups", "available_ingredients", mode="before")
     @classmethod
     def normalize_food_list(cls, value: Any):
         if value is None or value == "":

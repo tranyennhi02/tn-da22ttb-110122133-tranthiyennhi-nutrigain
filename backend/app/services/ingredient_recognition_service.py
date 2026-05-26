@@ -7,7 +7,6 @@ import re
 import unicodedata
 
 from fastapi import UploadFile
-from PIL import Image
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -252,7 +251,18 @@ def recognize_with_clip(image_bytes: bytes, content_type: str) -> dict:
             "CLIP dependencies unavailable"
         )
 
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    try:
+        from PIL import Image as _Image
+    except ImportError as exc:
+        logger.warning("[CLIP UNAVAILABLE PIL] %s", exc)
+        return _recognition_response(
+            [],
+            "low",
+            "Tính năng nhận diện AI chưa sẵn sàng trên môi trường này. Bạn có thể nhập thủ công.",
+            "Pillow unavailable"
+        )
+
+    image = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
     model, processor = get_clip_model()
     
     if model is None or processor is None:

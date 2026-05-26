@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import logging
+import os
 import random
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -11,6 +13,15 @@ import pandas as pd
 from fastapi import HTTPException, status
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
+
+import sys as _sys
+from pathlib import Path as _Path
+
+# nutrigain_recommender.py lives at the project root (3 levels above this file:
+#   backend/app/services/recommender_service.py  →  root = parents[3])
+_PROJECT_ROOT = str(_Path(__file__).resolve().parents[3])
+if _PROJECT_ROOT not in _sys.path:
+    _sys.path.insert(0, _PROJECT_ROOT)
 
 from nutrigain_recommender import (
     DEFAULT_MEAL_CALORIE_RATIOS,
@@ -30,8 +41,19 @@ from app.services.ml_food_eligibility_service import ml_food_eligibility_service
 
 logger = logging.getLogger(__name__)
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 DEFAULT_FOOD_PLACEHOLDER = "/images/placeholders/food-default.svg"
 ML_SCORE_WEIGHT = 0.2
+ENABLE_INGREDIENT_PREFERENCE = os.getenv("ENABLE_INGREDIENT_PREFERENCE", "true").lower() == "true"
+ENABLE_HARD_INGREDIENT_COVERAGE = os.getenv("ENABLE_HARD_INGREDIENT_COVERAGE", "true").lower() == "true"
+INGREDIENT_PREFERENCE_BONUS = _float_env("INGREDIENT_PREFERENCE_BONUS", 0.18)
+RECOMMENDER_DIVERSITY_JITTER = _float_env("RECOMMENDER_DIVERSITY_JITTER", 0.18)
 CATEGORY_PLACEHOLDERS = {
     "starch_grain": "/images/placeholders/starch-grain.svg",
     "starch_tuber": "/images/placeholders/starch-tuber.svg",
@@ -733,6 +755,137 @@ def _normalize_search_text(value: object) -> str:
     return HealthyWeightGainRecommender._strip_accents(value).lower()
 
 
+def normalize_text_vi(value: object) -> str:
+    return HealthyWeightGainRecommender._strip_accents(str(value or "").strip().lower()).replace("đ", "d")
+
+
+# ── Ingredient alias map for safe ingredient preference matching ──────────────
+# Maps normalized input terms → list of aliases to check against food haystack
+INGREDIENT_ALIASES: dict[str, list[str]] = {
+    "thit heo": ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon", "nac vai", "gio"],
+    "heo":      ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon", "nac vai", "gio"],
+    "lon":      ["thit heo", "heo", "thit lon", "lon", "pork", "suon"],
+    "pork":     ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon"],
+    "ca rot":   ["ca rot", "carrot"],
+    "carrot":   ["ca rot", "carrot"],
+    "trung":    ["trung", "egg", "trung ga", "trung vit"],
+    "egg":      ["trung", "egg", "trung ga", "trung vit"],
+    "trung ga": ["trung", "egg", "trung ga"],
+    "thit ga":  ["thit ga", "ga", "chicken", "uc ga", "ga nuong", "ga luoc"],
+    "ga":       ["thit ga", "ga", "chicken", "uc ga"],
+    "chicken":  ["thit ga", "ga", "chicken", "uc ga"],
+    "thit bo":  ["thit bo", "bo", "beef", "bo nac", "bo xao", "bo nuong"],
+    "bo":       ["thit bo", "bo", "beef", "bo nac"],
+    "beef":     ["thit bo", "bo", "beef", "bo nac"],
+    "dau hu":   ["dau hu", "dau phu", "tofu"],
+    "dau phu":  ["dau hu", "dau phu", "tofu"],
+    "tofu":     ["dau hu", "dau phu", "tofu"],
+    "rau cai":  ["rau cai", "cai xanh", "bok choy", "rau"],
+    "nam":      ["nam", "mushroom", "nam huong", "nam rom"],
+    "mushroom": ["nam", "mushroom", "nam huong"],
+    "ca chua":  ["ca chua", "tomato"],
+    "tomato":   ["ca chua", "tomato"],
+    "ca hoi":   ["ca hoi", "salmon"],
+    "salmon":   ["ca hoi", "salmon"],
+    "tom":      ["tom", "shrimp", "prawn"],
+    "shrimp":   ["tom", "shrimp", "prawn"],
+    "khoai lang":["khoai lang", "sweet potato", "khoai"],
+    "khoai tay":["khoai tay", "potato", "khoai"],
+    "bong cai": ["bong cai", "broccoli", "bong cai xanh"],
+    "broccoli": ["bong cai", "broccoli"],
+    "chuoi":    ["chuoi", "banana"],
+    "banana":   ["chuoi", "banana"],
+    "sua":      ["sua", "milk", "sua tuoi", "sua bo"],
+    "milk":     ["sua", "milk", "sua tuoi", "sua bo"],
+    "sua chua": ["sua chua", "yogurt", "yoghurt"],
+    "yogurt":   ["sua chua", "yogurt", "yoghurt"],
+}
+
+
+def _get_ingredient_aliases(normalized_key: str) -> list[str]:
+    """Return expanded alias list for an ingredient normalized key."""
+    return INGREDIENT_ALIASES.get(normalized_key, [normalized_key])
+
+
+def normalize_ingredient_list(values: object) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in values or []:
+        raw = str(item or "").strip()
+        key = normalize_text_vi(raw)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(raw)
+    return result
+
+
+def ingredient_match_list(food: object, available_ingredients: object) -> list[str]:
+    """Return list of available_ingredients that match this food (with alias expansion)."""
+    if not available_ingredients:
+        return []
+
+    def get_value(obj: object, key: str, default: object = "") -> object:
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    haystack_parts = [
+        get_value(food, "name", ""),
+        get_value(food, "original_name", ""),
+        get_value(food, "category", ""),
+        get_value(food, "clean_category", ""),
+        get_value(food, "food_group", ""),
+        get_value(food, "description", ""),
+        get_value(food, "search_keywords", ""),
+    ]
+
+    ingredients = get_value(food, "ingredients", []) or []
+    tags = get_value(food, "tags", []) or []
+
+    if isinstance(ingredients, str):
+        haystack_parts.append(ingredients)
+    else:
+        haystack_parts.append(" ".join(map(str, ingredients)))
+
+    if isinstance(tags, str):
+        haystack_parts.append(tags)
+    else:
+        haystack_parts.append(" ".join(map(str, tags)))
+
+    haystack = normalize_text_vi(" ".join(str(x) for x in haystack_parts if x))
+    padded_haystack = f" {haystack} "
+
+    matched: list[str] = []
+    for ing in available_ingredients or []:
+        norm_key = normalize_text_vi(ing)
+        if not norm_key:
+            continue
+        # Try direct match first
+        aliases = _get_ingredient_aliases(norm_key)
+        found = False
+        for alias in aliases:
+            alias_norm = normalize_text_vi(alias)
+            if not alias_norm:
+                continue
+            # Use word-boundary-aware matching for short tokens
+            if len(alias_norm) <= 3:
+                if f" {alias_norm} " in padded_haystack:
+                    found = True
+                    break
+            elif alias_norm in haystack:
+                found = True
+                break
+        if found:
+            matched.append(ing)
+    return matched
+
+
+def ingredient_match_count(food: object, available_ingredients: object) -> int:
+    """Return count of available_ingredients matching this food (alias-expanded)."""
+    return len(ingredient_match_list(food, available_ingredients))
+
+
 def _safe_text(value: object) -> str:
     try:
         if pd.isna(value):
@@ -1305,6 +1458,21 @@ def _canonical_food_category(category: object, name: object = "") -> str:
     if any(term in text for term in ("dessert", "cake", "cookie", "candy", "banh", "keo", "sweet")):
         return "dessert_sweets"
     return "other"
+
+
+def macro_group(category: object) -> str:
+    canonical = _canonical_food_category(category)
+    if canonical in {"protein_meat", "protein_seafood", "plant_protein", "egg"}:
+        return "protein"
+    if canonical in {"vegetable"}:
+        return "vegetable"
+    if canonical in {"starch_grain", "starch_tuber"}:
+        return "starch"
+    if canonical in {"dairy"}:
+        return "dairy"
+    if canonical in {"fruit"}:
+        return "fruit"
+    return "extra"
 
 
 def _serving_limits(category: object, name: object = "") -> tuple[float | None, float | None]:
@@ -4334,6 +4502,8 @@ class RecommenderService:
         diet_type = (getattr(saved_profile, "diet_type", None) if saved_profile else None) or getattr(payload, "diet_type", None) or getattr(payload, "diet_style", None)
         diet_style = diet_type or getattr(payload, "diet_style", None) or getattr(payload, "diet_type", None) or "balanced"
         budget_level = (getattr(saved_profile, "budget_level", None) if saved_profile else None) or payload.budget_level or "standard"
+        normalized_available_ingredients = normalize_ingredient_list(getattr(payload, "available_ingredients", []))
+        print("[REGENERATE AVAILABLE INGREDIENTS NORMALIZED]", normalized_available_ingredients, flush=True)
         items_per_meal_val = (
             (getattr(saved_profile, "items_per_meal", None) if saved_profile else None)
             or getattr(payload, "items_per_meal", None)
@@ -4386,7 +4556,7 @@ class RecommenderService:
             logger.error("Recommendation failed (missing profile fields): %s", detail)
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
 
-        random_seed = payload.random_seed or payload.randomSeed or int(datetime.now(timezone.utc).timestamp())
+        random_seed = payload.generation_seed or payload.random_seed or payload.randomSeed or int(datetime.now(timezone.utc).timestamp())
         request_payload = RecommendationInput(
             weight=float(weight),
             height=float(height),
@@ -4414,7 +4584,9 @@ class RecommenderService:
             favorite_foods=favorite_foods,
             disliked_foods=disliked_foods,
             disliked_food_groups=disliked_food_groups,
+            available_ingredients=normalized_available_ingredients,
             random_seed=random_seed,
+            generation_seed=random_seed,
             exclude_food_ids=[],
             exclude_meal_plan_id=previous_id,
             macro_backtracking_attempts=8,
@@ -4432,6 +4604,7 @@ class RecommenderService:
                 "height_cm": height,
                 "diet_type": diet_type,
                 "items_per_meal": items_per_meal_val,
+                "available_ingredients": normalized_available_ingredients,
                 "updated_at": str(saved_profile.updated_at) if saved_profile and saved_profile.updated_at else None,
             }
             return result
@@ -4451,6 +4624,7 @@ class RecommenderService:
             "height_cm": height,
             "diet_type": diet_type,
             "items_per_meal": items_per_meal_val,
+            "available_ingredients": normalized_available_ingredients,
             "updated_at": str(saved_profile.updated_at) if saved_profile and saved_profile.updated_at else None,
         }
         return result
@@ -4474,6 +4648,8 @@ class RecommenderService:
         saved_profile = getattr(user, "profile", None)
         self._hydrate_payload_from_saved_profile(payload, saved_profile)
         profile_goal, profile_surplus = self._profile_goal_and_surplus(payload)
+        available_ingredients = normalize_ingredient_list(getattr(payload, "available_ingredients", []))
+        print("[INGREDIENT PREFERENCE ENABLED]", ENABLE_INGREDIENT_PREFERENCE, flush=True)
 
         # ── Debug: user profile summary ───────────────────────────────────────
         _dbmi = calculateBMI(payload.weight, payload.height)
@@ -4539,6 +4715,7 @@ class RecommenderService:
             "weight_gain_speed": profile.weight_gain_speed,
             "diet_type": profile.diet_type,
             "items_per_meal": profile.items_per_meal,
+            "available_ingredients": available_ingredients,
         })
 
         calculated_targets = calculateNutritionTargets(
@@ -4591,6 +4768,7 @@ class RecommenderService:
             "items_per_meal": payload.items_per_meal,
             "gain_energy_mode": gain_energy_mode,
             "disliked_foods": disliked_foods,
+            "available_ingredients": available_ingredients,
             "user_id": getattr(user, "id", None),
         }
 
@@ -4815,20 +4993,71 @@ class RecommenderService:
         ranked = self._apply_budget_score_adjustments(ranked, payload.budget_level, strength=0.45)
         ranked = self._apply_natural_food_score_adjustments(ranked, strength=0.35)
 
+        if ENABLE_INGREDIENT_PREFERENCE and available_ingredients and not ranked.empty:
+            try:
+                ranked = ranked.copy()
+                # Phase 4: compute match count capped at 2, apply bonus
+                score_before_series = ranked["score"].astype(float).copy()
+                match_counts = ranked.apply(
+                    lambda row: min(ingredient_match_count(row, available_ingredients), 2),
+                    axis=1,
+                )
+                ranked["ingredient_match_count"] = match_counts.astype(int)
+                if match_counts.any():
+                    ranked["score"] = ranked["score"].astype(float) + (
+                        ranked["ingredient_match_count"].astype(float) * INGREDIENT_PREFERENCE_BONUS
+                    )
+                    ranked = ranked.sort_values("score", ascending=False)
+
+                # Phase 2: candidate summary debug log (top 10 only, not entire DB)
+                try:
+                    matched_mask = ranked["ingredient_match_count"] > 0
+                    matched_count = int(matched_mask.sum())
+                    top_matched = []
+                    for _, mrow in ranked[matched_mask].head(10).iterrows():
+                        fid = str(mrow.get("food_id", ""))
+                        fname = str(mrow.get("name", ""))
+                        sb = round(float(score_before_series.loc[mrow.name]) if mrow.name in score_before_series.index else 0.0, 3)
+                        sa = round(float(mrow.get("score", 0.0)), 3)
+                        matches = ingredient_match_list(mrow, available_ingredients)
+                        top_matched.append({"id": fid, "name": fname, "matches": matches, "score_before": sb, "score_after": sa})
+                    print("[INGREDIENT PREFERENCE CANDIDATE SUMMARY]", {
+                        "available_ingredients": list(available_ingredients),
+                        "candidate_count": len(ranked),
+                        "matched_candidate_count": matched_count,
+                        "top_matched_candidates": top_matched,
+                    }, flush=True)
+                except Exception as log_exc:
+                    print("[INGREDIENT PREFERENCE CANDIDATE SUMMARY FAILED]", repr(log_exc), flush=True)
+            except Exception as exc:
+                print("[INGREDIENT PREFERENCE FALLBACK]", repr(exc), flush=True)
+
         # Retry logic: try multiple seeded variants and keep the closest kcal plan.
         best_meal_plan = None
         best_delta = float("inf")
         best_totals: dict[str, float] | None = None
         max_attempts = max(1, min(int(payload.macro_backtracking_attempts or 8), 8))
-        seed_base = payload.random_seed or int(datetime.now(timezone.utc).timestamp())
-        
+        seed_base = payload.generation_seed or payload.random_seed or int(datetime.now(timezone.utc).timestamp())
+        print("[RECOMMENDER GENERATION SEED]", seed_base, flush=True)
+
         for attempt in range(max_attempts):
             attempt_ranked = ranked.copy()
-            if attempt > 0:
+            try:
                 rng = random.Random(seed_base + attempt)
-                attempt_ranked["_seed_jitter"] = [rng.uniform(-0.035, 0.035) for _ in range(len(attempt_ranked))]
-                attempt_ranked["score"] = attempt_ranked["score"].astype(float) + attempt_ranked["_seed_jitter"]
-                attempt_ranked = attempt_ranked.sort_values("score", ascending=False).drop(columns=["_seed_jitter"])
+                # Phase 6: wider top_pool for real diversity
+                top_pool_size = min(len(attempt_ranked), max(meal_slots * 5, 12))
+                if top_pool_size > 0:
+                    top_index = attempt_ranked.head(top_pool_size).index
+                    attempt_ranked.loc[top_index, "_seed_jitter"] = [
+                        rng.uniform(-RECOMMENDER_DIVERSITY_JITTER, RECOMMENDER_DIVERSITY_JITTER)
+                        for _ in range(top_pool_size)
+                    ]
+                    attempt_ranked["_seed_jitter"] = attempt_ranked["_seed_jitter"].fillna(0.0)
+                    attempt_ranked["score"] = attempt_ranked["score"].astype(float) + attempt_ranked["_seed_jitter"]
+                    attempt_ranked = attempt_ranked.sort_values("score", ascending=False).drop(columns=["_seed_jitter"])
+            except Exception as exc:
+                print("[RECOMMENDER DIVERSITY FALLBACK]", repr(exc), flush=True)
+                attempt_ranked = ranked.copy()
 
             meal_plan = self.pickBalancedMeal(attempt_ranked, meal_structure=meal_structure, target=target)
             
@@ -4860,19 +5089,18 @@ class RecommenderService:
                 
             if delta_pct <= 0.05 and protein_short <= 0 and protein_excess <= 0 and fat_short <= 0 and carb_excess <= 0:
                 break
-                
+
             # If failed, penalize selected items slightly to try different combinations
             selected_ids = []
-            for meal_type, meal_df in meal_plan.items():
-                selected_ids.extend(meal_df["food_id"].tolist())
-                
-            penalty = ranked["food_id"].isin(selected_ids)
-            ranked.loc[penalty, "score"] -= 0.15 + (attempt * 0.01)
+            for _mt_p, _mdf_p in meal_plan.items():
+                selected_ids.extend(_mdf_p["food_id"].tolist())
+            _penalty_mask = ranked["food_id"].isin(selected_ids)
+            ranked.loc[_penalty_mask, "score"] -= 0.15 + (attempt * 0.01)
             ranked = ranked.sort_values("score", ascending=False)
-            
+
         meal_plan = best_meal_plan
         if meal_plan is None:
-            detail = {
+            _fail_detail = {
                 "message": "Không tìm được món phù hợp để tạo thực đơn. Vui lòng kiểm tra dữ liệu foods hoặc nới lỏng điều kiện lọc.",
                 "user_id": getattr(user, "id", None),
                 "profile": {
@@ -4889,8 +5117,70 @@ class RecommenderService:
                 "category_counts": ranked["clean_category"].value_counts().to_dict(),
                 "top_items": ranked[["name", "clean_category", "score"]].head(10).to_dict(orient="records") if not ranked.empty else [],
             }
-            logger.error("Meal plan generation failed: %s", detail)
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+            logger.error("Meal plan generation failed: %s", _fail_detail)
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_fail_detail)
+
+        # Phase 5: Forced one daily match when ingredient preference active but no item matched
+        if ENABLE_INGREDIENT_PREFERENCE and available_ingredients and meal_plan is not None and not ranked.empty:
+            try:
+                _day_has_match = False
+                for _mt5, _mdf5 in meal_plan.items():
+                    if not isinstance(_mdf5, pd.DataFrame) or _mdf5.empty:
+                        continue
+                    for _, _r5 in _mdf5.iterrows():
+                        if ingredient_match_count(_r5, available_ingredients) > 0:
+                            _day_has_match = True
+                            break
+                    if _day_has_match:
+                        break
+                if not _day_has_match:
+                    _has_mcol = "ingredient_match_count" in ranked.columns
+                    _mpool = ranked[ranked["ingredient_match_count"] > 0] if _has_mcol else ranked[
+                        ranked.apply(lambda _rr: ingredient_match_count(_rr, available_ingredients), axis=1) > 0
+                    ]
+                    if not _mpool.empty:
+                        _bmr = _mpool.iloc[0]
+                        _bm_kcal = float(_bmr.get("calories_raw", _bmr.get("kcal_per_serving_clean", 0)) or 0)
+                        _replaced = False
+                        for _mt5, _mdf5 in meal_plan.items():
+                            if not isinstance(_mdf5, pd.DataFrame) or _mdf5.empty:
+                                continue
+                            _existing_ids = {str(_rx.get("food_id", "")) for _, _rx in _mdf5.iterrows()}
+                            if str(_bmr.get("food_id", "")) in _existing_ids:
+                                _replaced = True
+                                break
+                            for _idx5, _ritem in _mdf5.iterrows():
+                                _rkcal = float(_ritem.get("calories_raw", _ritem.get("kcal_per_serving_clean", 0)) or 0)
+                                if ingredient_match_count(_ritem, available_ingredients) == 0 and abs(_bm_kcal - _rkcal) <= 200:
+                                    _new_df5 = _mdf5.copy()
+                                    _ms5 = pd.DataFrame([_bmr], index=[_idx5])
+                                    _new_df5 = pd.concat([_new_df5.drop(index=_idx5), _ms5]).reset_index(drop=True)
+                                    meal_plan[_mt5] = _new_df5
+                                    print("[INGREDIENT PREFERENCE FORCED ONE DAILY MATCH]", {
+                                        "replaced_name": str(_ritem.get("name", "")),
+                                        "replacement_name": str(_bmr.get("name", "")),
+                                        "meal_type": _mt5,
+                                        "kcal_delta": round(abs(_bm_kcal - _rkcal), 1),
+                                        "matched_ingredients": ingredient_match_list(_bmr, available_ingredients),
+                                    }, flush=True)
+                                    _replaced = True
+                                    break
+                            if _replaced:
+                                break
+                        if not _replaced:
+                            print("[INGREDIENT PREFERENCE FORCE SKIPPED]", {
+                                "reason": "No item within calorie delta or item already present",
+                                "best_match_name": str(_bmr.get("name", "")),
+                            }, flush=True)
+                    else:
+                        print("[INGREDIENT PREFERENCE FORCE SKIPPED]", {
+                            "reason": "No matched candidates in ranked pool",
+                            "available_ingredients": list(available_ingredients),
+                        }, flush=True)
+            except Exception as _force_exc:
+                print("[INGREDIENT PREFERENCE FORCE FALLBACK]", repr(_force_exc), flush=True)
+
+
 
         # Build meal plan payload and calculate true totals from items
         meal_plan_payload: list[dict] = []
@@ -4936,6 +5226,28 @@ class RecommenderService:
                 "actual_kcal": round(meal_actual_kcal),
                 "items": meal_list
             })
+
+        if available_ingredients:
+            try:
+                selected_food_names = [
+                    str(item.get("name") or "")
+                    for meal in meal_plan_payload
+                    for item in meal.get("items", [])
+                    if item.get("name")
+                ]
+                matched_food_names = [
+                    str(item.get("name") or "")
+                    for meal in meal_plan_payload
+                    for item in meal.get("items", [])
+                    if item.get("name") and ingredient_match_count(item, available_ingredients) > 0
+                ]
+                print("[INGREDIENT PREFERENCE SELECTED SUMMARY]", {
+                    "available_ingredients": available_ingredients,
+                    "selected_food_names": selected_food_names,
+                    "matched_food_names": matched_food_names,
+                }, flush=True)
+            except Exception as exc:
+                print("[INGREDIENT PREFERENCE SUMMARY FAILED]", repr(exc), flush=True)
 
         target_kcal = float(nutrition_target["calorie_target"])
         min_kcal = target_kcal * 0.95 if target_kcal > 0 else 0.0
@@ -6177,6 +6489,245 @@ class RecommenderService:
 
         if target_protein > 0 and total_protein > target_protein * 1.10:
             scale_p = (target_protein * 1.05) / total_protein
+
+        if ENABLE_HARD_INGREDIENT_COVERAGE and available_ingredients:
+            requested_ingredients = list(available_ingredients)
+            baseline_food_ids = {
+                str(item.get("food_id"))
+                for meal in meal_plan_payload
+                for item in meal.get("items", [])
+                if item.get("food_id") is not None
+            }
+            coverage_added_foods: list[str] = []
+
+            def _current_covered_ingredients() -> set[str]:
+                covered: set[str] = set()
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        covered.update(ingredient_match_list(item, requested_ingredients))
+                return covered
+
+            def _select_coverage_target(candidate_item: dict, candidate_group: str):
+                best_choice: tuple[tuple[float, float, float, float], int, int | None] | None = None
+                for meal_index, meal in enumerate(meal_plan_payload):
+                    items = meal.get("items", [])
+                    meal_type = str(meal.get("meal_type") or "meal").lower()
+                    expected = _expected_slots_for_meal(meal_type)
+                    same_group_present = any(
+                        macro_group(existing.get("category") or existing.get("clean_category") or "") == candidate_group
+                        for existing in items
+                    )
+                    if len(items) < expected:
+                        append_score = (
+                            0.0 if same_group_present else 1.0,
+                            float(len(items)),
+                            float(expected - len(items)),
+                            -float(candidate_item.get("score") or 0.0),
+                        )
+                        choice = (append_score, meal_index, None)
+                        if best_choice is None or choice[0] < best_choice[0]:
+                            best_choice = choice
+
+                    for item_index, current_item in enumerate(items):
+                        if ingredient_match_count(current_item, requested_ingredients) > 0:
+                            continue
+                        current_group = macro_group(current_item.get("category") or current_item.get("clean_category") or "")
+                        if candidate_group == "protein" and current_group not in {"protein", "extra"}:
+                            continue
+                        if candidate_group == "starch" and current_group not in {"starch", "extra"}:
+                            continue
+                        if candidate_group == "vegetable" and current_group not in {"vegetable", "extra"}:
+                            continue
+                        if candidate_group == "dairy" and current_group not in {"dairy", "extra"}:
+                            continue
+                        if candidate_group == "fruit" and current_group not in {"fruit", "extra"}:
+                            continue
+                        if candidate_group == "extra" and current_group not in {"extra", "fruit", "dairy"}:
+                            continue
+                        if current_group != candidate_group and not _is_optional_item(current_item):
+                            continue
+
+                        meal_without_target = [existing for idx, existing in enumerate(items) if idx != item_index]
+                        if _row_has_meal_semantic_duplicate(candidate_item, meal_without_target):
+                            continue
+
+                        current_kcal = float(current_item.get("calories") or current_item.get("kcal") or 0.0)
+                        candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
+                        replace_score = (
+                            0.0 if current_group == candidate_group else 1.0,
+                            0.0 if _is_optional_item(current_item) else 1.0,
+                            abs(candidate_kcal - current_kcal),
+                            -float(current_item.get("score") or 0.0),
+                        )
+                        choice = (replace_score, meal_index, item_index)
+                        if best_choice is None or choice[0] < best_choice[0]:
+                            best_choice = choice
+
+                return best_choice
+
+            current_covered = _current_covered_ingredients()
+            for ingredient in requested_ingredients:
+                if ingredient in current_covered:
+                    continue
+
+                candidate_rows: list[tuple[tuple[float, float, float], dict, str]] = []
+                for _, row in ranked.iterrows():
+                    if ingredient_match_count(row, [ingredient]) <= 0:
+                        continue
+                    if not _row_passes_hard_constraints(row, [], baseline_food_ids):
+                        continue
+                    candidate_item = copy.deepcopy(self._to_food_item_payload(row))
+                    candidate_group = macro_group(candidate_item.get("category") or row.get("clean_category") or row.get("category") or "")
+                    candidate_priority = (
+                        -float(row.get("score") or 0.0),
+                        0.0 if candidate_group in {"starch", "protein", "dairy"} else 1.0,
+                        float(candidate_item.get("calories") or 0.0),
+                    )
+                    candidate_rows.append((candidate_priority, candidate_item, candidate_group))
+
+                candidate_rows.sort(key=lambda item: item[0])
+                if not candidate_rows:
+                    print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                        "ingredient": ingredient,
+                        "reason": "no_candidate",
+                    }, flush=True)
+                    continue
+
+                accepted = False
+                for _, candidate_item, candidate_group in candidate_rows:
+                    before_snapshot = copy.deepcopy(meal_plan_payload)
+                    before_totals = (total_kcal, total_protein, total_fat, total_carbs)
+                    target_choice = _select_coverage_target(candidate_item, candidate_group)
+                    if target_choice is None:
+                        print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "reason": "no_safe_slot",
+                        }, flush=True)
+                        continue
+
+                    _, meal_index, target_index = target_choice
+                    target_meal = meal_plan_payload[meal_index]
+                    if target_index is None:
+                        target_meal.setdefault("items", []).append(candidate_item)
+                        action = "append"
+                        target_name = None
+                    else:
+                        target_name = str(target_meal.get("items", [])[target_index].get("name") or "")
+                        target_meal["items"][target_index] = candidate_item
+                        action = "replace"
+                        preserved_item_count_note = True
+
+                    meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                    catchup_applied = False
+
+                    if target_protein > 0 and total_protein < target_protein * 0.90:
+                        protein_replacements = _replace_low_protein_items(
+                            target_add_protein=(target_protein * 0.90 - total_protein),
+                            max_changes=2,
+                        )
+                        if protein_replacements:
+                            catchup_applied = True
+                            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+
+                    if target_kcal > 0 and total_kcal < min_kcal:
+                        energy_replacements = _replace_or_fill_high_energy_items(
+                            target_add_kcal=max(min_kcal - total_kcal, 0.0),
+                            max_changes=2,
+                            prefer_fat=candidate_group in {"dairy", "extra"},
+                        )
+                        if energy_replacements:
+                            catchup_applied = True
+                            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        if total_kcal < min_kcal and total_kcal > 0:
+                            final_scale = target_kcal / total_kcal
+                            if 1.0 <= final_scale <= 1.25:
+                                _scale_preferred_energy_items(final_scale)
+                                catchup_applied = True
+                                meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                            elif 0.75 <= final_scale <= 1.35:
+                                _scale_payload_items(final_scale)
+                                catchup_applied = True
+                                meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+
+                    if target_kcal > 0 and total_kcal < min_kcal:
+                        meal_plan_payload[:] = before_snapshot
+                        meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "reason": "would_break_kcal_balance",
+                        }, flush=True)
+                        continue
+
+                    if target_protein > 0 and total_protein < target_protein * 0.85:
+                        meal_plan_payload[:] = before_snapshot
+                        meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "reason": "would_break_protein_balance",
+                        }, flush=True)
+                        continue
+
+                    if target_kcal > 0 and total_kcal < before_totals[0] * 0.95 and not catchup_applied:
+                        meal_plan_payload[:] = before_snapshot
+                        meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "reason": "would_make_kcal_worse",
+                        }, flush=True)
+                        continue
+
+                    coverage_added_foods.append(str(candidate_item.get("name") or candidate_item.get("food_id") or "item"))
+                    current_covered = _current_covered_ingredients()
+                    accepted = True
+                    if catchup_applied:
+                        print("[HARD INGREDIENT COVERAGE_ACCEPTED_AFTER_CATCHUP]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "action": action,
+                            "target_meal": str(target_meal.get("meal_type") or "meal"),
+                            "target_item": target_name,
+                        }, flush=True)
+                    else:
+                        print("[HARD INGREDIENT COVERAGE ACCEPTED]", {
+                            "ingredient": ingredient,
+                            "candidate": candidate_item.get("name"),
+                            "action": action,
+                            "target_meal": str(target_meal.get("meal_type") or "meal"),
+                            "target_item": target_name,
+                        }, flush=True)
+                    break
+
+                if not accepted:
+                    print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                        "ingredient": ingredient,
+                        "reason": "no_safe_candidate_after_balance",
+                    }, flush=True)
+
+            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            final_covered = _current_covered_ingredients()
+            final_uncovered = [ingredient for ingredient in requested_ingredients if ingredient not in final_covered]
+            added_balance_foods = [
+                str(item.get("name") or item.get("food_id") or "item")
+                for meal in meal_plan_payload
+                for item in meal.get("items", [])
+                if str(item.get("food_id")) not in baseline_food_ids
+                and macro_group(item.get("category") or item.get("clean_category") or "") in {"starch", "protein", "dairy"}
+            ]
+            print("[HARD INGREDIENT COVERAGE FINAL]", {
+                "requested_ingredients": requested_ingredients,
+                "covered_ingredients": sorted(final_covered),
+                "uncovered_ingredients": final_uncovered,
+                "nutrition_after": {
+                    "total_kcal": round(total_kcal, 2),
+                    "target_kcal": round(target_kcal, 2),
+                    "protein": round(total_protein, 2),
+                },
+                "added_balance_foods": added_balance_foods,
+            }, flush=True)
             _scale_protein_items(scale_p)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
 

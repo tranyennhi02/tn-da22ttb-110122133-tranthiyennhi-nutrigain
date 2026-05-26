@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+import traceback
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, require_admin
@@ -71,6 +75,7 @@ from app.views.schemas import (
 
 
 router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger(__name__)
 router.include_router(ai_chat_router)
 auth_service = AuthService()
 food_service = FoodService()
@@ -80,6 +85,65 @@ weight_log_service = WeightLogService()
 nutrition_statistics_service = NutritionStatisticsService()
 gamification_service = GamificationService()
 admin_service = AdminService()
+
+
+def normalize_ingredient_names(items):
+    result = []
+    seen = set()
+
+    for item in items or []:
+        name = str(item or "").strip()
+        if not name:
+            continue
+
+        key = name.lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(name)
+
+    return result
+
+
+def strip_accents(value):
+    import unicodedata
+
+    text = "".join(
+        char for char in unicodedata.normalize("NFD", value)
+        if unicodedata.category(char) != "Mn"
+    )
+    return text.replace("đ", "d").replace("Đ", "D")
+
+
+def fallback_ingredients_from_filename(filename):
+    text = strip_accents(str(filename or "").lower())
+
+    alias_map = {
+        "trung": "Trứng",
+        "egg": "Trứng",
+        "ca chua": "Cà chua",
+        "tomato": "Cà chua",
+        "thit ga": "Thịt gà",
+        "chicken": "Thịt gà",
+        "thit bo": "Thịt bò",
+        "beef": "Thịt bò",
+        "thit heo": "Thịt heo",
+        "pork": "Thịt heo",
+        "dau hu": "Đậu hũ",
+        "tofu": "Đậu hũ",
+        "rau": "Rau cải",
+        "nam": "Nấm",
+        "carrot": "Cà rốt",
+        "ca rot": "Cà rốt",
+    }
+
+    found = []
+    for key, value in alias_map.items():
+        if key in text:
+            found.append(value)
+
+    return normalize_ingredient_names(found)
 
 
 @router.get("/health", tags=["system"])
@@ -316,6 +380,7 @@ def regenerate_meal_plan(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecommendationOutput:
+    print("[REGENERATE AVAILABLE INGREDIENTS RAW]", payload.available_ingredients, flush=True)
     return controller.regenerate_meal_plan(payload, db, current_user)
 
 
@@ -334,50 +399,90 @@ async def recognize_ingredient_image(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    content_type = (file.content_type or "").lower()
-    print("[INGREDIENT RECOGNITION RECEIVED]", {
-        "filename": file.filename,
-        "content_type": content_type,
-    })
-    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
-        response = {
-            "success": False,
-            "ingredients": [],
-            "raw_labels": [],
-            "confidence": 0,
-            "method": "clip",
-            "message": "Vui l\u00f2ng ch\u1ecdn \u1ea3nh JPG, PNG ho\u1eb7c WEBP.",
-        }
-        print("[INGREDIENT RECOGNITION RESULT]", response)
-        return response
-
-    image_bytes = await file.read()
-    if not image_bytes:
-        response = {
-            "success": False,
-            "ingredients": [],
-            "raw_labels": [],
-            "confidence": 0,
-            "method": "clip",
-            "message": "Kh\u00f4ng nh\u1eadn di\u1ec7n \u0111\u01b0\u1ee3c nguy\u00ean li\u1ec7u r\u00f5 r\u00e0ng. B\u1ea1n c\u00f3 th\u1ec3 nh\u1eadp th\u1ee7 c\u00f4ng.",
-        }
-        print("[INGREDIENT RECOGNITION RESULT]", response)
-        return response
-
     try:
-        return recognize_ingredients_with_clip(image_bytes, filename=file.filename)
-    except Exception as exc:
-        print("[INGREDIENT RECOGNITION ERROR]", str(exc))
-        response = {
-            "success": False,
-            "ingredients": [],
-            "raw_labels": [],
-            "confidence": 0,
-            "method": "clip",
-            "message": "Kh\u00f4ng nh\u1eadn di\u1ec7n \u0111\u01b0\u1ee3c nguy\u00ean li\u1ec7u r\u00f5 r\u00e0ng. B\u1ea1n c\u00f3 th\u1ec3 nh\u1eadp th\u1ee7 c\u00f4ng.",
+        print("[INGREDIENT ROUTE HIT] /api/v1/ingredients/recognize-image", flush=True)
+        print("[INGREDIENT ROUTE FILE]", {
+            "filename": file.filename,
+            "content_type": file.content_type,
+        }, flush=True)
+
+        content_type = (file.content_type or "").lower()
+        if not content_type.startswith("image/"):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "ingredients": [],
+                    "message": "Vui lòng tải lên file ảnh hợp lệ (JPG, PNG, WEBP).",
+                },
+            )
+
+        image_bytes = await file.read()
+        if not image_bytes:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "ingredients": [],
+                    "message": "File ảnh rỗng.",
+                },
+            )
+
+        ingredients = []
+
+        try:
+            raw = recognize_ingredients_with_clip(
+                image_bytes=image_bytes,
+                filename=file.filename,
+            )
+
+            if isinstance(raw, dict):
+                ingredients = raw.get("ingredients") or raw.get("recognized_ingredients") or []
+            elif isinstance(raw, list):
+                ingredients = raw
+            else:
+                ingredients = []
+
+        except Exception as service_exc:
+            print("[INGREDIENT SERVICE FAILED]", type(service_exc).__name__, repr(service_exc), flush=True)
+            traceback.print_exc()
+
+            ingredients = fallback_ingredients_from_filename(file.filename or "")
+
+            if not ingredients:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "success": False,
+                        "ingredients": [],
+                        "message": f"Không thể chạy AI nhận diện ảnh: {type(service_exc).__name__}: {str(service_exc)}",
+                    },
+                )
+
+        ingredients = normalize_ingredient_names(ingredients)
+
+        result = {
+            "success": bool(ingredients),
+            "ingredients": ingredients,
+            "message": "Đã nhận diện nguyên liệu." if ingredients else "Không nhận diện được nguyên liệu trong ảnh.",
         }
-        print("[INGREDIENT RECOGNITION RESULT]", response)
-        return response
+
+        print("[INGREDIENT RECOGNIZE RESULT]", result, flush=True)
+        return result
+
+    except Exception as exc:
+        print("[INGREDIENT RECOGNIZE ERROR TYPE]", type(exc).__name__, flush=True)
+        print("[INGREDIENT RECOGNIZE ERROR REPR]", repr(exc), flush=True)
+        print("[INGREDIENT RECOGNIZE TRACEBACK]", flush=True)
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "ingredients": [],
+                "message": f"Lỗi nhận diện ảnh: {type(exc).__name__}: {str(exc)}",
+            },
+        )
 
 
 
@@ -394,7 +499,8 @@ def toggle_meal_consumption(
     import logging
     logger = logging.getLogger(__name__)
 
-    print("[MEAL CONSUMPTION TOGGLE PAYLOAD]", {
+    print("[MEAL CONSUMPTION TOGGLE REQUEST]", {
+        "user_id": current_user.id,
         "meal_plan_id": payload.meal_plan_id,
         "meal_type": payload.meal_type,
         "meal_plan_item_id": payload.meal_plan_item_id,
@@ -402,23 +508,47 @@ def toggle_meal_consumption(
         "is_eaten": payload.is_eaten
     })
 
+    if payload.meal_plan_id is None:
+        raise HTTPException(status_code=400, detail="meal_plan_id is required")
+
+    meal_plan = db.get(MealPlan, int(payload.meal_plan_id))
+    if meal_plan is None or meal_plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Meal plan not found")
+
+    meal_type = str(payload.meal_type or "").strip().lower()
+    original_food_id_str = str(payload.food_id) if payload.food_id is not None else None
+    food_id_str = original_food_id_str
+
     # Try to resolve meal_plan_item_id if not provided
-    resolved_via_db = False
-    if payload.meal_plan_item_id is None and payload.meal_plan_id is not None and payload.meal_type is not None and payload.food_id is not None:
+    if payload.meal_plan_item_id is None and meal_type and food_id_str is not None:
         try:
-            food_id_str = str(payload.food_id)
             resolved_item = db.execute(
                 select(MealPlanItem)
                 .join(Meal, MealPlanItem.meal_id == Meal.id)
                 .where(Meal.meal_plan_id == int(payload.meal_plan_id))
-                .where(func.lower(Meal.meal_type) == func.lower(payload.meal_type))
+                .where(func.lower(Meal.meal_type) == meal_type)
                 .where(MealPlanItem.food_id == food_id_str)
             ).scalars().first()
+
+            if resolved_item is None:
+                try:
+                    resolved_item = db.execute(
+                        select(MealPlanItem)
+                        .join(Meal, MealPlanItem.meal_id == Meal.id)
+                        .where(Meal.meal_plan_id == int(payload.meal_plan_id))
+                        .where(func.lower(Meal.meal_type) == meal_type)
+                        .where(MealPlanItem.id == int(food_id_str))
+                    ).scalars().first()
+                except ValueError:
+                    resolved_item = None
             
             if resolved_item:
                 payload.meal_plan_item_id = resolved_item.id
-                resolved_via_db = True
-                print("[MEAL CONSUMPTION TOGGLE MATCH] Resolved meal_plan_item_id:", resolved_item.id)
+                food_id_str = str(resolved_item.food_id)
+                print("[MEAL CONSUMPTION TOGGLE MATCH]", {
+                    "meal_plan_item_id": resolved_item.id,
+                    "food_id": resolved_item.food_id,
+                })
         except Exception as e:
             logger.exception("Failed to resolve meal_plan_item_id from db: %s", e)
 
@@ -432,28 +562,43 @@ def toggle_meal_consumption(
                 eaten=payload.is_eaten,
                 serving_grams=None,
             )
-            print("[MEAL CONSUMPTION TOGGLE SAVED] check_in_meal_plan_item done for:", payload.meal_plan_item_id)
+            print("[MEAL CONSUMPTION TOGGLE SAVED]", {
+                "saved": True,
+                "record_id": payload.meal_plan_item_id,
+            })
         except Exception as e:
-            logger.warning("[MEAL CONSUMPTION TOGGLE] Exception in check_in_meal_plan_item for meal_plan_item_id=%s: %s", payload.meal_plan_item_id, str(e))
+            logger.exception("[MEAL CONSUMPTION TOGGLE] Exception in check_in_meal_plan_item for meal_plan_item_id=%s: %s", payload.meal_plan_item_id, str(e))
+            raise HTTPException(status_code=400, detail="Cannot update meal plan item consumption")
+    elif meal_type and food_id_str is not None:
+        raise HTTPException(status_code=404, detail="Meal plan item not found for meal_type and food_id")
 
     # 2. Update MealConsumptionLog for Stats Page
-    today = date.today()
+    today = datetime.utcnow().date()
+    log_food_ids = [value for value in {food_id_str, original_food_id_str} if value is not None]
     log = db.query(MealConsumptionLog).filter(
         MealConsumptionLog.user_id == current_user.id,
         MealConsumptionLog.meal_plan_id == payload.meal_plan_id,
-        MealConsumptionLog.food_id == (str(payload.food_id) if payload.food_id is not None else None),
-        MealConsumptionLog.meal_type == payload.meal_type,
+        MealConsumptionLog.food_id.in_(log_food_ids),
+        MealConsumptionLog.meal_type == meal_type,
         func.date(MealConsumptionLog.consumed_at) == today
-    ).first()
+    ).first() if log_food_ids else None
 
     if not payload.is_eaten:
-        if log:
-            db.delete(log)
+        logs_to_delete = db.query(MealConsumptionLog).filter(
+            MealConsumptionLog.user_id == current_user.id,
+            MealConsumptionLog.meal_plan_id == payload.meal_plan_id,
+            MealConsumptionLog.food_id.in_(log_food_ids),
+            MealConsumptionLog.meal_type == meal_type,
+            func.date(MealConsumptionLog.consumed_at) == today
+        ).all() if log_food_ids else []
+        for existing_log in logs_to_delete:
+            db.delete(existing_log)
+        if logs_to_delete:
             db.commit()
         print("[MEAL CONSUMPTION TOGGLE SAVED] Deleted MealConsumptionLog", {
             "meal_plan_id": payload.meal_plan_id,
-            "meal_type": payload.meal_type,
-            "food_id": payload.food_id,
+            "meal_type": meal_type,
+            "food_id": food_id_str,
             "is_eaten": False
         })
         print("[MEAL CONSUMPTION TOGGLE RESULT] success: True, is_eaten: False")
@@ -461,8 +606,8 @@ def toggle_meal_consumption(
             "success": True,
             "is_eaten": False,
             "meal_plan_id": payload.meal_plan_id,
-            "meal_type": payload.meal_type,
-            "food_id": payload.food_id,
+            "meal_type": meal_type,
+            "food_id": food_id_str,
             "meal_plan_item_id": payload.meal_plan_item_id
         }
     else:
@@ -478,8 +623,7 @@ def toggle_meal_consumption(
                     protein = item.protein or 0.0
             
             # Lookup from Food database as fallback
-            if (kcal == 0.0 and protein == 0.0) and payload.food_id is not None:
-                food_id_str = str(payload.food_id)
+            if (kcal == 0.0 and protein == 0.0) and food_id_str is not None:
                 food = db.query(Food).filter(Food.food_id == food_id_str).first()
                 if food:
                     kcal = (
@@ -497,8 +641,8 @@ def toggle_meal_consumption(
             log = MealConsumptionLog(
                 user_id=current_user.id,
                 meal_plan_id=payload.meal_plan_id,
-                food_id=(str(payload.food_id) if payload.food_id is not None else None),
-                meal_type=payload.meal_type,
+                food_id=food_id_str,
+                meal_type=meal_type,
                 kcal=kcal,
                 protein=protein,
                 status="eaten"
@@ -506,13 +650,16 @@ def toggle_meal_consumption(
             db.add(log)
             db.commit()
         else:
+            log.food_id = food_id_str
             log.status = "eaten"
             db.commit()
 
         print("[MEAL CONSUMPTION TOGGLE SAVED] Created/Updated MealConsumptionLog", {
+            "saved": True,
+            "record_id": log.id if log else None,
             "meal_plan_id": payload.meal_plan_id,
-            "meal_type": payload.meal_type,
-            "food_id": payload.food_id,
+            "meal_type": meal_type,
+            "food_id": food_id_str,
             "is_eaten": True
         })
         print("[MEAL CONSUMPTION TOGGLE RESULT] success: True, is_eaten: True")
@@ -520,8 +667,8 @@ def toggle_meal_consumption(
             "success": True,
             "is_eaten": True,
             "meal_plan_id": payload.meal_plan_id,
-            "meal_type": payload.meal_type,
-            "food_id": payload.food_id,
+            "meal_type": meal_type,
+            "food_id": food_id_str,
             "meal_plan_item_id": payload.meal_plan_item_id
         }
 
@@ -670,6 +817,31 @@ def get_nutrition_statistics_alias(
     current_user: User = Depends(get_current_user),
 ) -> NutritionStatisticsResponse:
     return get_nutrition_statistics(range=range, db=db, current_user=current_user)
+
+
+@router.get("/nutrition/eating-history", tags=["nutrition-statistics"])
+def get_eating_history(
+    mode: str = Query("day", pattern="^(day|month|year)$"),
+    date_str: str | None = Query(None, alias="date"),
+    month: str | None = Query(None),
+    year: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return nutrition_statistics_service.get_eating_history(
+            db,
+            current_user,
+            mode=mode,
+            date_value=date_str,
+            month_value=month,
+            year_value=year,
+        )
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).exception("[EATING HISTORY ERROR]")
+        raise HTTPException(status_code=500, detail="Cannot load eating history") from exc
 
 
 

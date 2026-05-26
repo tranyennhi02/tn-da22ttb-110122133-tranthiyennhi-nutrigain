@@ -2,17 +2,64 @@ import { parseFoodList } from "../utils/foodList.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-function authHeaders() {
-  const raw = localStorage.getItem("nutrigain_auth");
-  if (!raw) {
-    return {};
+export function getAuthToken() {
+  const possibleKeys = [
+    "nutrigain_auth",
+    "auth_token",
+    "access_token",
+    "token",
+    "authToken",
+    "nutrigain_token",
+  ];
+
+  for (const key of possibleKeys) {
+    const value = localStorage.getItem(key);
+    if (!value) continue;
+
+    if (value.trim().startsWith("{")) {
+      try {
+        const parsed = JSON.parse(value);
+        const token =
+          parsed?.accessToken ||
+          parsed?.access_token ||
+          parsed?.authToken ||
+          parsed?.auth_token ||
+          parsed?.token ||
+          "";
+        if (token) return token;
+      } catch {}
+      continue;
+    }
+
+    return value;
   }
+
   try {
-    const session = JSON.parse(raw);
-    return session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {};
-  } catch {
-    return {};
-  }
+    const authRaw = localStorage.getItem("auth");
+    if (authRaw) {
+      const parsed = JSON.parse(authRaw);
+      return parsed?.accessToken || parsed?.access_token || parsed?.authToken || parsed?.auth_token || parsed?.token || "";
+    }
+  } catch {}
+
+  try {
+    const userRaw = localStorage.getItem("user");
+    if (userRaw) {
+      const parsed = JSON.parse(userRaw);
+      return parsed?.accessToken || parsed?.access_token || parsed?.authToken || parsed?.auth_token || parsed?.token || "";
+    }
+  } catch {}
+
+  return "";
+}
+
+export function getAuthHeaders() {
+  const token = getAuthToken();
+  return token ? { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` } : {};
+}
+
+function authHeaders() {
+  return getAuthHeaders();
 }
 
 async function parseResponse(response, fallbackMessage) {
@@ -105,6 +152,20 @@ export async function fetchTodayMealPlan() {
     headers: authHeaders(),
   });
   return parseResponse(response, "Cannot load today's meal plan");
+}
+
+export async function fetchEatingHistory(params = {}) {
+  const query = new URLSearchParams();
+
+  if (params.mode) query.set("mode", params.mode);
+  if (params.date) query.set("date", params.date);
+  if (params.month) query.set("month", params.month);
+  if (params.year) query.set("year", params.year);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/nutrition/eating-history?${query.toString()}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse(response, "Cannot load eating history");
 }
 
 export async function postRegenerateMealPlan(payload) {
@@ -251,12 +312,13 @@ export async function getGamificationSummary() {
 
 export async function completeGamificationChallenge(challengeId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/gamification/challenges/${challengeId}/complete`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/gamification/challenges/complete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(),
       },
+      body: JSON.stringify({ challenge_key: challengeId }),
     });
     if (!response.ok) {
       throw new Error("Gamification API not available");
