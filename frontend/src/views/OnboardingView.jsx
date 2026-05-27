@@ -17,6 +17,40 @@ import { foodListToInput, parseFoodList } from "../utils/profileFormUtils.js";
 // ─── helpers ────────────────────────────────────────────────────────────────
 function safeNum(v) { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; }
 
+function isValidNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatKg(value) {
+  if (!Number.isFinite(value)) return "";
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function buildWeightGoalPreview(data) {
+  const currentWeight = Number(data.weight ?? data.weight_kg);
+  const targetWeight = Number(data.target_weight ?? data.target_weight_kg);
+  const durationValue = Number(data.target_duration_value ?? data.target_duration_months);
+  const durationUnit = data.target_duration_unit || "months";
+  const hasWeights = isValidNumber(currentWeight) && isValidNumber(targetWeight);
+  const targetDiff = hasWeights ? targetWeight - currentWeight : null;
+  const hasDuration = isValidNumber(durationValue) && durationValue > 0;
+  const durationMonths = hasDuration ? (durationUnit === "weeks" ? durationValue / WEEKS_PER_MONTH : durationValue) : null;
+  const monthlyGain = targetDiff != null && targetDiff > 0 && hasDuration && durationMonths > 0 ? targetDiff / durationMonths : null;
+
+  return {
+    currentWeight,
+    targetWeight,
+    targetDiff,
+    durationValue: hasDuration ? durationValue : null,
+    durationUnit,
+    durationMonths,
+    monthlyGain,
+    hasWeights,
+    hasDuration,
+  };
+}
+
 const SAFE_GAIN_MIN_KG_PER_MONTH = 0.5;
 const SAFE_GAIN_MAX_KG_PER_MONTH = 1;
 const WEEKS_PER_MONTH = 4;
@@ -357,9 +391,21 @@ function StepGoal({ data, update, errors, validation }) {
     durationValue: data.target_duration_value || data.target_duration_months,
     durationUnit: data.target_duration_unit,
   });
-  const durationLabel = weightGoalValidation.durationValue != null ? `${weightGoalValidation.durationValue} ${weightGoalValidation.durationUnit === "weeks" ? "tuần" : "tháng"}` : "...";
-  const rateLabel = weightGoalValidation.requiredGainPerMonth != null ? formatKgRate(weightGoalValidation.requiredGainPerMonth) : "...";
+  const goalPreview = buildWeightGoalPreview(data);
+  const durationLabel = goalPreview.durationValue != null ? `${formatKg(goalPreview.durationValue)} ${goalPreview.durationUnit === "weeks" ? "tuần" : "tháng"}` : "";
+  const targetDiffLabel = goalPreview.targetDiff != null ? formatKg(goalPreview.targetDiff) : "";
+  const monthlyGainLabel = goalPreview.monthlyGain != null ? formatKg(goalPreview.monthlyGain) : "";
   const isBlocked = !weightGoalValidation.ok;
+  const hasValidGoal = goalPreview.hasWeights && isValidNumber(goalPreview.currentWeight) && isValidNumber(goalPreview.targetWeight) && goalPreview.targetDiff > 0;
+  const targetIsInvalid = goalPreview.hasWeights && isValidNumber(goalPreview.currentWeight) && isValidNumber(goalPreview.targetWeight) && goalPreview.targetWeight <= goalPreview.currentWeight;
+  const hasFullTimeline = hasValidGoal && goalPreview.hasDuration && isValidNumber(goalPreview.monthlyGain);
+  const speedNote = hasFullTimeline
+    ? (goalPreview.monthlyGain < 0.5
+        ? "Tốc độ này khá chậm. Bạn có thể giữ nếu muốn tăng cân từ từ và thoải mái."
+        : goalPreview.monthlyGain <= 1
+          ? "Tốc độ này nằm trong mức tăng cân lành mạnh thường được khuyến nghị: 0,5–1kg/tháng."
+          : "Tốc độ này khá nhanh. Bạn nên theo dõi cơ thể và điều chỉnh nếu thấy khó duy trì.")
+    : "Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn.";
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -380,8 +426,28 @@ function StepGoal({ data, update, errors, validation }) {
         {errors.target_duration_unit ? <p className="mt-1 text-xs font-semibold text-[#EF4444]">{errors.target_duration_unit}</p> : null}
       </div>
       <div className={`rounded-2xl border p-4 text-sm font-semibold ${isBlocked ? "border-rose-200 bg-rose-50/80 text-rose-800" : "border-[#D1FAE5] bg-[#ECFDF5] text-[#065F46]"}`}>
-        <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {weightGoalValidation.weightToGain != null ? formatKgRate(weightGoalValidation.weightToGain) : "..."}kg trong {durationLabel}, tương đương khoảng {rateLabel}kg/tháng.</p>
-        <p className="mt-2">{weightGoalValidation.ok ? weightGoalValidation.message : weightGoalValidation.error}</p>
+        {targetIsInvalid ? (
+          <>
+            <p className="text-rose-700">Mục tiêu cân nặng cần lớn hơn cân nặng hiện tại để NutriGain ước tính lộ trình tăng cân.</p>
+            <p className="mt-2 text-rose-700">Vui lòng chọn cân nặng mục tiêu cao hơn cân nặng hiện tại.</p>
+          </>
+        ) : hasFullTimeline ? (
+          <>
+            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg/tháng.</p>
+            <p className="mt-2">{speedNote}</p>
+          </>
+        ) : hasValidGoal ? (
+          <>
+            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {targetDiffLabel}kg so với cân nặng hiện tại.</p>
+            <p className="mt-2">Hãy bổ sung thời gian mục tiêu để NutriGain ước tính tốc độ tăng cân mỗi tháng.</p>
+            <p className="mt-2">{speedNote}</p>
+          </>
+        ) : (
+          <>
+            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Hãy nhập cân nặng hiện tại và cân nặng mục tiêu để NutriGain ước tính lộ trình tăng cân.</p>
+            <p className="mt-2">Khi có đủ dữ liệu, NutriGain sẽ tính giúp bạn tốc độ tăng cân mỗi tháng.</p>
+          </>
+        )}
         <p className={`mt-2 text-xs font-medium ${isBlocked ? "text-rose-700" : "text-[#047857]"}`}>NutriGain chỉ hỗ trợ ước tính tham khảo, không thay thế tư vấn từ chuyên gia dinh dưỡng.</p>
       </div>
     </div>

@@ -17,7 +17,7 @@
 - [Luồng hoạt động chính](#luồng-hoạt-động-chính)
 - [Thuật toán gợi ý](#thuật-toán-gợi-ý)
 - [Cơ sở dữ liệu](#cơ-sở-dữ-liệu)
-- [Cài đặt và chạy dự án](#cài-đặt-và-chạy-dự-án)
+- [Cách chạy dự án](#cách-chạy-dự-án)
 - [CLI và xử lý dữ liệu](#cli-và-xử-lý-dữ-liệu)
 - [Cấu trúc thư mục](#cấu-trúc-thư-mục)
 - [API chính](#api-chính)
@@ -212,7 +212,7 @@ Các bảng chính trong hệ thống:
 
 ---
 
-## Cài đặt và chạy dự án
+## Cách chạy dự án
 
 ### Yêu cầu
 
@@ -221,7 +221,9 @@ Các bảng chính trong hệ thống:
 - Python 3.11+
 - MySQL hoặc MySQL container
 
-### Chạy bằng Docker
+### Cách A: Docker deploy/dev
+
+Docker vẫn là flow deploy/dev chính của dự án. Không xóa hoặc đổi `Dockerfile`, `docker-compose.yml`.
 
 Tại thư mục gốc dự án:
 
@@ -229,11 +231,71 @@ Tại thư mục gốc dự án:
 docker compose up --build
 ```
 
+Hoặc dùng script PowerShell:
+
+```powershell
+.\scripts\dev-docker.ps1
+```
+
 Nếu muốn chạy nền:
 
 ```bash
 docker compose up -d --build
 ```
+
+Docker mode frontend proxy dùng `http://backend:8000`, còn DB trong container dùng `db:3306`.
+
+### Cách B: Local dev không Docker
+
+Local dev dùng backend chạy bằng `uvicorn`, frontend chạy bằng `npm run dev`.
+
+Chuẩn bị env mẫu:
+
+```powershell
+Copy-Item .env.local.example .env
+```
+
+Trong `.env`, cấu hình database local:
+
+```env
+DATABASE_URL=mysql+pymysql://nutrigain:<password>@127.0.0.1:3306/food_recommender
+VITE_API_TARGET=http://127.0.0.1:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Nếu bạn dùng MySQL Docker expose ra host thì đổi `DATABASE_URL` sang `127.0.0.1:3307`. Nếu dùng MySQL local thật thì giữ `127.0.0.1:3306`.
+
+Quy tắc môi trường:
+
+- Frontend Docker không dùng `127.0.0.1:8000` để gọi backend.
+- Frontend local dùng `127.0.0.1:8000`.
+
+Chạy local:
+
+```powershell
+.\scripts\dev-local.ps1
+```
+
+Script này sẽ mở 2 terminal:
+
+- Backend: `cd backend`, activate `..\.venv-1\Scripts\activate`, chạy `python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --log-level debug`.
+- Frontend: `cd frontend`, chạy `npm run dev`.
+
+### Cấu hình database
+
+| Trường hợp | Host trong config | Ghi chú |
+|---|---|---|
+| Docker backend -> Docker DB | `db:3306` | Dùng trong container, ví dụ `.env.docker.example`. |
+| Host machine -> Docker DB | `127.0.0.1:3307` | `docker-compose.yml` map `${DB_PORT:-3307}:3306`. |
+| Local backend -> Local MySQL | `127.0.0.1:3306` | Khuyến nghị cho local dev ổn định khi Docker Desktop hay lỗi. |
+
+Nếu muốn backend local dùng DB container Docker, đổi `DATABASE_URL` thành:
+
+```env
+DATABASE_URL=mysql+pymysql://nutrigain:<password>@127.0.0.1:3307/food_recommender
+```
+
+Lưu ý: nếu Docker Desktop chết thì DB container cũng chết. Local dev ổn định nên dùng MySQL local tại `127.0.0.1:3306`.
 
 ### Chạy tính năng nhận diện ảnh AI (CLIP) local
 
@@ -255,7 +317,8 @@ Sau đó chạy backend local bằng `.venv` để demo AI.
 |---|---|
 | Frontend | [http://localhost:5173](http://localhost:5173) |
 | Backend API Docs | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| MySQL | `localhost:3307` |
+| MySQL local | `127.0.0.1:3306` |
+| MySQL Docker DB từ host machine | `127.0.0.1:3307` |
 
 ### Dừng hệ thống
 

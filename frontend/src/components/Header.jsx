@@ -1,6 +1,15 @@
-import { Download } from "lucide-react";
+import { Calendar, Download } from "lucide-react";
+import { pageHeaderStyles } from "./PageHeader";
 
-export default function Header({ title, onExport, onEditProfile, onToggleMenu, showExportReport = false, isExportingReport = false }) {
+export default function Header({
+  title,
+  variant = "default",
+  onExport,
+  onEditProfile,
+  onToggleMenu,
+  showExportReport = false,
+  isExportingReport = false,
+}) {
   const today = new Date().toLocaleDateString("vi-VN", {
     weekday: "long",
     day: "2-digit",
@@ -9,27 +18,28 @@ export default function Header({ title, onExport, onEditProfile, onToggleMenu, s
   });
 
   return (
-    <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6 xl:px-8">
+    <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-[rgba(255,255,255,0.92)] shadow-[0_8px_24px_rgba(15,23,42,0.04)] backdrop-blur-xl">
+      <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-4 sm:px-6 xl:px-8">
         <div className="flex items-center gap-4">
           <button
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 lg:hidden hover:bg-slate-200 transition-colors"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm lg:hidden hover:bg-slate-50 transition-colors"
             onClick={onToggleMenu}
             aria-label="Mở menu"
             type="button"
           >
             <MenuIcon />
           </button>
-          <h1 className="text-xl font-black text-slate-900">{title}</h1>
+          <div className="min-w-0">
+            <p className={pageHeaderStyles.eyebrowClass}>NutriGain</p>
+            <h1 className="mt-1 text-[clamp(1.2rem,2vw,1.8rem)] font-black tracking-[-0.03em] text-slate-950">{title}</h1>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600 sm:block shadow-inner">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className={`${pageHeaderStyles.dateClass} hidden sm:inline-flex`}>
+            <Calendar className="h-4 w-4 text-emerald-600" />
             {today}
           </div>
-          <button className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 transition-colors" onClick={onEditProfile} type="button">
-            Chỉnh hồ sơ
-          </button>
           {showExportReport ? (
             <button className="flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow hover:bg-slate-800 transition-colors disabled:opacity-60" onClick={onExport} disabled={isExportingReport} type="button">
               <Download size={16} strokeWidth={2.6} />

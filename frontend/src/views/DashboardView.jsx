@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef, Component } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Loader2 } from "lucide-react";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -38,6 +39,7 @@ import { normalizeProfilePayload, foodListToInput } from "../utils/profileFormUt
 import AccountPanel from "../components/AccountPanel";
 import Header from "../components/Header";
 import NutriGainLogo from "../components/NutriGainLogo";
+import { PageHeader, PageHeaderButton, PageHeaderStat } from "../components/PageHeader";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
 import { defaultFormState } from "../models/recommendationModel";
@@ -74,6 +76,7 @@ const fallbackSummary = {
 
 const pageTitles = {
   overview: "Tổng quan dinh dưỡng",
+  "health-education": "Giáo dục sức khỏe",
   journal: "Nhật ký ăn uống",
   charts: "Theo dõi tăng cân",
   "meal-plan": "Kế hoạch bữa ăn",
@@ -102,6 +105,51 @@ const EAT_REGULARLY_CHALLENGE_KEY = "first_complete_day";
 const defaultFoodImage = "/images/placeholders/food-default.svg";
 const dislikedFoodsStorageKey = "nutrigain_disliked_foods";
 const dislikedFoodGroupsStorageKey = "nutrigain_disliked_food_groups";
+const mealSetupProfileCompareFields = [
+  "age",
+  "gender",
+  "height_cm",
+  "weight_kg",
+  "target_weight_kg",
+  "target_duration_value",
+  "target_duration_unit",
+  "target_duration_months",
+  "target_gain_rate_kg_per_month",
+  "weight_gain_speed",
+  "activity_level",
+  "diet_type",
+  "budget_level",
+  "items_per_meal",
+  "favorite_foods",
+  "disliked_foods",
+  "disliked_food_groups",
+];
+
+function canonicalProfileCompareValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean).sort();
+  }
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const numeric = Number(value);
+  if (String(value).trim() !== "" && Number.isFinite(numeric)) return numeric;
+  return String(value).trim();
+}
+
+function profileCompareValuesEqual(a, b) {
+  const left = canonicalProfileCompareValue(a);
+  const right = canonicalProfileCompareValue(b);
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasMealSetupProfileChanges(nextProfile, currentProfile) {
+  if (!currentProfile) return true;
+  const nextPayload = normalizeProfilePayload(nextProfile || {});
+  const currentPayload = normalizeProfilePayload(currentProfile || {});
+  return mealSetupProfileCompareFields.some(
+    (field) => !profileCompareValuesEqual(nextPayload[field], currentPayload[field])
+  );
+}
 
 export default function DashboardViewWrapper(props) {
   return (
@@ -142,7 +190,19 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const [didLoadToday, setDidLoadToday] = useState(false);
   const [generationNotice, setGenerationNotice] = useState("");
   const [showMealPlanSetup, setShowMealPlanSetup] = useState(false);
+  const [todayPlanLoading, setTodayPlanLoading] = useState(false);
+  const [isGeneratingMealPlan, setIsGeneratingMealPlan] = useState(false);
+  const [mealSetupError, setMealSetupError] = useState("");
   const [selectedIngredients, setSelectedIngredients] = useState([]);
+  const [mealSetupDismissed, setMealSetupDismissed] = useState(false);
+  const [didCheckTodayPlan, setDidCheckTodayPlan] = useState(false);
+  const [didTryOpenMealSetup, setDidTryOpenMealSetup] = useState(false);
+
+  console.log("[DASHBOARD VIEW MOUNT]", {
+    activeSection,
+    showMealPlanSetup,
+    isGeneratingMealPlan,
+  });
 
   useEffect(() => {
     if (!initialResult) return;
@@ -163,8 +223,12 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const profileOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(profileOutOfScopeResult), [profileOutOfScopeResult]);
   const resultOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(result), [result]);
   const outOfScopeNotice = profileOutOfScopeNotice || resultOutOfScopeNotice;
-  const hasRecommendation = Boolean(result) && !outOfScopeNotice;
   const meals = useMemo(() => buildMeals(result?.meal_plan, formState.diet_style, formState), [result, formState]);
+  const hasTodayMeals = useMemo(
+    () => Array.isArray(meals) && meals.some((meal) => Array.isArray(meal?.items) && meal.items.length > 0),
+    [meals],
+  );
+  const hasRecommendation = hasTodayMeals && !outOfScopeNotice;
   const consumedNutrition = useMemo(() => calculateConsumedNutrition(meals, mealLog), [meals, mealLog]);
   const summary = useMemo(() => buildSummary(result, consumedNutrition), [result, consumedNutrition]);
   const weeklyCalories = useMemo(() => buildWeeklyCalories(result, summary), [result, summary]);
@@ -174,6 +238,94 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     () => buildEffectiveTarget(result, nutritionTarget),
     [result, nutritionTarget],
   );
+
+  function extractMealsFromPlan(data) {
+    const candidates = [
+      data?.meals,
+      data?.plan?.meals,
+      data?.meal_plan?.meals,
+      data?.recommendation?.meals,
+      data?.recommendation?.meal_plan?.meals,
+      data?.data?.meals,
+      data?.data?.meal_plan?.meals,
+    ];
+    const directMeals = candidates.find((value) => Array.isArray(value));
+    if (Array.isArray(directMeals)) return directMeals;
+
+    const planCandidate =
+      data?.meal_plan ||
+      data?.plan ||
+      data?.recommendation?.meal_plan ||
+      data?.recommendation ||
+      data?.data?.meal_plan ||
+      data?.data?.plan ||
+      data?.data;
+
+    if (!planCandidate || typeof planCandidate !== "object") {
+      return [];
+    }
+
+    return Object.values(planCandidate).flatMap((value) => (Array.isArray(value) ? value : []));
+  }
+
+  function normalizeResultWithMealPlan(data) {
+    if (!data || typeof data !== "object") return data;
+    if (data?.meal_plan && typeof data.meal_plan === "object") return data;
+
+    const planCandidate =
+      data?.plan ||
+      data?.recommendation?.meal_plan ||
+      data?.recommendation ||
+      data?.data?.meal_plan ||
+      data?.data?.plan ||
+      null;
+    const extractedMeals = extractMealsFromPlan(data);
+
+    if (planCandidate && typeof planCandidate === "object") {
+      const normalizedPlan = Array.isArray(planCandidate?.meals)
+        ? planCandidate
+        : { ...planCandidate, meals: extractedMeals };
+      return { ...data, meal_plan: normalizedPlan };
+    }
+
+    if (Array.isArray(extractedMeals) && extractedMeals.length > 0) {
+      return {
+        ...data,
+        meal_plan: {
+          meals: extractedMeals,
+        },
+      };
+    }
+
+    return data;
+  }
+
+  function applyGeneratedMealPlan(data, options = {}) {
+    const {
+      nextSection = "meal-plan",
+      notice = "",
+    } = options;
+
+    const normalized = normalizeResultWithMealPlan(data);
+    const normalizedMeals = extractMealsFromPlan(normalized);
+
+    console.log("[MEAL SETUP GENERATING SUCCESS RAW]", data);
+    console.log("[MEAL SETUP GENERATING SUCCESS NORMALIZED]", {
+      mealsCount: normalizedMeals.length,
+      hasPlan: Boolean(normalized?.meal_plan),
+    });
+
+    setResult(normalized);
+    setGenerationNotice(notice);
+    setActiveSection(nextSection);
+    setMealSetupDismissed(false);
+    setTodayPlanLoading(false);
+    setDidCheckTodayPlan(true);
+    setDidLoadToday(true);
+    setDidTryOpenMealSetup(true);
+
+    return normalized;
+  }
 
   useEffect(() => {
     didCompleteEatingStreakTodayRef.current = didCompleteEatingStreakToday;
@@ -204,6 +356,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
 
     async function hydrateTodayPlan() {
       setDidLoadToday(true);
+      setTodayPlanLoading(true);
 
       try {
         const today = await loadTodayMealPlan();
@@ -232,6 +385,11 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         }
       } catch (error) {
         console.error("[TODAY PLAN HYDRATE FAILED]", error);
+      } finally {
+        if (!cancelled) {
+          setTodayPlanLoading(false);
+          setDidCheckTodayPlan(true);
+        }
       }
     }
 
@@ -241,6 +399,51 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       cancelled = true;
     };
   }, [didLoadToday, nutritionTarget, profileOutOfScopeResult]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (didCheckTodayPlan) {
+      console.log("[TODAY PLAN STATE]", {
+        todayPlanLoading,
+        didCheckTodayPlan,
+        todayMealsCount: Array.isArray(meals) ? meals.length : null,
+        hasTodayMeals,
+        hasRecommendation,
+      });
+    }
+
+    console.log("[FORCE MEAL SETUP CHECK]", {
+      profileExists: Boolean(formState),
+      hasTodayMeals,
+      showMealPlanSetup,
+      didTryOpenMealSetup,
+      todayPlanLoading,
+      didCheckTodayPlan
+    });
+
+    if (!formState) return;
+    if (hasTodayMeals) return;
+    if (showMealPlanSetup) return;
+    if (didTryOpenMealSetup) return;
+    if (isGeneratingMealPlan) return;
+
+    console.log("[FORCE MEAL SETUP OPEN]");
+    setActiveSection("meal-plan");
+    setShowMealPlanSetup(true);
+    setDidTryOpenMealSetup(true);
+  }, [
+    formState,
+    hasTodayMeals,
+    showMealPlanSetup,
+    didTryOpenMealSetup,
+    isGeneratingMealPlan,
+    didCheckTodayPlan,
+    todayPlanLoading,
+    meals,
+    hasRecommendation
+  ]);
+
   useEffect(() => {
     if (resultOutOfScopeNotice && !profileOutOfScopeNotice) {
       setResult(null);
@@ -411,9 +614,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     setIsSubmitting(true);
     try {
       const data = await submitRecommendation(formState);
-      setResult(data);
-      setGenerationNotice(isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "");
-      setActiveSection("overview");
+      applyGeneratedMealPlan(data, {
+        nextSection: "overview",
+        notice: isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "",
+      });
       setFavoriteMeals(new Set());
       setRatings({});
       setMealLog({ entries: {}, manualItems: [] });
@@ -514,9 +718,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       setFavoriteMeals(new Set());
       setRatings({});
       setMealLog({ entries: {}, manualItems: [] });
-      setResult(data);
-      setGenerationNotice(isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "");
-      setActiveSection((current) => (current === "meal-plan" ? "meal-plan" : "overview"));
+      applyGeneratedMealPlan(data, {
+        nextSection: activeSection === "meal-plan" ? "meal-plan" : "overview",
+        notice: isMealPlanResponseValid(data) ? "Đã tạo thực đơn phù hợp hơn." : "",
+      });
       window.scrollTo({ top: 0, behavior: "smooth" });
 
     } catch (err) {
@@ -534,7 +739,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   }
 
   async function submitMealPlanSetup(setupSnapshot = {}) {
-    if (isSubmitting) return;
+    if (isSubmitting || isGeneratingMealPlan) return;
     const itemsPerMeal = Number(formState.items_per_meal || itemsCountFromMealComplexity(formState.meal_complexity));
     const rawIngredients = setupSnapshot?.available_ingredients || selectedIngredients || [];
     const availableIngredients = Array.from(
@@ -568,13 +773,18 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       diet_type: mergedSettings.diet_type,
       budget_level: mergedSettings.budget_level,
     });
-    setSubmitError("");
-    setIsSubmitting(true);
-    setShowMealPlanSetup(false); // Hide the modal while generating
+    setMealSetupError("");
+    setGenerationNotice("");
+    setIsGeneratingMealPlan(true);
+    console.log("[MEAL SETUP GENERATING START]");
 
     try {
       setFormState(mergedSettings);
-      await saveUserProfile(mergedSettings);
+      if (hasMealSetupProfileChanges(mergedSettings, initialFormState)) {
+        await saveUserProfile(mergedSettings);
+      } else {
+        console.log("[PROFILE UPDATE SKIPPED] reason=no_changes");
+      }
       const data = await regenerateMealPlan(mergedSettings, {
         ingredients: availableIngredients,
         available_ingredients: availableIngredients,
@@ -584,15 +794,32 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         profile: mergedSettings,
         items_per_meal: itemsPerMeal,
       });
-      setResult(data);
-      setGenerationNotice("Đã tạo thực đơn phù hợp.");
-      setActiveSection("meal-plan");
+      applyGeneratedMealPlan(data, {
+        nextSection: "meal-plan",
+        notice: "Đã tạo thực đơn hôm nay",
+      });
+      console.log("[MEAL SETUP GENERATING SUCCESS]");
+      setMealSetupDismissed(false);
+      setShowMealPlanSetup(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      setSubmitError(err.message || "Không thể tạo thực đơn. Vui lòng thử lại.");
+      console.log("[MEAL SETUP GENERATING FAILED]", err);
+      setMealSetupError(err.message || "Chưa tạo được thực đơn. Bạn có thể thử lại.");
     } finally {
-      setIsSubmitting(false);
+      setIsGeneratingMealPlan(false);
     }
+  }
+
+  function openMealPlanSetup() {
+    setMealSetupError("");
+    setShowMealPlanSetup(true);
+  }
+
+  function closeMealPlanSetup() {
+    if (isGeneratingMealPlan) return;
+    console.log("[MEAL SETUP DISMISSED]");
+    setMealSetupDismissed(true);
+    setShowMealPlanSetup(false);
   }
 
 
@@ -726,6 +953,32 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     URL.revokeObjectURL(url);
   }
 
+  const shouldShowNoMealPlanState =
+    !hasRecommendation &&
+    ["overview", "meal-plan", "journal"].includes(activeSection) &&
+    !showMealPlanSetup &&
+    mealSetupDismissed;
+
+  const isInitialDashboardLoading =
+    (todayPlanLoading || !didCheckTodayPlan) &&
+    !hasTodayMeals &&
+    !showMealPlanSetup &&
+    !isGeneratingMealPlan;
+
+  useEffect(() => {
+    console.log("[RENDER MEAL PLAN STATE]", {
+      activeSection,
+      todayPlanLoading,
+      didCheckTodayPlan,
+      isGeneratingMealPlan,
+      hasRecommendation,
+      hasTodayMeals,
+      showMealPlanSetup,
+      resultMealsCount: extractMealsFromPlan(result)?.length || 0,
+      uiMealsCount: Array.isArray(meals) ? meals.length : 0,
+    });
+  }, [activeSection, todayPlanLoading, didCheckTodayPlan, isGeneratingMealPlan, hasRecommendation, hasTodayMeals, showMealPlanSetup, result, meals]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-dashboard text-slate-900">
       <Sidebar
@@ -745,24 +998,44 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       ) : null}
 
       <div className="lg:pl-72">
-        <Header
-          title={pageTitles[activeSection] || pageTitles.overview}
-          onToggleMenu={() => setDrawerOpen(true)}
-          onEditProfile={handleEditProfile}
-          onExport={handleExportReport}
-        />
+        {![
+          "overview",
+          "journal",
+          "charts",
+          "meal-plan",
+          "health-education",
+          "account",
+          "profile",
+          "notifications",
+          "help",
+        ].includes(activeSection) ? (
+          <Header
+            title={pageTitles[activeSection] || pageTitles.overview}
+            variant={activeSection === "health-education" ? "education" : "default"}
+            onToggleMenu={() => setDrawerOpen(true)}
+            onEditProfile={handleEditProfile}
+            onExport={handleExportReport}
+          />
+        ) : null}
 
-        {outOfScopeNotice ? (
+        {isInitialDashboardLoading ? (
+          <div className="px-4 pb-8 pt-4 sm:px-6 xl:px-8 min-h-[calc(100vh-80px)] opacity-50 pointer-events-none">
+            <div className="animate-pulse flex flex-col space-y-6 mt-8 max-w-4xl mx-auto">
+              <div className="h-40 bg-slate-200 rounded-3xl w-full" />
+              <div className="h-64 bg-slate-200 rounded-3xl w-full" />
+            </div>
+          </div>
+        ) : outOfScopeNotice ? (
           <NoMealPlanState
             isSubmitting={isSubmitting}
             submitError={submitError}
             onLogout={onLogout}
           />
-        ) : !hasRecommendation && ["overview", "meal-plan", "journal"].includes(activeSection) ? (
+        ) : shouldShowNoMealPlanState ? (
           <NoMealPlanState
             isSubmitting={isSubmitting}
             submitError={submitError}
-            onGenerate={() => setShowMealPlanSetup(true)}
+            onGenerate={openMealPlanSetup}
           />
         ) : (
           <DashboardContent
@@ -792,7 +1065,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
             onMealLogChange={setMealLog}
             onProfileChange={handleProfileChange}
             onRegenerate={requestRegenerateRecommendation}
-            onOpenSetup={() => setShowMealPlanSetup(true)}
+            onOpenSetup={openMealPlanSetup}
             onOpenAddToMeal={(food) => setAddToMealRequest({ food, mealKey: null })}
             onOpenDislikeFood={(food) => setDislikeRequest(food)}
             onProfileRefresh={refreshProfileFromBackend}
@@ -827,10 +1100,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           onIngredientsReplace={(ings) => setSelectedIngredients(ings)}
           onIngredientsAddMany={(ings) => setSelectedIngredients(prev => [...new Set([...prev, ...(ings || [])])])}
           onChange={handleProfileChange}
-          onClose={() => setShowMealPlanSetup(false)}
+          onClose={closeMealPlanSetup}
           onSubmit={() => submitMealPlanSetup({ available_ingredients: selectedIngredients })}
-          isSubmitting={isSubmitting}
-          submitError={submitError}
+          isGeneratingMealPlan={isGeneratingMealPlan}
+          submitError={mealSetupError}
         />
       )}
     </div>
@@ -853,16 +1126,13 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
               Dựa trên thông tin chiều cao và cân nặng bạn cung cấp, mục tiêu tăng cân hiện chưa phải là lựa chọn phù hợp với tình trạng cơ thể của bạn.
             </p>
             <p>
-              NutriGain được thiết kế để hỗ trợ xây dựng thực đơn tăng cân lành mạnh cho người thiếu cân có BMI dưới 18.5. Vì vậy, hệ thống tạm thời chưa thể tiếp tục tạo thực đơn tăng cân cho hồ sơ hiện tại của bạn.
-            </p>
-            <p>
               Cảm ơn bạn đã quan tâm đến NutriGain. Bạn có thể đăng xuất khỏi hệ thống để đảm bảo quá trình sử dụng phù hợp với mục tiêu sức khỏe của mình.
             </p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            className="mt-7 h-12 rounded-2xl bg-brand-primary px-7 text-sm font900 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark"
+            className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
           >
             Đăng xuất
           </button>
@@ -878,11 +1148,11 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
           <NutriGainLogo size="lg" />
         </div>
         <section className="mt-6 rounded-[28px] border border-emerald-100 bg-white p-6 shadow-xl shadow-emerald-900/8 sm:p-7">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Kết luận hôm nay</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Kết luận hôm nay</p>
           <h2 className="mt-2 text-2xl font-black text-[#0F172A]">
             {isSubmitting ? "Đang tạo thực đơn phù hợp cho bạn" : "Chưa có thực đơn hôm nay"}
           </h2>
-          <p className="mt-3 text-sm font700 leading-6 text-[#64748B]">
+          <p className="mt-3 text-sm font-semibold leading-6 text-[#64748B]">
             {isSubmitting
               ? "Hệ thống đang cân bằng năng lượng, protein và các món bạn cần tránh."
               : "Hồ sơ của bạn đã sẵn sàng. Tạo thực đơn để xem hôm nay nên ăn gì và có cần điều chỉnh gì không."}
@@ -897,39 +1167,41 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
               <div className="h-3 w-1/2 animate-pulse rounded-full bg-slate-100" />
             </div>
           ) : (
-            <ul className="mt-5 space-y-2 text-sm font800 leading-6 text-slate-700">
+            <ul className="mt-5 space-y-2 text-sm font-semibold leading-6 text-slate-700">
               <li>Tạo thực đơn để NutriGain kiểm tra năng lượng và protein cho hôm nay.</li>
               <li>Món không thích, dị ứng và chế độ ăn sẽ được dùng để lọc món.</li>
             </ul>
           )}
-        {submitError && (
-          <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
-            {submitError}
-          </div>
-        )}
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={onGenerate}
-          className="mt-8 h-14 w-full rounded-2xl bg-[#10B981] text-base font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-              Đang tạo thực đơn...
-            </span>
-          ) : "Tạo thực đơn hôm nay"}
-        </button>
-        <p className="mt-4 text-xs text-[#64748B]">
-          Bạn có thể chỉnh lại hồ sơ bất kỳ lúc nào trong mục <strong>Tài khoản</strong>.
-        </p>
+          {submitError ? (
+            <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+              {submitError}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={onGenerate}
+            className="mt-8 h-14 w-full rounded-2xl bg-[#10B981] text-base font-bold text-white shadow-lg shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Đang tạo thực đơn...
+              </span>
+            ) : (
+              "Tạo thực đơn hôm nay"
+            )}
+          </button>
+          <p className="mt-4 text-xs text-[#64748B]">
+            Bạn có thể chỉnh lại hồ sơ bất kỳ lúc nào trong mục <strong>Tài khoản</strong>.
+          </p>
         </section>
       </div>
     </main>
   );
 }
 
-function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, onIngredientRemove, onIngredientsReplace, onIngredientsAddMany, onChange, onClose, onSubmit, isSubmitting, submitError }) {
+function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, onIngredientRemove, onIngredientsReplace, onIngredientsAddMany, onChange, onClose, onSubmit, isGeneratingMealPlan, submitError }) {
   const [recognizing, setRecognizing] = useState(false);
   const [manualIng, setManualIng] = useState("");
   const [quickSuggestionsOpen, setQuickSuggestionsOpen] = useState(false);
@@ -944,7 +1216,8 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
             name={name}
             value={value}
             onChange={onChange}
-            className="h-[52px] w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-11 text-sm font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+            disabled={isGeneratingMealPlan}
+            className="h-[52px] w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-11 text-sm font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 disabled:opacity-60 disabled:bg-slate-50"
           >
             {options.map((option) => (
               <option key={option.value} value={option.value}>
@@ -1022,7 +1295,8 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
       if (data?.success && ingredients.length > 0) {
         if (typeof onIngredientsAddMany === "function") onIngredientsAddMany(ingredients); else onIngredientsReplace([...new Set([...selectedIngredients, ...ingredients])]);
       } else {
-        throw new Error(data?.message || "Không nhận diện được nguyên liệu trong ảnh.");
+        console.warn("[INGREDIENT IMAGE UPLOAD INFO]", data?.message || "Không nhận diện được nguyên liệu trong ảnh.");
+        return;
       }
     } catch (err) {
       alert("Lỗi tải ảnh: " + (err.message || "Không thể nhận diện ảnh."));
@@ -1043,131 +1317,162 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
   const ingredientCount = selectedIngredients.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-      <div className="relative flex w-full max-w-[1180px] max-h-[calc(100vh-48px)] flex-col overflow-hidden rounded-[32px] border border-slate-200/70 bg-[#fbfbf8] shadow-2xl shadow-slate-950/25 animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6">
+      <div className="relative flex w-full max-w-[1240px] max-h-[calc(100vh-40px)] flex-col overflow-hidden rounded-[30px] border border-slate-200/70 bg-[linear-gradient(180deg,#fcfcfb_0%,#f8faf9_100%)] shadow-2xl shadow-slate-950/20 animate-fade-in lg:max-h-none">
+        {/* Loading Overlay */}
+        {isGeneratingMealPlan && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/80 backdrop-blur-md">
+            <div className="w-full max-w-md rounded-[28px] border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/10 text-center animate-fade-in">
+              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900">Đang tạo thực đơn cho bạn...</h3>
+              <p className="mt-3 text-sm font-medium leading-relaxed text-slate-500">
+                NutriGain đang cân bằng năng lượng, protein và nguyên liệu bạn đã chọn.
+              </p>
+              
+              <div className="mt-8 space-y-4 text-left">
+                <div className="flex items-center gap-3 opacity-80">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-sm font-semibold text-slate-700">Đọc hồ sơ dinh dưỡng</span>
+                </div>
+                <div className="flex items-center gap-3 opacity-60">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" style={{ animationDelay: '0.2s' }} />
+                  <span className="text-sm font-semibold text-slate-700">Ưu tiên nguyên liệu sẵn có</span>
+                </div>
+                <div className="flex items-center gap-3 opacity-40">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" style={{ animationDelay: '0.4s' }} />
+                  <span className="text-sm font-semibold text-slate-700">Cân bằng năng lượng trong ngày</span>
+                </div>
+              </div>
+              
+              <div className="mt-8 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-1.5 w-full rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <p className="mt-4 text-[13px] font-medium text-emerald-700">
+                Việc này có thể mất vài giây. Vui lòng không tắt trang.
+              </p>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={onClose}
           type="button"
-          className="absolute right-7 top-7 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+          disabled={isGeneratingMealPlan}
+          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 sm:right-5 sm:top-5 disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Đóng modal thiết lập thực đơn"
         >
           ✕
         </button>
 
-        <header className="px-8 pt-7 pb-5 pr-24">
+        <header className="px-5 pb-3 pr-16 pt-5 sm:px-7 sm:pr-20 sm:pt-6 lg:px-8">
           <p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">THIẾT LẬP THỰC ĐƠN</p>
-          <h2 className="mt-2 text-[34px] font-black tracking-[-0.03em] text-slate-950">Thiết lập thực đơn hôm nay</h2>
-          <p className="mt-3 max-w-[760px] text-sm leading-6 text-slate-500">
-            Cập nhật nhanh nguyên liệu, cân nặng và cách chia bữa để hệ thống tạo thực đơn sát hơn với hôm nay.
+          <h2 className="mt-2 text-[30px] font-black tracking-[-0.03em] text-slate-950 sm:text-[34px]">Thiết lập thực đơn hôm nay</h2>
+          <p className="mt-2 max-w-[680px] text-sm leading-6 text-slate-500 sm:mt-3">
+            Cập nhật nhanh thông tin để tạo thực đơn phù hợp hơn cho hôm nay.
           </p>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-8 py-5 lg:overflow-visible">
-          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[1fr_360px] lg:items-center lg:gap-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
-                <span className="text-sm font-black">1</span>
+        <div className="flex-1 space-y-[14px] overflow-y-auto px-4 pb-4 pt-1 sm:px-6 sm:pb-6 lg:space-y-[14px] lg:px-8 lg:pb-0 lg:pt-0 lg:overflow-visible">
+          <section className="rounded-[22px] border border-slate-200/80 bg-white/95 px-4 py-3.5 shadow-sm sm:px-5 lg:px-6 lg:py-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="text-sm font-black">1</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-slate-950">Thông tin hôm nay</div>
+                </div>
               </div>
-              <div>
-                <div className="text-lg font-black text-slate-950">Thông tin hôm nay</div>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Cập nhật nhanh để thực đơn hôm nay sát với cơ thể hiện tại.</p>
-              </div>
-            </div>
 
-            <label className="block">
-              <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Cân nặng hiện tại (kg)</span>
-              <div className="relative">
-                <input
-                  type="number"
-                  name="weight_kg"
-                  min="20"
-                  max="200"
-                  step="0.1"
-                  value={formState.weight_kg || formState.weight || ""}
-                  onChange={onChange}
-                  className="h-[52px] w-full rounded-2xl border border-slate-200 bg-white px-4 pr-12 text-lg font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-                  placeholder="Ví dụ: 47"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">kg</span>
-              </div>
-            </label>
+              <label className="block w-full lg:max-w-[340px] xl:max-w-[380px]">
+                <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Cân nặng hiện tại</span>
+                <div className="relative">
+                  <input
+                    type="number"
+                    name="weight_kg"
+                    min="20"
+                    max="200"
+                    step="0.1"
+                    value={formState.weight_kg || formState.weight || ""}
+                    onChange={onChange}
+                    disabled={isGeneratingMealPlan}
+                    className="h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 pr-12 text-base font-bold text-slate-950 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 disabled:opacity-60 disabled:bg-slate-50"
+                    placeholder="Ví dụ: 47"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">kg</span>
+                </div>
+              </label>
+            </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[280px_300px_1fr] lg:items-start lg:gap-5">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
-                <span className="text-sm font-black">2</span>
+          <section className="rounded-[22px] border border-slate-200/80 bg-white/95 px-4 py-3.5 shadow-sm sm:px-5 lg:px-6 lg:py-4">
+            <div className="flex flex-col gap-3 lg:gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="text-sm font-black">2</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-slate-950">Nguyên liệu sẵn có</div>
+                </div>
               </div>
-              <div>
-                <div className="text-lg font-black text-slate-950">Nguyên liệu sẵn có</div>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Tải ảnh hoặc nhập nhanh nguyên liệu bạn đang có.</p>
-              </div>
-            </div>
 
-            <div className="rounded-[22px] border border-dashed border-emerald-200 bg-emerald-50/70 p-4 transition hover:border-emerald-300 hover:bg-emerald-50">
-              <input
-                type="file"
-                accept="image/*"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={recognizing}
-                className="flex h-full min-h-[120px] w-full flex-col items-center justify-center gap-3 rounded-[18px] bg-white px-4 text-center shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-sm">
-                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-sm font-black text-emerald-900">Tải ảnh nguyên liệu</div>
-                  <div className="mt-1 text-xs font-medium text-emerald-700">AI sẽ nhận diện và thêm vào danh sách.</div>
-                </div>
-                <div className="inline-flex h-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700">
-                  {recognizing ? "Đang nhận diện ảnh..." : "Chọn ảnh để nhận diện"}
-                </div>
-              </button>
-            </div>
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-3">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-center xl:gap-3">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={recognizing || isGeneratingMealPlan}
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <span>{recognizing ? "Đang nhận diện..." : "Tải ảnh"}</span>
+                  </button>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                <label className="block">
-                  <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Nhập nguyên liệu</span>
-                  <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-100">
+                  <label className="block">
+                    <span className="sr-only">Nhập nguyên liệu</span>
                     <input
                       type="text"
-                      placeholder="Nhập nguyên liệu (ví dụ: trứng, rau cải...)"
-                      className="h-[44px] min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                      placeholder="Nhập nguyên liệu..."
+                      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 disabled:opacity-60 disabled:bg-slate-50"
                       value={manualIng}
+                      disabled={isGeneratingMealPlan}
                       onChange={(e) => setManualIng(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addManual()}
                     />
-                    <button
-                      type="button"
-                      onClick={addManual}
-                      className="h-[44px] rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800"
-                    >
-                      Thêm
-                    </button>
-                  </div>
-                </label>
+                  </label>
 
-                <div className="flex items-end">
                   <button
                     type="button"
-                    onClick={() => setQuickSuggestionsOpen((value) => !value)}
-                    className="inline-flex h-[52px] items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
+                    onClick={addManual}
+                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+                    disabled={!manualIng.trim() || isGeneratingMealPlan}
                   >
-                    <span>Gợi ý nhanh</span>
+                    Thêm
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isGeneratingMealPlan}
+                    onClick={() => setQuickSuggestionsOpen((value) => !value)}
+                    className="inline-flex h-12 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-60"
+                  >
+                    <span className="whitespace-nowrap">Gợi ý nhanh</span>
                     <svg
                       viewBox="0 0 24 24"
-                      className={`h-4 w-4 text-slate-400 transition-transform ${quickSuggestionsOpen ? "rotate-180" : ""}`}
+                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${quickSuggestionsOpen ? "rotate-180" : ""}`}
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2.5"
@@ -1178,10 +1483,12 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                     </svg>
                   </button>
                 </div>
+
+                <div className="hidden xl:block" />
               </div>
 
               {quickSuggestionsOpen ? (
-                <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
+                <div className="rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3">
                   <div className="flex flex-wrap gap-2">
                     {quickChips.map((chip) => {
                       const selected = selectedIngredients.includes(chip);
@@ -1189,14 +1496,15 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                         <button
                           key={chip}
                           type="button"
+                          disabled={isGeneratingMealPlan}
                           onClick={() => {
                             if (!selected) {
                               onIngredientAdd(chip);
                             }
                           }}
                           className={selected
-                            ? "h-9 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-700"
-                            : "h-9 rounded-full border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"}
+                            ? "h-8 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-700"
+                            : "h-8 rounded-full border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"}
                         >
                           {selected ? `✓ ${chip}` : `+ ${chip}`}
                         </button>
@@ -1206,30 +1514,31 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                 </div>
               ) : null}
 
-              {ingredientCount > 0 && (
-                <div className="rounded-[20px] border border-emerald-100 bg-emerald-50/60 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Nguyên liệu đã chọn</p>
-                      <p className="mt-1 text-xs font-medium text-emerald-700">{ingredientCount} nguyên liệu sẵn có sẽ được ưu tiên cover nếu DB có món phù hợp.</p>
-                    </div>
+              <div className="rounded-[18px] border border-emerald-100 bg-emerald-50/35 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Nguyên liệu đã chọn</p>
+                  {ingredientCount > 0 ? (
                     <button
                       type="button"
+                      disabled={isGeneratingMealPlan}
                       onClick={() => onIngredientsReplace([])}
-                      className="text-[11px] font-bold text-emerald-700 underline decoration-emerald-300 underline-offset-4"
+                      className="shrink-0 text-[11px] font-bold text-emerald-700 underline decoration-emerald-300 underline-offset-4 disabled:opacity-60"
                     >
                       Xóa tất cả
                     </button>
-                  </div>
+                  ) : null}
+                </div>
 
+                {ingredientCount > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {selectedIngredients.map((ing) => (
-                      <span key={ing} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">
-                        <span>{ing}</span>
+                      <span key={ing} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">
+                        <span className="max-w-[160px] truncate sm:max-w-[220px]">{ing}</span>
                         <button
                           type="button"
+                          disabled={isGeneratingMealPlan}
                           onClick={() => onIngredientRemove(ing)}
-                          className="grid h-5 w-5 place-items-center rounded-full bg-emerald-100 text-[11px] text-emerald-700 transition hover:bg-emerald-200"
+                          className="grid h-5 w-5 place-items-center rounded-full bg-emerald-100 text-[11px] text-emerald-700 transition hover:bg-emerald-200 disabled:opacity-60"
                           aria-label={`Xóa ${ing}`}
                         >
                           ×
@@ -1237,93 +1546,101 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-sm text-slate-500">Chưa có nguyên liệu nào.</p>
+                )}
+              </div>
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-4 rounded-[24px] border border-slate-200/80 bg-white/95 p-5 shadow-sm lg:grid-cols-[320px_1fr] lg:items-start lg:gap-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+          <section className="rounded-[22px] border border-slate-200/80 bg-white/95 px-4 py-3.5 shadow-sm sm:px-5 lg:px-6 lg:py-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
                 <span className="text-sm font-black">3</span>
               </div>
-              <div>
-                <div className="text-lg font-black text-slate-950">Cấu hình thực đơn</div>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Chọn cách chia bữa và mức ngân sách để hệ thống cân bằng tốt hơn.</p>
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-slate-950">Cấu hình thực đơn</div>
+                </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <CompactSelect
-                label="Chế độ ăn"
-                name="diet_style"
-                value={formState.diet_style || "balanced"}
-                onChange={onChange}
-                options={[
-                  { value: "balanced", label: "Ăn cân bằng" },
-                  { value: "eat_clean", label: "Eat Clean" },
-                  { value: "high_protein", label: "Giàu Protein" },
-                  { value: "vegetarian", label: "Ăn chay" },
-                ]}
-              />
-              <CompactSelect
-                label="Số món mỗi bữa"
-                name="meal_complexity"
-                value={formState.meal_complexity || "balanced"}
-                onChange={onChange}
-                options={[
-                  { value: "simple", label: "3 món / bữa" },
-                  { value: "balanced", label: "4 món / bữa" },
-                  { value: "full", label: "5 món / bữa" },
-                ]}
-              />
-              <CompactSelect
-                label="Ngân sách"
-                name="budget_level"
-                value={formState.budget_level || "standard"}
-                onChange={onChange}
-                options={[
-                  { value: "standard", label: "Tiêu chuẩn" },
-                  { value: "low", label: "Tiết kiệm" },
-                  { value: "high", label: "Linh hoạt" },
-                ]}
-              />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:flex-1 lg:grid-cols-3">
+                <CompactSelect
+                  label="Chế độ ăn"
+                  name="diet_style"
+                  value={formState.diet_style || "balanced"}
+                  onChange={onChange}
+                  options={[
+                    { value: "balanced", label: "Ăn cân bằng" },
+                    { value: "eat_clean", label: "Eat Clean" },
+                    { value: "high_protein", label: "Giàu Protein" },
+                    { value: "vegetarian", label: "Ăn chay" },
+                  ]}
+                />
+                <CompactSelect
+                  label="Số món mỗi bữa"
+                  name="meal_complexity"
+                  value={formState.meal_complexity || "balanced"}
+                  onChange={onChange}
+                  options={[
+                    { value: "simple", label: "3 món / bữa" },
+                    { value: "balanced", label: "4 món / bữa" },
+                    { value: "full", label: "5 món / bữa" },
+                  ]}
+                />
+                <CompactSelect
+                  label="Ngân sách"
+                  name="budget_level"
+                  value={formState.budget_level || "standard"}
+                  onChange={onChange}
+                  options={[
+                    { value: "standard", label: "Tiêu chuẩn" },
+                    { value: "low", label: "Tiết kiệm" },
+                    { value: "high", label: "Linh hoạt" },
+                  ]}
+                />
+              </div>
             </div>
           </section>
         </div>
 
-        <footer className="flex items-center justify-between gap-4 border-t border-slate-100 bg-white px-8 py-5">
-          <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">🛡</span>
-            <span>Thông tin này sẽ được dùng để tạo thực đơn hôm nay.</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-[52px] rounded-[18px] border border-slate-200 bg-white px-6 font-bold text-slate-700 transition hover:bg-slate-50"
-            >
-              Hủy
-            </button>
-            <button
-              onClick={() => onSubmit({ ...formState, available_ingredients: selectedIngredients, ingredients: selectedIngredients })}
-              disabled={isSubmitting || recognizing}
-              className="inline-flex h-[52px] items-center justify-center rounded-[18px] bg-emerald-600 px-7 text-base font-black text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  Đang tạo thực đơn...
-                </span>
-              ) : recognizing ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  Đang nhận diện ảnh...
-                </span>
-              ) : (
-                "Cập nhật và tạo thực đơn"
-              )}
-            </button>
+        <footer className="border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+          {submitError && !isGeneratingMealPlan && (
+            <div className="mb-4 rounded-xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-600">
+              {submitError}
+            </div>
+          )}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-sm font-medium text-slate-500">Dữ liệu này chỉ dùng để tạo thực đơn hôm nay.</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isGeneratingMealPlan}
+                className="h-[52px] min-w-[110px] rounded-[18px] border border-slate-200 bg-white px-6 font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => onSubmit({ ...formState, available_ingredients: selectedIngredients, ingredients: selectedIngredients })}
+                disabled={isGeneratingMealPlan || recognizing}
+                className="inline-flex h-[52px] min-w-[240px] items-center justify-center rounded-[18px] bg-emerald-600 px-7 text-base font-black text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[280px]"
+              >
+                {isGeneratingMealPlan ? (
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Đang tạo thực đơn...
+                  </span>
+                ) : recognizing ? (
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Đang nhận diện ảnh...
+                  </span>
+                ) : (
+                  <span className="whitespace-nowrap">Cập nhật và tạo thực đơn</span>
+                )}
+              </button>
+            </div>
           </div>
         </footer>
       </div>
@@ -1391,11 +1708,12 @@ function DashboardContent({
           isSubmitting={isSubmitting}
           onNavigate={handleSidebarNavigate}
           gamificationRefreshKey={gamificationRefreshKey}
+          onEditProfile={onEditProfile}
         />
       ) : null}
 
       {activeSection === "health-education" ? (
-        <HealthEducationView userEmail={userEmail} />
+        <HealthEducationView userEmail={userEmail} onEditProfile={onEditProfile} />
       ) : null}
 
       {activeSection === "journal" ? (
@@ -1408,6 +1726,7 @@ function DashboardContent({
           onMealLogChange={onMealLogChange}
           onEatingDayCompleted={onEatingDayCompleted}
           eatingHistoryRefreshKey={eatingHistoryRefreshKey}
+          onEditProfile={onEditProfile}
         />
       ) : null}
 
@@ -1431,6 +1750,7 @@ function DashboardContent({
           isSubmitting={isSubmitting}
           onEatingDayCompleted={onEatingDayCompleted}
           onEatingHistoryChanged={onEatingHistoryChanged}
+          onEditProfile={onEditProfile}
         />
       ) : null}
 
@@ -1457,6 +1777,7 @@ function DashboardContent({
           errors={buildProfileSoftErrors(profileSettings)}
           onChange={onProfileChange}
           onRegenerate={onRegenerate}
+          onEditProfile={onEditProfile}
           isSubmitting={isSubmitting}
         />
       ) : null}
@@ -1480,7 +1801,15 @@ function DashboardContent({
         />
       ) : null}
       {activeSection === "help" ? <EnhancedHelpPanel foods={foodCatalog} /> : null}
-      <NutriGainChatbot userId={userEmail} />
+      <NutriGainChatbot
+        userId={userEmail}
+        summary={summary}
+        validation={validation}
+        consumedNutrition={consumedNutrition}
+        meals={meals}
+        nutritionTarget={nutritionTarget}
+        currentPlan={result}
+      />
     </main>
   );
 }
@@ -1500,6 +1829,7 @@ function OverviewPage({
   generationNotice,
   onRegenerate,
   onOpenSetup,
+  onEditProfile,
   isSubmitting,
   onNavigate,
   gamificationRefreshKey,
@@ -1577,6 +1907,12 @@ function OverviewPage({
 
   return (
     <div className="space-y-5">
+      <PageHeader
+        eyebrow="TỔNG QUAN"
+        title="Tổng quan dinh dưỡng"
+        subtitle="Theo dõi nhanh tình trạng hôm nay và gợi ý điều chỉnh phù hợp."
+      />
+
       <section className="rounded-[24px] bg-white p-6 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] ring-1 ring-slate-100 sm:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -1976,7 +2312,7 @@ function normalizeEatingHistoryRows(items) {
   }));
 }
 
-function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMealLogChange, onEatingDayCompleted, eatingHistoryRefreshKey }) {
+function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMealLogChange, onEatingDayCompleted, eatingHistoryRefreshKey, onEditProfile }) {
   const entries = mealLog?.entries || {};
   const manualItems = mealLog?.manualItems || [];
   const [historyRows, setHistoryRows] = useState([]);
@@ -2203,6 +2539,12 @@ function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMe
 
   return (
     <div className="space-y-5">
+      <PageHeader
+        eyebrow="THỐNG KÊ"
+        title="Nhật ký ăn uống"
+        subtitle="Xem lại bữa ăn, năng lượng và protein bạn đã ghi nhận."
+      />
+
       <section className="glass-panel p-5 sm:p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-5">
           <div>
@@ -2822,34 +3164,24 @@ function MealPlanHeader({
   isSubmitting,
 }) {
   return (
-    <section className="rounded-[32px] border border-emerald-100 bg-[#F0FDF4] p-6 shadow-sm shadow-emerald-900/5 sm:p-7">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-black text-[#0B2A4A] sm:text-4xl">Kế hoạch bữa ăn hôm nay</h2>
-          <p className="mt-2 text-base font-semibold text-[#64748B]">
-            Thực đơn được cá nhân hóa theo hồ sơ dinh dưỡng của bạn.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="rounded-[24px] bg-white px-6 py-4 shadow-sm ring-1 ring-emerald-100 text-center">
-            <p className="text-4xl font-black leading-none text-[#0F172A]">{round(totalKcal).toLocaleString("vi-VN")}</p>
-            <p className="mt-1.5 text-xs font-black uppercase tracking-wider text-[#10B981]">kcal / ngày</p>
+    <PageHeader
+      eyebrow="THỰC ĐƠN"
+      title="Kế hoạch bữa ăn"
+      subtitle="Tạo và điều chỉnh thực đơn phù hợp với hồ sơ dinh dưỡng."
+      actions={
+        <PageHeaderButton variant="secondary" onClick={onOpenSetup || onRegenerate} disabled={isSubmitting}>
+          {isSubmitting ? "Đang tạo..." : "Tạo lại thực đơn"}
+        </PageHeaderButton>
+      }
+      children={
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <PageHeaderStat label="Kcal / ngày" value={round(totalKcal).toLocaleString("vi-VN")} description="Năng lượng mục tiêu cho hôm nay" tone="emerald" />
+            <PageHeaderStat label="Quy mô bữa" value={`${totalMeals} bữa`} description="Số bữa trong kế hoạch" tone="neutral" />
           </div>
-          <div className="rounded-[24px] bg-white px-6 py-4 shadow-sm ring-1 ring-emerald-100 text-center">
-            <p className="text-2xl font-black leading-none text-[#0F172A]">{totalMeals} bữa</p>
-            <p className="mt-1.5 text-xs font-black uppercase tracking-wider text-[#64748B]">quy mô</p>
-          </div>
-          <button
-            type="button"
-            className="h-14 rounded-[24px] bg-[#10B981] px-6 text-sm font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onOpenSetup || onRegenerate}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Đang tạo..." : "Tạo lại thực đơn"}
-          </button>
         </div>
-      </div>
-    </section>
+      }
+    />
   );
 }
 
@@ -3408,26 +3740,18 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-emerald-100/80 bg-white p-6 shadow-xl shadow-emerald-900/8 sm:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-[#10B981]">NutriGain Progress</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-[#0F172A]">Theo dõi tiến độ tăng cân</h2>
-            <p className="mt-2 max-w-2xl text-sm font700 leading-6 text-[#64748B]">
-              Cập nhật cân nặng mỗi 3 ngày để NutriGain theo dõi xu hướng tăng cân của bạn.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={openWeightForm}
-              className="inline-flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700"
-            >
+      <PageHeader
+        eyebrow="TIẾN ĐỘ"
+        title="Theo dõi tăng cân"
+        subtitle="Cập nhật cân nặng và quan sát tiến độ theo mục tiêu của bạn."
+        actions={
+          <>
+            <PageHeaderButton variant="primary" onClick={openWeightForm}>
               Cập nhật cân nặng hôm nay
-            </button>
-          </div>
-        </div>
-      </section>
+            </PageHeaderButton>
+          </>
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <WeightOverviewCard label="Cân nặng hiện tại" value={formatWeight(summary.current_weight)} />
@@ -3440,13 +3764,6 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
               Chưa có mục tiêu
             </div>
             <p className="mt-3 text-sm font800 leading-6 text-[#64748B]">Thêm mục tiêu trong Hồ sơ dinh dưỡng</p>
-            <button
-              type="button"
-              onClick={() => { if (typeof onEditProfile === 'function') onEditProfile(); }}
-              className="mt-3 text-sm font900 text-[#10B981] underline"
-            >
-              Chỉnh hồ sơ
-            </button>
           </div>
         )}
         <WeightOverviewCard label="Đã tăng được" value={formatDelta(summary.change_kg)} tone={Number(summary.change_kg || 0) >= 0 ? "green" : "orange"} />
@@ -4187,7 +4504,7 @@ function FoodDetailModal({ food, onClose }) {
   );
 }
 
-function AccountSettingsPage({ email, profile, eligibility, errors, onChange, onRegenerate, isSubmitting }) {
+function AccountSettingsPage({ email, profile, eligibility, errors, onChange, onRegenerate, onEditProfile, isSubmitting }) {
   const [activeTab, setActiveTab] = useState("profile");
 
   const tabs = [
@@ -4202,7 +4519,14 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
   };
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="HỒ SƠ"
+        title="Tài khoản"
+        subtitle="Cập nhật hồ sơ cá nhân và thông tin dinh dưỡng của bạn."
+      />
+
+      <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
       <div className="space-y-5">
         <AccountPanel email={email} />
         <div className="glass-panel p-2">
@@ -4344,7 +4668,8 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
           </section>
         )}
       </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -5668,37 +5993,25 @@ function NotificationPageHeader({ unreadCount, onMarkAllRead, onToggleFilters })
   );
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div>
-        <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Thông báo</p>
-        <h2 className="mt-2 text-2xl font-black text-slate-950">Trung tâm thông báo</h2>
-        <p className="mt-2 text-sm font700 leading-6 text-slate-500">
-          Theo dõi nhắc bữa ăn, cảnh báo dinh dưỡng và cập nhật hồ sơ hằng ngày.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-2xl border border-emerald-100 bg-white px-4 py-2 text-sm font900 text-emerald-700">
-          {todayLabel}
-        </span>
-        <button
-          type="button"
-          className="h-11 rounded-2xl bg-slate-950 px-4 text-sm font900 text-white shadow-sm"
-          onClick={onMarkAllRead}
-        >
-          Đánh dấu tất cả đã đọc ({unreadCount})
-        </button>
-        <button
-          type="button"
-          className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font900 text-slate-700 shadow-sm transition hover:border-emerald-200"
-          onClick={onToggleFilters}
-        >
-          <span className="inline-flex items-center gap-2">
-            <IconFilter className="h-4 w-4" />
-            Lọc
-          </span>
-        </button>
-      </div>
-    </div>
+    <PageHeader
+      eyebrow="TRUNG TÂM THÔNG BÁO"
+      title="Thông báo"
+      subtitle="Theo dõi nhắc nhở, cảnh báo dinh dưỡng và cập nhật hằng ngày."
+      date={todayLabel}
+      actions={
+        <>
+          <PageHeaderButton variant="primary" onClick={onMarkAllRead}>
+            Đánh dấu tất cả đã đọc ({unreadCount})
+          </PageHeaderButton>
+          <PageHeaderButton variant="ghost" onClick={onToggleFilters}>
+            <span className="inline-flex items-center gap-2">
+              <IconFilter className="h-4 w-4" />
+              Lọc
+            </span>
+          </PageHeaderButton>
+        </>
+      }
+    />
   );
 }
 
@@ -6030,25 +6343,27 @@ function EnhancedHelpPanel({ foods }) {
 
   return (
     <div id="help-panel" className="space-y-6">
-      
-      {/* Top Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black text-slate-950">Hỗ trợ</h1>
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font900 text-emerald-800">Support Center</span>
-          </div>
-          <p className="mt-1 text-sm font800 text-slate-500">Tìm câu trả lời nhanh, xem hướng dẫn sử dụng và gửi phản hồi cho hệ thống.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => handleScrollTo('quick-guide')} className="flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font900 text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 transition">
-            <HelpIcons.BookOpen className="h-4 w-4 text-emerald-600" /> Xem hướng dẫn
-          </button>
-          <button onClick={() => handleScrollTo('feedback-form')} className="flex items-center gap-2 rounded-2xl bg-brand-primary px-4 py-2.5 text-sm font900 text-white shadow-sm hover:bg-brand-primary-dark transition">
-            <HelpIcons.MessageSquare className="h-4 w-4" /> Gửi phản hồi
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="SUPPORT CENTER"
+        title="Hỗ trợ"
+        subtitle="Tìm câu trả lời nhanh, xem hướng dẫn sử dụng và gửi phản hồi."
+        actions={
+          <>
+            <PageHeaderButton variant="secondary" onClick={() => handleScrollTo('quick-guide')}>
+              <span className="inline-flex items-center gap-2">
+                <HelpIcons.BookOpen className="h-4 w-4 text-emerald-600" />
+                Xem hướng dẫn
+              </span>
+            </PageHeaderButton>
+            <PageHeaderButton variant="primary" onClick={() => handleScrollTo('feedback-form')}>
+              <span className="inline-flex items-center gap-2">
+                <HelpIcons.MessageSquare className="h-4 w-4" />
+                Gửi phản hồi
+              </span>
+            </PageHeaderButton>
+          </>
+        }
+      />
 
       {/* Hero Support Card */}
       <section className="glass-panel relative overflow-hidden bg-gradient-to-br from-[#0B2A4A] to-[#047857] p-8 sm:p-10 shadow-lg text-center">
@@ -6354,7 +6669,7 @@ function HelpPanel() {
         <NoticeRow
           tone="green"
           title="Cập nhật hồ sơ"
-          text="Dùng nút Chỉnh hồ sơ để nhập lại cân nặng, chiều cao hoặc mục tiêu."
+          text="Cập nhật lại cân nặng, chiều cao hoặc mục tiêu trong phần hồ sơ cá nhân khi cần."
         />
         <NoticeRow
           tone="blue"

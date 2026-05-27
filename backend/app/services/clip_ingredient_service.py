@@ -93,18 +93,6 @@ _prompt_meta: list[tuple[str, str]] | None = None
 
 
 def recognize_ingredients_with_clip(image_bytes: bytes, filename: str | None = None) -> dict[str, Any]:
-    filename_ingredient = recognize_ingredient_from_filename(filename)
-    logger.info("[FILENAME FALLBACK RESULT] %s", filename_ingredient)
-    if filename_ingredient:
-        return ingredient_response(
-            success=True,
-            ingredients=[filename_ingredient],
-            raw_labels=[],
-            confidence=1.0,
-            method="filename_fallback",
-            message=f"Đã nhận diện từ tên file: {filename_ingredient}",
-        )
-
     try:
         return recognize_with_clip(image_bytes)
     except Exception as exc:

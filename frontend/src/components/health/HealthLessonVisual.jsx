@@ -4,8 +4,13 @@ const LESSON_VISUALS = {
   "healthy-weight-gain": {
     icon: "🍽️",
     title: "Tăng cân lành mạnh",
-    flow: ["Ăn đủ bữa", "Bữa phụ", "Ngủ đủ", "Theo dõi"],
-    chips: ["🍚 Cơm", "🥛 Sữa", "🍌 Chuối", "🌙", "⚖️"],
+    subtitle: "Một ngày ăn uống cân bằng nên có đủ:",
+    cards: [
+      "Tinh bột để cung cấp năng lượng",
+      "Đạm để hỗ trợ phục hồi",
+      "Chất béo tốt để tăng năng lượng",
+      "Rau/củ/trái cây để bổ sung vi chất"
+    ],
     theme: "mint",
   },
   "protein-basics": {
@@ -151,8 +156,7 @@ export default function HealthLessonVisual({ lessonId, title, imageUrl }) {
 
       <div className="mt-5 rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3 text-sm font900 text-slate-700">
-          <span>Mini infographic</span>
-          <span className="text-slate-500">Không video, chỉ hình minh họa</span>
+          <span className="text-slate-600">Không cần hoàn hảo mỗi ngày. Chỉ cần đều hơn từng chút là tốt.</span>
         </div>
       </div>
     </div>

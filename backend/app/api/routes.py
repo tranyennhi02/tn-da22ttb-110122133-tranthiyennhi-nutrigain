@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
+import time
 import traceback
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -96,7 +99,7 @@ def normalize_ingredient_names(items):
         if not name:
             continue
 
-        key = name.lower()
+        key = strip_accents(name).lower()
         if key in seen:
             continue
 
@@ -117,33 +120,50 @@ def strip_accents(value):
 
 
 def fallback_ingredients_from_filename(filename):
-    text = strip_accents(str(filename or "").lower())
+    normalized_filename = normalize_filename(filename)
 
-    alias_map = {
-        "trung": "Trứng",
-        "egg": "Trứng",
-        "ca chua": "Cà chua",
-        "tomato": "Cà chua",
-        "thit ga": "Thịt gà",
-        "chicken": "Thịt gà",
-        "thit bo": "Thịt bò",
-        "beef": "Thịt bò",
-        "thit heo": "Thịt heo",
-        "pork": "Thịt heo",
-        "dau hu": "Đậu hũ",
-        "tofu": "Đậu hũ",
-        "rau": "Rau cải",
-        "nam": "Nấm",
-        "carrot": "Cà rốt",
-        "ca rot": "Cà rốt",
+    filename_ingredient_aliases = {
+        "Thịt heo": ["thit heo", "thit lon", "heo", "lon", "pork"],
+        "Thịt gà": ["thit ga", "ga", "chicken"],
+        "Thịt bò": ["thit bo", "bo", "beef"],
+        "Trứng": ["trung", "egg"],
+        "Cà rốt": ["ca rot", "carrot"],
+        "Nấm": ["nam", "mushroom"],
+        "Rau cải": ["rau cai", "cai", "rau"],
+        "Sữa": ["sua", "milk"],
+        "Đậu hũ": ["dau hu", "dau phu", "tofu"],
+        "Cà chua": ["ca chua", "tomato"],
+        "Cua": ["cua", "crab", "thit cua", "cua bien", "cua dong"],
     }
 
     found = []
-    for key, value in alias_map.items():
-        if key in text:
-            found.append(value)
+    for ingredient, patterns in filename_ingredient_aliases.items():
+        if any(pattern_in_filename(pattern, normalized_filename) for pattern in patterns):
+            found.append(ingredient)
 
     return normalize_ingredient_names(found)
+
+
+def normalize_filename(value):
+    text = os.path.basename(str(value or ""))
+    text = re.sub(r"\.[a-z0-9]+$", " ", text, flags=re.IGNORECASE)
+    text = strip_accents(text).lower()
+    text = re.sub(r"[\._\-]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def pattern_in_filename(pattern, normalized_filename):
+    normalized_pattern = normalize_filename(pattern)
+    if not normalized_pattern:
+        return False
+    return re.search(rf"(^|\s){re.escape(normalized_pattern)}($|\s)", normalized_filename) is not None
+
+
+def _is_clip_unavailable_error(exc: Exception) -> bool:
+    message = f"{type(exc).__name__}: {exc}".lower()
+    return any(token in message for token in ("torch is unavailable", "no module named 'torch'", " no module named torch", "clip", "runtimeerror", "torch"))
 
 
 @router.get("/health", tags=["system"])
@@ -380,8 +400,15 @@ def regenerate_meal_plan(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecommendationOutput:
-    print("[REGENERATE AVAILABLE INGREDIENTS RAW]", payload.available_ingredients, flush=True)
-    return controller.regenerate_meal_plan(payload, db, current_user)
+    start = time.perf_counter()
+    if os.getenv("DEBUG_RECOMMENDER", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        logger.info("[REGENERATE AVAILABLE INGREDIENTS RAW] %s", payload.available_ingredients)
+    result = controller.regenerate_meal_plan(payload, db, current_user)
+    logger.info(
+        "[REGENERATE ROUTE TIMING] %s",
+        {"total_ms": round((time.perf_counter() - start) * 1000.0, 2)},
+    )
+    return result
 
 
 @router.post("/meal-plans/recognize-ingredients", tags=["meal-plans"])
@@ -445,9 +472,21 @@ async def recognize_ingredient_image(
 
         except Exception as service_exc:
             print("[INGREDIENT SERVICE FAILED]", type(service_exc).__name__, repr(service_exc), flush=True)
-            traceback.print_exc()
+            if _is_clip_unavailable_error(service_exc):
+                print("[INGREDIENT CLIP UNAVAILABLE]", {
+                    "error": repr(service_exc),
+                    "action": "fallback_filename",
+                }, flush=True)
+            else:
+                traceback.print_exc()
 
+            normalized_filename = normalize_filename(file.filename or "")
             ingredients = fallback_ingredients_from_filename(file.filename or "")
+            print("[INGREDIENT FILENAME FALLBACK DEBUG]", {
+                "filename": file.filename or "",
+                "normalized_filename": normalized_filename,
+                "ingredients": ingredients,
+            }, flush=True)
 
             if not ingredients:
                 return JSONResponse(
@@ -455,9 +494,18 @@ async def recognize_ingredient_image(
                     content={
                         "success": False,
                         "ingredients": [],
-                        "message": f"Không thể chạy AI nhận diện ảnh: {type(service_exc).__name__}: {str(service_exc)}",
+                        "message": "AI nhận diện ảnh hiện chưa khả dụng. Bạn có thể nhập nguyên liệu thủ công hoặc đổi tên file theo nguyên liệu, ví dụ thit-heo.jpg.",
                     },
                 )
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "ingredients": ingredients,
+                    "message": "AI hiện chưa khả dụng, đã nhận diện tạm theo tên file.",
+                },
+            )
 
         ingredients = normalize_ingredient_names(ingredients)
 

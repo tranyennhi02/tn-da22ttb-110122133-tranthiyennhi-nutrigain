@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 from sqlalchemy import bindparam, func, inspect, select, text
@@ -49,6 +50,66 @@ class RecommendationRepository:
         if row_id is not None:
             return str(row_id)
         return None
+
+    @staticmethod
+    def resolve_food_db_ids(db: Session, raw_food_ids: list[object]) -> dict[str, str | None]:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        unique_ids = [str(food_id) for food_id in dict.fromkeys(raw_food_ids) if str(food_id or "").strip()]
+        resolved: dict[str, str | None] = {food_id: None for food_id in unique_ids}
+        if not unique_ids:
+            return resolved
+
+        try:
+            food_columns = {column["name"] for column in inspect(db.bind).get_columns("foods")}
+        except Exception as exc:
+            logger.warning("Bulk food id resolution could not inspect foods table: %s", exc)
+            food_columns = set()
+
+        if "id" in food_columns:
+            numeric_lookup: dict[int, str] = {}
+            for raw_id in unique_ids:
+                try:
+                    numeric_lookup[int(raw_id)] = raw_id
+                except (TypeError, ValueError):
+                    continue
+            if numeric_lookup:
+                try:
+                    rows = db.execute(
+                        text("SELECT CAST(id AS CHAR) AS resolved_id FROM foods WHERE id IN :ids").bindparams(
+                            bindparam("ids", expanding=True)
+                        ),
+                        {"ids": list(numeric_lookup.keys())},
+                    ).mappings()
+                    for row in rows:
+                        resolved_id = str(row["resolved_id"])
+                        original = numeric_lookup.get(int(resolved_id), resolved_id)
+                        resolved[original] = resolved_id
+                except Exception as exc:
+                    logger.warning("Bulk numeric food id resolution failed; falling back per item: %s", exc)
+
+        if "food_id" in food_columns:
+            unresolved = [raw_id for raw_id, value in resolved.items() if value is None]
+            if unresolved:
+                try:
+                    rows = db.execute(
+                        text("SELECT CAST(food_id AS CHAR) AS resolved_id FROM foods WHERE food_id IN :food_ids").bindparams(
+                            bindparam("food_ids", expanding=True)
+                        ),
+                        {"food_ids": unresolved},
+                    ).mappings()
+                    for row in rows:
+                        resolved_id = str(row["resolved_id"])
+                        if resolved_id in resolved:
+                            resolved[resolved_id] = resolved_id
+                except Exception as exc:
+                    logger.warning("Bulk string food id resolution failed; falling back per item: %s", exc)
+
+        for raw_id, value in list(resolved.items()):
+            if value is None:
+                resolved[raw_id] = RecommendationRepository.resolve_food_db_id(db, raw_id)
+        return resolved
 
     def create_request_with_items(
         self,
@@ -159,14 +220,22 @@ class RecommendationRepository:
                 total_carbs=sum(float(item.get("carbs") or item.get("carb") or 0.0) for item in meal_type_items),
                 meal_order=meal_sort_order.get(meal_type, 99),
             )
-            self.db.add(meal_row)
-            self.db.flush()
             meal_rows[meal_type] = meal_row
+        self.db.add_all(meal_rows.values())
+        self.db.flush()
 
         logger.info(f"created meals count: {len(meal_rows)}")
 
         created_items_count = 0
         skipped_items: list[dict] = []
+        raw_food_ids = [
+            str(item.get("food_id", ""))
+            for meal_type_items in grouped_items.values()
+            for item in meal_type_items
+            if isinstance(item, dict)
+        ]
+        resolved_food_ids = self.resolve_food_db_ids(self.db, raw_food_ids)
+        meal_item_rows: list[MealPlanItem] = []
         for meal_type, meal_type_items in grouped_items.items():
             meal_kcal_sum = 0.0
             meal_protein_sum = 0.0
@@ -176,7 +245,7 @@ class RecommendationRepository:
                 item_payload = dict(item)
                 
                 raw_food_id = str(item_payload.get("food_id", ""))
-                resolved_food_id = self.resolve_food_db_id(self.db, raw_food_id)
+                resolved_food_id = resolved_food_ids.get(raw_food_id)
 
                 if not resolved_food_id:
                     logger.warning(f"Skip item because food does not exist: {raw_food_id}")
@@ -206,7 +275,7 @@ class RecommendationRepository:
                     image_badge=str(item_payload.get("image_badge") or ""),
                     item_order=idx,
                 )
-                self.db.add(m_item)
+                meal_item_rows.append(m_item)
                 created_items_count += 1
                 meal_kcal_sum += float(m_item.kcal or 0.0)
                 meal_protein_sum += float(m_item.protein or 0.0)
@@ -218,6 +287,9 @@ class RecommendationRepository:
             meal_rows[meal_type].total_protein = meal_protein_sum
             meal_rows[meal_type].total_fat = meal_fat_sum
             meal_rows[meal_type].total_carbs = meal_carbs_sum
+
+        if meal_item_rows:
+            self.db.add_all(meal_item_rows)
 
         # Recalculate meal plan totals
         meal_plan.total_kcal = sum(m.total_kcal for m in meal_rows.values())
@@ -254,9 +326,10 @@ class RecommendationRepository:
             raise HTTPException(status_code=422, detail=detail)
 
         logger.info(f"created meal_plan_items count: {created_items_count}")
-        inserted_items = [item for meal in meal_rows.values() for item in meal.items]
+        inserted_items = meal_item_rows
         actual_total_kcal = sum(float(item.kcal or 0.0) for item in inserted_items)
-        logger.warning("DEBUG_INSERTED_TOTAL_KCAL=%s inserted_count=%s", actual_total_kcal, len(inserted_items))
+        if str(os.getenv("DEBUG_RECOMMENDER", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+            logger.warning("DEBUG_INSERTED_TOTAL_KCAL=%s inserted_count=%s", actual_total_kcal, len(inserted_items))
         if len(inserted_items) < len(meal_items):
             logger.warning(
                 "Inserted fewer items than sample. inserted_count=%s sample_count=%s",

@@ -1,157 +1,222 @@
-import { BookOpen, Flame, Sparkles, Target, UtensilsCrossed } from "lucide-react";
-import HealthLessonVisual from "../components/health/HealthLessonVisual";
+import healthyWeightGainImg from "../assets/education/healthy-weight-gain.png";
+import proteinFoodsImg from "../assets/education/protein-foods.png";
+import healthySleepImg from "../assets/education/healthy-sleep.png";
+import weightGainMythsImg from "../assets/education/weight-gain-myths.png";
+import { PageHeader } from "../components/PageHeader";
 
-const quickTopics = [
+const coreIdeas = [
   {
+    id: "eat-regularly",
     title: "Ăn đều",
-    text: "Chia bữa hợp lý để cơ thể có năng lượng ổn định hơn.",
-    icon: Flame,
+    summary: "Ăn đều giúp cơ thể có năng lượng ổn định trong ngày.",
+    meaning: "Cơ thể ít bị đói quá lâu, dễ giữ nhịp ăn và tránh ăn quá nhiều một lúc.",
+    color: "bg-emerald-50",
   },
   {
+    id: "enough-protein",
     title: "Đạm đủ",
-    text: "Protein giúp phục hồi và hỗ trợ tăng cân bền hơn.",
-    icon: Target,
+    summary: "Đạm giúp cơ thể phục hồi và xây dựng mô khi bạn tăng cân.",
+    meaning: "Tăng cân lành mạnh cần đủ nguyên liệu (đạm) để cơ thể khỏe hơn, không chỉ nhiều calo.",
+    color: "bg-amber-50",
   },
   {
+    id: "sleep-well",
     title: "Ngủ đủ",
-    text: "Giấc ngủ tốt giúp nhịp chăm sóc cơ thể đều đặn hơn.",
-    icon: BookOpen,
-  },
-];
-
-const mythFactCards = [
-  {
-    tone: "myth",
-    label: "Hiểu lầm",
-    title: "Ăn càng nhiều càng tốt",
-    text: "Tăng cân bền vững cần đủ năng lượng, đủ đạm và nhịp ăn đều.",
+    summary: "Ngủ đủ giúp cơ thể nghỉ ngơi, phục hồi và duy trì thói quen ăn uống.",
+    meaning: "Khi ngủ tốt, bạn ít mệt, dễ ăn đều hơn và hấp thu tốt hơn.",
+    color: "bg-sky-50",
   },
   {
-    tone: "fact",
-    label: "Sự thật",
-    title: "Tăng từ từ sẽ chắc hơn",
-    text: "Đi từng bước nhỏ giúp cơ thể thích nghi và duy trì thói quen lâu hơn.",
+    id: "healthy-gain",
+    title: "Tăng cân lành mạnh",
+    summary: "Tăng từ từ, đủ chất và bền vững thay vì ép ăn quá nhiều.",
+    meaning: "Đa dạng thực phẩm, đủ đạm, tinh bột và rau củ giúp tăng cân khỏe hơn.",
+    color: "bg-pink-50",
   },
 ];
 
-const learningProgress = [
-  { title: "Tăng cân lành mạnh", done: true },
-  { title: "Protein là gì?", done: true },
-  { title: "Ngủ đủ quan trọng", done: true },
-  { title: "Hiểu lầm về tăng cân", done: false },
-];
+function Badge({ children }) {
+  return <span className="rounded-full bg-white/80 px-3 py-1 text-xs font700 text-slate-700 shadow-sm">{children}</span>;
+}
 
-export default function HealthEducationView({ userEmail }) {
-  const doneCount = learningProgress.filter((item) => item.done).length;
-  const progressPercent = Math.round((doneCount / learningProgress.length) * 100);
+function Hero() {
+  return (
+    <section className="rounded-[24px] bg-gradient-to-r from-emerald-50 to-white p-5 sm:p-6 lg:p-8">
+      <div className="mx-auto grid gap-4 md:grid-cols-2 items-center">
+        <div>
+          <p className="text-xs font700 uppercase text-emerald-700">Hiểu cơ thể thật đơn giản</p>
+          <h1 className="mt-3 text-2xl font-black text-slate-900 sm:text-3xl">Hiểu cơ thể để tăng cân khỏe mạnh</h1>
+          <p className="mt-2 max-w-lg text-sm text-slate-600">Không cần nhiều lý thuyết — chỉ vài nguyên tắc để ăn đều, đủ chất và tăng cân bền vững.</p>
+          <div className="mt-4 flex gap-2">
+            <Badge>Dễ hiểu</Badge>
+            <Badge>Gọn gàng</Badge>
+            <Badge>Áp dụng hằng ngày</Badge>
+          </div>
+        </div>
+
+        <div className="order-first md:order-last flex justify-center">
+          <div className="overflow-hidden rounded-[20px] shadow-sm w-full max-w-md">
+            <img src={healthyWeightGainImg} alt="Tăng cân lành mạnh" className="w-full h-[260px] md:h-[220px] object-cover object-center" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function UnderstandingCards() {
+  return (
+    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {coreIdeas.map((idea) => (
+        <article key={idea.id} className={`rounded-[20px] p-4 ${idea.color} border border-white/60 shadow-sm hover:shadow-md transition-transform hover:-translate-y-0.5` }>
+          <h3 className="text-base font-bold text-slate-900">{idea.title}</h3>
+          <p className="mt-1 text-sm text-slate-700">{idea.summary}</p>
+          <p className="mt-2 text-xs text-slate-600">{idea.meaning}</p>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function ExplanationSection() {
+  return (
+    <section className="space-y-6">
+      {/* Block 1 - Eat regularly (image right) */}
+      <div className="grid gap-4 items-center md:grid-cols-2">
+        <div>
+          <h4 className="text-base font-bold text-slate-900">Vì sao cần ăn đều?</h4>
+          <p className="mt-2 text-sm text-slate-700">Ăn đều giúp cơ thể giữ năng lượng ổn định và tránh ăn bù quá nhiều một lúc.</p>
+          <ul className="mt-3 text-sm text-slate-600 list-inside list-disc space-y-1">
+            <li>Ít mệt hơn</li>
+            <li>Đỡ bỏ bữa</li>
+            <li>Dễ duy trì thói quen</li>
+          </ul>
+        </div>
+        <div className="flex justify-center">
+          <div className="overflow-hidden rounded-[20px] shadow-sm w-full max-w-md">
+            <img src={healthyWeightGainImg} alt="Ăn đều" className="w-full h-48 object-cover object-center" />
+          </div>
+        </div>
+      </div>
+
+      {/* Block 2 - Protein (image left) */}
+      <div className="grid gap-4 items-center md:grid-cols-2">
+        <div className="order-last md:order-first flex justify-center">
+          <div className="overflow-hidden rounded-[20px] shadow-sm w-full max-w-md">
+            <img src={proteinFoodsImg} alt="Đạm" className="w-full h-48 object-cover object-center" />
+          </div>
+        </div>
+        <div>
+          <h4 className="text-base font-bold text-slate-900">Vì sao cần đủ đạm?</h4>
+          <p className="mt-2 text-sm text-slate-700">Đạm là nguyên liệu để phục hồi cơ và xây dựng khi bạn tăng cân.</p>
+          <ul className="mt-3 text-sm text-slate-600 list-inside list-disc space-y-1">
+            <li>Hỗ trợ phục hồi</li>
+            <li>Giúp tăng cơ hơn là mỡ</li>
+            <li>Giữ bạn no lâu hơn</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Block 3 - Sleep (image right) */}
+      <div className="grid gap-4 items-center md:grid-cols-2">
+        <div>
+          <h4 className="text-base font-bold text-slate-900">Ngủ ảnh hưởng thế nào?</h4>
+          <p className="mt-2 text-sm text-slate-700">Ngủ đủ giúp cơ thể phục hồi, giảm mệt mỏi và hỗ trợ thói quen ăn uống đều đặn.</p>
+          <ul className="mt-3 text-sm text-slate-600 list-inside list-disc space-y-1">
+            <li>Phục hồi tốt hơn</li>
+            <li>Ít mệt trong ngày</li>
+            <li>Dễ ăn đều hơn</li>
+          </ul>
+        </div>
+        <div className="flex justify-center">
+          <div className="overflow-hidden rounded-[20px] shadow-sm w-full max-w-md">
+            <img src={healthySleepImg} alt="Ngủ đủ" className="w-full h-48 object-cover object-center" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MythTruthSection() {
+  const myths = [
+    {
+      myth: "Muốn tăng cân thì ăn càng nhiều càng tốt.",
+      truth: "Tăng cân hiệu quả là ăn đủ và đều; không cần ép bản thân ăn quá nhiều trong một lần.",
+    },
+    {
+      myth: "Chỉ cần tăng cân là được.",
+      truth: "Tăng cân lành mạnh nên đi kèm đủ đạm, đủ năng lượng và sinh hoạt ổn định.",
+    },
+    {
+      myth: "Ngủ không ảnh hưởng đến tăng cân.",
+      truth: "Ngủ đủ giúp cơ thể phục hồi và hỗ trợ thói quen ăn uống đều hơn.",
+    },
+  ];
+
+  return (
+    <section className="grid gap-4 sm:grid-cols-3">
+      {myths.map((m, idx) => (
+        <div key={idx} className="rounded-[20px] border p-4 bg-white/90 shadow-sm">
+          <p className="text-xs font700 text-amber-700">Hiểu lầm</p>
+          <p className="mt-2 text-sm text-slate-700">{m.myth}</p>
+          <div className="mt-3 rounded-md bg-emerald-50 p-3">
+            <p className="text-xs font700 text-emerald-700">Thực tế</p>
+            <p className="mt-1 text-sm text-slate-700">{m.truth}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function GentleTipsSection() {
+  const tips = [
+    "Ăn đủ các bữa chính",
+    "Thêm 1 món giàu đạm",
+    "Tránh bỏ bữa quá lâu",
+    "Ngủ sớm hơn một chút tối nay",
+  ];
+  return (
+    <section className="grid gap-4 md:grid-cols-2 items-start">
+      <div className="rounded-[20px] p-4 bg-white/90 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-900">Hôm nay bạn có thể bắt đầu từ đây</h3>
+        <p className="mt-2 text-sm text-slate-700">Không cần thay đổi mọi thứ — 1–2 bước nhỏ là đủ.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {tips.map((t) => (
+            <span key={t} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700">{t}</span>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-[20px] p-4 bg-emerald-50/60 shadow-sm">
+        <p className="text-sm font700 text-slate-900">Chú ý nhỏ</p>
+        <p className="mt-2 text-sm text-slate-700">Chỉ cần đều hơn hôm qua một chút — đó đã là tiến bộ.</p>
+      </div>
+    </section>
+  );
+}
+
+export default function HealthEducationView({ onEditProfile }) {
   return (
     <div className="space-y-6">
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-        <div className="rounded-[32px] border border-white/80 bg-white/90 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:p-8">
-          <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Bài học hôm nay</p>
-          <h2 className="mt-2 text-3xl font-black leading-tight text-slate-950 sm:text-4xl">Ăn đều, ngủ đủ, tăng cân từ từ</h2>
-          <p className="mt-3 max-w-2xl text-sm font800 leading-7 text-slate-600 sm:text-base">
-            Mỗi bài học được rút gọn để bạn đọc nhanh, hiểu nhanh và áp dụng ngay vào nhịp chăm sóc của mình.
-          </p>
+      <PageHeader
+        eyebrow="KIẾN THỨC DINH DƯỠNG"
+        title="Giáo dục sức khỏe"
+        subtitle="Hiểu nhanh các nguyên tắc ăn uống, nghỉ ngơi và tăng cân lành mạnh."
+      />
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {quickTopics.map((topic) => {
-              const Icon = topic.icon;
-              return (
-                <article key={topic.title} className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm ring-1 ring-slate-100">
-                    <Icon size={20} strokeWidth={2.4} />
-                  </div>
-                  <h3 className="mt-3 text-sm font900 text-slate-950">{topic.title}</h3>
-                  <p className="mt-1 text-sm font700 leading-6 text-slate-500">{topic.text}</p>
-                </article>
-              );
-            })}
-          </div>
+      <Hero />
 
-          <div className="mt-6 rounded-[28px] border border-emerald-100 bg-emerald-50/70 p-5">
-            <div className="flex items-center gap-2 text-emerald-700">
-              <Sparkles size={18} strokeWidth={2.4} />
-              <p className="text-xs font900 uppercase tracking-[0.18em]">Nhịp học nhanh</p>
-            </div>
-            <p className="mt-2 text-sm font800 leading-6 text-slate-700">
-              1) Ăn đều hơn một chút. 2) Giữ đủ đạm ở mỗi bữa. 3) Theo dõi cảm giác cơ thể sau vài ngày.
-            </p>
-          </div>
-        </div>
+      <div className="grid gap-6">
+        <UnderstandingCards />
 
-        <div className="rounded-[32px] border border-white/80 bg-white/90 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font900 uppercase tracking-[0.18em] text-emerald-700">Tiến độ học tập</p>
-              <h3 className="mt-1 text-xl font-black text-slate-950">Đã hoàn thành {doneCount}/{learningProgress.length} mục</h3>
-            </div>
-            <div className="rounded-2xl bg-slate-950 px-4 py-3 text-right text-white">
-              <div className="text-2xl font-black">{progressPercent}%</div>
-              <div className="text-xs font800 uppercase tracking-[0.16em] text-white/70">learning</div>
-            </div>
-          </div>
+        <ExplanationSection />
 
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-lime-400" style={{ width: `${progressPercent}%` }} />
-          </div>
+        <MythTruthSection />
 
-          <div className="mt-5 space-y-3">
-            {learningProgress.map((item) => (
-              <div key={item.title} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
-                <div className={`flex h-9 w-9 items-center justify-center rounded-2xl text-sm font900 ${item.done ? "bg-emerald-100 text-emerald-700" : "bg-white text-slate-400 ring-1 ring-slate-100"}`}>
-                  {item.done ? "✓" : "•"}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font900 text-slate-950">{item.title}</p>
-                  <p className="text-xs font700 text-slate-500">{item.done ? "Đã xem qua" : "Chưa mở"}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <HealthLessonVisual lessonId="healthy-weight-gain" title="Tăng cân lành mạnh" />
-
-        <div className="space-y-6">
-          <div className="rounded-[32px] border border-white/80 bg-white/90 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-            <div className="flex items-center gap-2 text-emerald-700">
-              <UtensilsCrossed size={18} strokeWidth={2.4} />
-              <p className="text-xs font900 uppercase tracking-[0.18em]">Chủ đề học nhanh</p>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {quickTopics.map((topic) => (
-                <span key={topic.title} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font900 text-slate-700">
-                  {topic.title}
-                </span>
-              ))}
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font900 text-emerald-700">Nhịp chăm sóc hôm nay</span>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {mythFactCards.map((card) => (
-              <article key={card.title} className={`rounded-[28px] border p-5 ${card.tone === "myth" ? "border-amber-100 bg-amber-50/70" : "border-emerald-100 bg-emerald-50/70"}`}>
-                <p className={`text-xs font900 uppercase tracking-[0.18em] ${card.tone === "myth" ? "text-amber-700" : "text-emerald-700"}`}>{card.label}</p>
-                <h3 className="mt-2 text-lg font-black text-slate-950">{card.title}</h3>
-                <p className="mt-2 text-sm font700 leading-6 text-slate-600">{card.text}</p>
-              </article>
-            ))}
-          </div>
-
-          <div className="rounded-[28px] border border-slate-100 bg-slate-50 p-6">
-            <p className="text-xs font900 uppercase tracking-[0.18em] text-slate-500">Ghi nhớ</p>
-            <p className="mt-2 text-sm font800 leading-7 text-slate-700">
-              Tiến bộ không cần hoàn hảo. Chỉ cần đều đặn hơn một chút.
-            </p>
-            {userEmail ? (
-              <p className="mt-3 text-xs font800 text-slate-500">Đang xem dưới tài khoản {userEmail}</p>
-            ) : null}
-          </div>
-        </div>
-      </section>
+        <GentleTipsSection />
+      </div>
     </div>
   );
 }
