@@ -5,9 +5,9 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-food_recommender}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nutrigain}
       MYSQL_USER: ${MYSQL_USER:-nutrigain}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-yennhi2602}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
     ports:
       - "${DB_PORT:-3307}:3306"
     volumes:
@@ -31,7 +31,8 @@ services:
       APP_NAME: NutriGain API
       APP_ENV: ${APP_ENV:-production}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-      DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://nutrigain:yennhi2602@db:3306/food_recommender}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://nutrigain:password@db:3306/nutrigain}
       FOOD_DATASET_PATH: ${FOOD_DATASET_PATH:-/app/food_dataset_fixed.csv}
       RAW_DATA_PATH: ${RAW_DATA_PATH:-/app/food_dataset_fixed.csv}
       SCALED_DATA_PATH: ${SCALED_DATA_PATH:-/app/food_dataset_fixed.csv}
@@ -40,6 +41,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-secret-before-production}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/v1/auth/google/callback}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:

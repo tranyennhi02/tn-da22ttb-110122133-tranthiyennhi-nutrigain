@@ -289,6 +289,12 @@ class UserService:
             "payload_weight_kg": payload.weight_kg,
         })
 
+        def raise_validation_error(code: str, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+            raise HTTPException(
+                status_code=status_code,
+                detail={"code": code, "message": message},
+            )
+
         current_profile = (
             db.query(UserProfileEntity)
             .filter(UserProfileEntity.user_id == user.id)
@@ -298,6 +304,7 @@ class UserService:
 
         current_weight = values.get("weight_kg") or getattr(current_profile, "weight_kg", None)
         target_weight = values.get("target_weight_kg") or getattr(current_profile, "target_weight_kg", None)
+        height = values.get("height_cm") or (getattr(current_profile, "height_cm", None) if current_profile else None)
         duration_value = values.get("target_duration_value")
         duration_unit = values.get("target_duration_unit") or getattr(current_profile, "target_duration_unit", None) or "months"
         if duration_value is None:
@@ -308,15 +315,25 @@ class UserService:
             "target_duration_value": duration_value,
             "target_duration_unit": duration_unit,
         })
+        if current_weight is not None:
+            current_weight_value = float(current_weight)
+            if current_weight_value <= 0 or current_weight_value > 250:
+                print("[PROFILE TARGET REJECTED]", {"reason": "invalid_current_weight", "current_weight_kg": current_weight_value})
+                raise_validation_error("INVALID_WEIGHT", "Cân nặng này có vẻ chưa hợp lý. Vui lòng nhập lại theo đơn vị kg.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if height is not None:
+            height_value = float(height)
+            if height_value < 100 or height_value > 230:
+                print("[PROFILE TARGET REJECTED]", {"reason": "invalid_height", "height_cm": height_value})
+                raise_validation_error("INVALID_HEIGHT", "Chiều cao này có vẻ chưa hợp lý. Vui lòng nhập theo đơn vị cm.", status.HTTP_422_UNPROCESSABLE_ENTITY)
         if duration_value is not None and duration_value <= 0:
             print("[PROFILE TARGET REJECTED]", {"reason": "invalid_duration", "duration_value": duration_value})
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vui lòng nhập thời gian hợp lệ.")
+            raise_validation_error("INVALID_TARGET", "Vui lòng nhập thời gian hợp lệ.")
         if current_weight is not None and target_weight is not None:
             current_weight = float(current_weight)
             target_weight = float(target_weight)
             if target_weight <= current_weight:
                 print("[PROFILE TARGET REJECTED]", {"reason": "target_not_greater_than_current", "current_weight_kg": current_weight, "target_weight_kg": target_weight})
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cân nặng mục tiêu phải lớn hơn cân nặng hiện tại.")
+                raise_validation_error("INVALID_TARGET", "Mục tiêu cân nặng cần lớn hơn cân nặng hiện tại để NutriGain tạo kế hoạch tăng cân.")
             if duration_value is not None:
                 duration_months = float(duration_value) / WEEKS_PER_MONTH if str(duration_unit).lower() == "weeks" else float(duration_value)
                 if duration_months > 0:
@@ -329,24 +346,24 @@ class UserService:
                             "min_months": min_months,
                             "min_weeks": min_months * WEEKS_PER_MONTH,
                         })
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Thời gian mục tiêu quá ngắn. Vui lòng chọn tối thiểu khoảng {min_months} tháng.",
+                        raise_validation_error(
+                            "INVALID_TARGET",
+                            f"Mục tiêu này tăng quá nhanh để NutriGain gợi ý thực đơn an toàn. Vui lòng tăng thời gian mục tiêu hoặc giảm cân nặng mục tiêu.",
                         )
                     values["target_duration_unit"] = "weeks" if str(duration_unit).lower() == "weeks" else "months"
                     values["target_duration_months"] = duration_months
                     values["target_gain_rate_kg_per_month"] = required_gain_per_month
         
         target_weight = values.get("target_weight_kg")
-        height = values.get("height_cm") or (getattr(current_profile, "height_cm", None) if current_profile else None)
         if target_weight is not None and height is not None and float(height) > 0:
             target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
             if target_bmi >= 23.0:
                 min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
                 max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
+                raise_validation_error(
+                    "INVALID_TARGET",
+                    f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg.",
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
         if "gender" in values and values["gender"] is not None:

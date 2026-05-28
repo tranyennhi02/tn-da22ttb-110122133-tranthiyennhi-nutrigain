@@ -100,6 +100,154 @@ const mealAccents = {
   dinner: "orange",
 };
 
+function normalizePorkDisplayText(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text
+    .replace(/Thịt heo/g, "Thịt lợn")
+    .replace(/thịt heo/g, "thịt lợn")
+    .replace(/\bHeo\b/g, "Lợn")
+    .replace(/\bheo\b/g, "lợn");
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const INGREDIENT_ALIAS_GROUPS = {
+  chicken: ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
+  pork: ["thit lon", "lon", "thit heo", "heo", "pork", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo"],
+  beef: ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay"],
+  egg: ["trung", "trung ga", "long do trung", "long trang trung", "egg"],
+  tomato: ["ca chua", "tomato"],
+  crab: ["cua", "crab"],
+  shrimp: ["tom", "shrimp", "prawn"],
+  fish: ["ca", "fish"],
+  tofu: ["dau hu", "dau phu", "tofu"],
+  mustard_greens: ["rau cai", "cai", "cai xanh", "cai thia", "cai xoan", "cai mu tat", "greens", "mustard greens"],
+  carrot: ["ca rot", "carrot"],
+  mushroom: ["nam", "mushroom"],
+  milk: ["sua", "sua tuoi", "milk"],
+  yogurt: ["sua chua", "yogurt"],
+  rice: ["com", "gao", "rice"],
+  potato: ["khoai tay", "potato"],
+  sweet_potato: ["khoai lang", "sweet potato"],
+};
+
+const INGREDIENT_DISPLAY_LABELS = {
+  chicken: "Thịt gà",
+  pork: "Thịt lợn",
+  beef: "Thịt bò",
+  egg: "Trứng",
+  tomato: "Cà chua",
+  crab: "Cua",
+  shrimp: "Tôm",
+  fish: "Cá",
+  tofu: "Đậu hũ",
+  mustard_greens: "Rau cải",
+  carrot: "Cà rốt",
+  mushroom: "Nấm",
+  milk: "Sữa",
+  yogurt: "Sữa chua",
+  rice: "Cơm",
+  potato: "Khoai tây",
+  sweet_potato: "Khoai lang",
+};
+
+function getIngredientGroupKey(rawIngredient) {
+  const normalized = normalizeText(rawIngredient);
+  if (!normalized) return "";
+  for (const [groupKey, aliases] of Object.entries(INGREDIENT_ALIAS_GROUPS)) {
+    if (aliases.some((alias) => normalizeText(alias) === normalized)) {
+      return groupKey;
+    }
+  }
+  return normalized;
+}
+
+function expandIngredientAliases(rawIngredient) {
+  const normalized = normalizeText(rawIngredient);
+  if (!normalized) return [];
+  const groupKey = getIngredientGroupKey(rawIngredient);
+  const aliases = INGREDIENT_ALIAS_GROUPS[groupKey];
+  return Array.isArray(aliases) && aliases.length ? aliases : [normalized];
+}
+
+function getFoodSearchText(food) {
+  return normalizeText(
+    [
+      food?.name,
+      food?.food_name,
+      food?.display_name,
+      food?.category,
+      food?.food_group,
+      food?.description,
+      Array.isArray(food?.ingredients) ? food.ingredients.join(" ") : food?.ingredients,
+      Array.isArray(food?.tags) ? food.tags.join(" ") : food?.tags,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function foodTextHasAlias(foodText, alias) {
+  const normalizedAlias = normalizeText(alias);
+  if (!normalizedAlias || normalizedAlias.length < 2) return false;
+  if (normalizedAlias.includes(" ")) {
+    return foodText.includes(normalizedAlias);
+  }
+  const tokens = foodText.split(" ").filter(Boolean);
+  return tokens.includes(normalizedAlias);
+}
+
+function foodMatchesIngredient(food, ingredient) {
+  const aliases = expandIngredientAliases(ingredient);
+  const text = getFoodSearchText(food);
+  return aliases.some((alias) => foodTextHasAlias(text, alias));
+}
+
+function displayIngredientLabel(raw) {
+  const normalized = normalizeText(raw);
+  for (const [groupKey, aliases] of Object.entries(INGREDIENT_ALIAS_GROUPS)) {
+    if (aliases.some((alias) => normalizeText(alias) === normalized)) {
+      return INGREDIENT_DISPLAY_LABELS[groupKey] || titleCase(raw);
+    }
+  }
+  return titleCase(raw);
+}
+
+function titleCase(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function normalizeIngredientForPayload(value) {
+  const raw = String(value || "").trim();
+  const groupKey = getIngredientGroupKey(raw);
+  if (groupKey === "pork") return "Thịt heo";
+  if (groupKey === "chicken") return "Thịt gà";
+  if (groupKey === "beef") return "Thịt bò";
+  if (groupKey === "egg") return "Trứng";
+  if (groupKey === "tomato") return "Cà chua";
+  if (groupKey === "crab") return "Cua";
+  if (groupKey === "mustard_greens") return "Rau cải";
+  if (groupKey === "tofu") return "Đậu hũ";
+  return raw;
+}
+
+function ingredientCompareKey(value) {
+  return getIngredientGroupKey(value) || normalizeText(value);
+}
+
 const EAT_REGULARLY_CHALLENGE_KEY = "first_complete_day";
 
 const defaultFoodImage = "/images/placeholders/food-default.svg";
@@ -223,7 +371,19 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const profileOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(profileOutOfScopeResult), [profileOutOfScopeResult]);
   const resultOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(result), [result]);
   const outOfScopeNotice = profileOutOfScopeNotice || resultOutOfScopeNotice;
-  const meals = useMemo(() => buildMeals(result?.meal_plan, formState.diet_style, formState), [result, formState]);
+  const meals = useMemo(
+    () => buildMeals(result?.meal_plan, formState.diet_style, {
+      ...formState,
+      available_ingredients: Array.from(
+        new Set([
+          ...(formState.available_ingredients || []),
+          ...(formState.ingredients || []),
+          ...(selectedIngredients || []),
+        ]),
+      ),
+    }),
+    [result, formState, selectedIngredients],
+  );
   const hasTodayMeals = useMemo(
     () => Array.isArray(meals) && meals.some((meal) => Array.isArray(meal?.items) && meal.items.length > 0),
     [meals],
@@ -338,10 +498,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     }
     didCompleteEatingStreakTodayRef.current = true;
     try {
-      console.log("[GAMIFICATION COMPLETE START]", EAT_REGULARLY_CHALLENGE_KEY);
       const response = await completeGamificationChallenge(EAT_REGULARLY_CHALLENGE_KEY);
       console.log("[GAMIFICATION COMPLETE SUCCESS]", response);
-      setDidCompleteEatingStreakToday(true);
       setGamificationRefreshKey((value) => value + 1);
     } catch (error) {
       didCompleteEatingStreakTodayRef.current = false;
@@ -600,7 +758,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
 
     if (Object.keys(nextErrors).length > 0) {
       setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo thực đơn.");
-      onRequireProfile?.();
+      handleEditProfile();
       return;
     }
 
@@ -638,7 +796,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
 
     if (Object.keys(nextErrors).length > 0) {
       setSubmitError("Hồ sơ chưa hợp lệ. Vui lòng hoàn thiện hồ sơ trước khi tạo lại thực đơn.");
-      onRequireProfile?.();
+      handleEditProfile();
       return;
     }
 
@@ -668,6 +826,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         setFormState((current) => ({
           ...current,
           ...mapUserProfileToFormState(freshProfile),
+          available_ingredients: current.available_ingredients || current.ingredients || [],
+          ingredients: current.ingredients || current.available_ingredients || [],
         }));
       }
       console.log("[REGENERATE USING FRESH PROFILE]", {
@@ -683,7 +843,17 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       // 2. Tạo lại thực đơn bằng POST /api/v1/meal-plans/regenerate
       // Phase 1: new seed EVERY regenerate call — never reuse cached seed
       const regenSeed = Date.now();
-      const currentAvailableIngredients = formState.available_ingredients || [];
+      const currentAvailableIngredients = Array.from(
+        new Set(
+          [
+            ...(formState.available_ingredients || []),
+            ...(formState.ingredients || []),
+            ...(selectedIngredients || []),
+          ]
+            .map((item) => normalizeIngredientForPayload(item))
+            .filter(Boolean),
+        ),
+      );
       console.log("[REGENERATE AVAILABLE INGREDIENTS NORMALIZED]", currentAvailableIngredients);
       const data = await regenerateMealPlan(freshProfile ? mapUserProfileToFormState(freshProfile) : formState, {
         previousMealPlanId,
@@ -708,6 +878,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           setFormState((current) => ({
             ...current,
             ...mapUserProfileToFormState(latestProfile),
+            available_ingredients: current.available_ingredients || current.ingredients || [],
+            ingredients: current.ingredients || current.available_ingredients || [],
           }));
         }
       } catch (profileErr) {
@@ -741,11 +913,17 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   async function submitMealPlanSetup(setupSnapshot = {}) {
     if (isSubmitting || isGeneratingMealPlan) return;
     const itemsPerMeal = Number(formState.items_per_meal || itemsCountFromMealComplexity(formState.meal_complexity));
-    const rawIngredients = setupSnapshot?.available_ingredients || selectedIngredients || [];
+    const rawIngredients =
+      setupSnapshot?.available_ingredients
+      || setupSnapshot?.ingredients
+      || formState.available_ingredients
+      || formState.ingredients
+      || selectedIngredients
+      || [];
     const availableIngredients = Array.from(
       new Set(
         rawIngredients
-          .map((x) => String(x || "").trim())
+          .map((x) => normalizeIngredientForPayload(x))
           .filter(Boolean)
       )
     );
@@ -762,23 +940,19 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       generation_seed: generationSeed,
     };
     // Phase 1: Required payload debug log
+    console.log("[MEAL SETUP SELECTED INGREDIENTS]", availableIngredients);
     console.log("[MEAL SETUP SUBMIT INGREDIENT SOURCE]", {
       setupSnapshotAvailable: setupSnapshot?.available_ingredients,
       selectedIngredientsState: selectedIngredients,
     });
-    console.log("[MEAL SETUP SUBMIT PAYLOAD SAFE]", {
-      available_ingredients: availableIngredients,
-      generation_seed: generationSeed,
-      items_per_meal: itemsPerMeal,
-      diet_type: mergedSettings.diet_type,
-      budget_level: mergedSettings.budget_level,
-    });
+    console.log("[MEAL SETUP SUBMIT PAYLOAD]", mergedSettings);
     setMealSetupError("");
     setGenerationNotice("");
     setIsGeneratingMealPlan(true);
     console.log("[MEAL SETUP GENERATING START]");
 
     try {
+      setSelectedIngredients(availableIngredients);
       setFormState(mergedSettings);
       if (hasMealSetupProfileChanges(mergedSettings, initialFormState)) {
         await saveUserProfile(mergedSettings);
@@ -845,6 +1019,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         setFormState((current) => ({
           ...current,
           ...mapUserProfileToFormState(freshProfile),
+          available_ingredients: current.available_ingredients || current.ingredients || [],
+          ingredients: current.ingredients || current.available_ingredients || [],
         }));
       }
     } catch (error) {
@@ -1029,13 +1205,15 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           <NoMealPlanState
             isSubmitting={isSubmitting}
             submitError={submitError}
-            onLogout={onLogout}
+            reason={outOfScopeNotice.reason}
+            onEditProfile={handleEditProfile}
           />
         ) : shouldShowNoMealPlanState ? (
           <NoMealPlanState
             isSubmitting={isSubmitting}
             submitError={submitError}
             onGenerate={openMealPlanSetup}
+            onEditProfile={handleEditProfile}
           />
         ) : (
           <DashboardContent
@@ -1101,7 +1279,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           onIngredientsAddMany={(ings) => setSelectedIngredients(prev => [...new Set([...prev, ...(ings || [])])])}
           onChange={handleProfileChange}
           onClose={closeMealPlanSetup}
-          onSubmit={() => submitMealPlanSetup({ available_ingredients: selectedIngredients })}
+          onSubmit={() => submitMealPlanSetup({ available_ingredients: selectedIngredients, ingredients: selectedIngredients })}
           isGeneratingMealPlan={isGeneratingMealPlan}
           submitError={mealSetupError}
         />
@@ -1110,8 +1288,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   );
 }
 
-function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
-  if (typeof onLogout === "function") {
+function NoMealPlanState({ isSubmitting, submitError, onGenerate, onEditProfile, reason }) {
+  if (reason) {
     return (
       <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
         <section className="w-full max-w-2xl rounded-[2rem] border border-brand-border bg-white/95 px-6 py-8 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
@@ -1119,22 +1297,22 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onLogout }) {
             NG
           </div>
           <h2 className="mt-5 text-center text-2xl font-black text-brand-text-main sm:text-[2rem]">
-            NutriGain chưa phù hợp với tình trạng hiện tại của bạn
+            Hồ sơ của bạn cần điều chỉnh
           </h2>
           <div className="mt-4 space-y-4 text-left text-sm leading-7 text-brand-text-sub sm:text-base">
             <p>
-              Dựa trên thông tin chiều cao và cân nặng bạn cung cấp, mục tiêu tăng cân hiện chưa phải là lựa chọn phù hợp với tình trạng cơ thể của bạn.
+              {reason}
             </p>
             <p>
-              Cảm ơn bạn đã quan tâm đến NutriGain. Bạn có thể đăng xuất khỏi hệ thống để đảm bảo quá trình sử dụng phù hợp với mục tiêu sức khỏe của mình.
+              Hãy chỉnh lại hồ sơ để NutriGain có thể tính thực đơn an toàn và phù hợp hơn.
             </p>
           </div>
           <button
             type="button"
-            onClick={onLogout}
+            onClick={onEditProfile}
             className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
           >
-            Đăng xuất
+            Chỉnh sửa hồ sơ
           </button>
         </section>
       </main>
@@ -1307,13 +1485,14 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
   };
 
   const addManual = () => {
-    if (manualIng.trim() && !selectedIngredients.includes(manualIng.trim())) {
-      onIngredientAdd(manualIng.trim());
+    const nextIngredient = manualIng.trim();
+    if (nextIngredient && !selectedIngredients.some((item) => ingredientCompareKey(item) === ingredientCompareKey(nextIngredient))) {
+      onIngredientAdd(nextIngredient);
       setManualIng("");
     }
   };
 
-  const quickChips = ["Thịt heo", "Thịt bò", "Thịt gà", "Trứng", "Đậu hũ", "Rau cải", "Cà chua", "Nấm", "Cà rốt"];
+  const quickChips = ["Thịt lợn", "Thịt bò", "Thịt gà", "Trứng", "Đậu hũ", "Rau cải", "Cà chua", "Nấm", "Cà rốt"];
   const ingredientCount = selectedIngredients.length;
 
   return (
@@ -1356,17 +1535,7 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
           </div>
         )}
 
-        <button
-          onClick={onClose}
-          type="button"
-          disabled={isGeneratingMealPlan}
-          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 sm:right-5 sm:top-5 disabled:opacity-50 disabled:cursor-not-allowed"
-          aria-label="Đóng modal thiết lập thực đơn"
-        >
-          ✕
-        </button>
-
-        <header className="px-5 pb-3 pr-16 pt-5 sm:px-7 sm:pr-20 sm:pt-6 lg:px-8">
+        <header className="px-5 pb-3 pt-5 sm:px-7 sm:pt-6 lg:px-8">
           <p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">THIẾT LẬP THỰC ĐƠN</p>
           <h2 className="mt-2 text-[30px] font-black tracking-[-0.03em] text-slate-950 sm:text-[34px]">Thiết lập thực đơn hôm nay</h2>
           <p className="mt-2 max-w-[680px] text-sm leading-6 text-slate-500 sm:mt-3">
@@ -1491,7 +1660,7 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                 <div className="rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3">
                   <div className="flex flex-wrap gap-2">
                     {quickChips.map((chip) => {
-                      const selected = selectedIngredients.includes(chip);
+                      const selected = selectedIngredients.some((item) => ingredientCompareKey(item) === ingredientCompareKey(chip));
                       return (
                         <button
                           key={chip}
@@ -1533,13 +1702,13 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                   <div className="flex flex-wrap gap-2">
                     {selectedIngredients.map((ing) => (
                       <span key={ing} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">
-                        <span className="max-w-[160px] truncate sm:max-w-[220px]">{ing}</span>
+                        <span className="max-w-[160px] truncate sm:max-w-[220px]">{normalizePorkDisplayText(ing)}</span>
                         <button
                           type="button"
                           disabled={isGeneratingMealPlan}
                           onClick={() => onIngredientRemove(ing)}
                           className="grid h-5 w-5 place-items-center rounded-full bg-emerald-100 text-[11px] text-emerald-700 transition hover:bg-emerald-200 disabled:opacity-60"
-                          aria-label={`Xóa ${ing}`}
+                          aria-label={`Xóa ${normalizePorkDisplayText(ing)}`}
                         >
                           ×
                         </button>
@@ -1583,9 +1752,9 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
                   value={formState.meal_complexity || "balanced"}
                   onChange={onChange}
                   options={[
-                    { value: "simple", label: "3 món / bữa" },
-                    { value: "balanced", label: "4 món / bữa" },
-                    { value: "full", label: "5 món / bữa" },
+                    { value: "simple", label: "3 món / bữa · Gọn nhẹ" },
+                    { value: "balanced", label: "4 món / bữa · Cân bằng" },
+                    { value: "full", label: "5 món / bữa · Nhiều món hơn" },
                   ]}
                 />
                 <CompactSelect
@@ -1612,19 +1781,11 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
           )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <p className="text-sm font-medium text-slate-500">Dữ liệu này chỉ dùng để tạo thực đơn hôm nay.</p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isGeneratingMealPlan}
-                className="h-[52px] min-w-[110px] rounded-[18px] border border-slate-200 bg-white px-6 font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Hủy
-              </button>
+            <div className="w-full lg:w-auto">
               <button
                 onClick={() => onSubmit({ ...formState, available_ingredients: selectedIngredients, ingredients: selectedIngredients })}
                 disabled={isGeneratingMealPlan || recognizing}
-                className="inline-flex h-[52px] min-w-[240px] items-center justify-center rounded-[18px] bg-emerald-600 px-7 text-base font-black text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[280px]"
+                className="inline-flex h-[52px] w-full items-center justify-center rounded-[18px] bg-emerald-600 px-7 text-base font-black text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 lg:min-w-[280px] lg:w-auto"
               >
                 {isGeneratingMealPlan ? (
                   <span className="flex items-center gap-2 whitespace-nowrap">
@@ -1906,7 +2067,7 @@ function OverviewPage({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="TỔNG QUAN"
         title="Tổng quan dinh dưỡng"
@@ -2661,17 +2822,6 @@ function JournalPage({ result, meals, validation, nutritionTarget, mealLog, onMe
           </div>
         ) : null}
 
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setIsManualModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-4 py-2 text-xs font-bold text-[#64748B] hover:border-emerald-500 hover:text-emerald-600 transition"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14" /></svg>
-            + Thêm món khác
-          </button>
-        </div>
-
         {historyLoading ? (
           <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
             Đang tải thống kê ăn uống...
@@ -2995,6 +3145,22 @@ function MealsPage({
   const hasMeals = displayMeals.length > 0 && Number(displayTotals.calories || validation.totalCalories || 0) > 0;
   const totalItems = displayMeals.reduce((sum, meal) => sum + meal.items.length, 0);
   const totalMeals = displayMeals.length;
+  const coverageDebug = result?.meal_plan?.coverage_debug || result?.coverage_debug || null;
+  const ingredientCoverage = useMemo(
+    () => summarizeIngredientCoverageFromMeals(displayMeals, profileSettings?.available_ingredients || profileSettings?.ingredients || []),
+    [displayMeals, profileSettings?.available_ingredients, profileSettings?.ingredients],
+  );
+
+  useEffect(() => {
+    if (!ingredientCoverage.hasSelected) {
+      return;
+    }
+    console.log("[INGREDIENT COVERAGE UI]", {
+      covered: coverageDebug?.covered || ingredientCoverage.covered,
+      notFound: coverageDebug?.notFound || [],
+      notInserted: coverageDebug?.notInserted || ingredientCoverage.missing,
+    });
+  }, [coverageDebug, ingredientCoverage]);
 
   const entries = mealLog?.entries || {};
 
@@ -3096,6 +3262,19 @@ function MealsPage({
         isSubmitting={isSubmitting}
       />
 
+      {ingredientCoverage.hasSelected ? (
+        <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-5 py-4 text-sm font-semibold text-emerald-900">
+          <p>
+            Đang ưu tiên nguyên liệu: {ingredientCoverage.selected.map((value) => displayIngredientLabel(value)).join(", ")}
+          </p>
+          {ingredientCoverage.missing.length ? (
+            <p className="mt-1 text-amber-700">
+              Chưa đưa được nguyên liệu này vào món cuối cùng: {ingredientCoverage.missing.map((value) => displayIngredientLabel(value)).join(", ")}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {submitError ? (
         <section className="rounded-2xl border border-red-200 bg-red-50 px-5 py-6 text-center shadow-sm">
           <h3 className="text-xl font-black text-red-900">Không thể tạo thực đơn</h3>
@@ -3129,7 +3308,7 @@ function MealsPage({
           </div>
         </section>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-6">
           {displayMeals.map((meal) => {
             const totals = sumItems(meal.items);
             const balance = analyzeMealBalance(meal.items, expectedCount);
@@ -3193,6 +3372,7 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
     return isFoodMarkedEaten(item, entry);
   }).length;
   const isMealFullyEaten = items.length > 0 && eatenCount === items.length;
+  const useHorizontalLayout = items.length > 4;
 
   return (
     <section className="rounded-[32px] border border-slate-100 bg-white p-5 shadow-sm shadow-slate-900/5 sm:p-6 transition-all duration-300">
@@ -3216,7 +3396,11 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div
+        className={useHorizontalLayout
+          ? "meal-items-scroll mt-6 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:thin]"
+          : "mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"}
+      >
         {items.map((item) => {
           const entryKey = `${mealName}-${item.id}`;
           const entry = entries[entryKey];
@@ -3230,6 +3414,8 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
               name={item.name}
               servingText={formatServingText(item)}
               kcal={item.calories}
+              ingredientMatchLabels={item.ingredientMatchLabels || []}
+              compact={useHorizontalLayout}
               isEaten={isEaten}
               onToggleEaten={() => onToggleFood?.(item)}
             />
@@ -3244,22 +3430,31 @@ function MealSection({ mealName, totalKcal, itemCount, expectedCount, status, it
   );
 }
 
-function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, servingText, kcal, isEaten = false, onToggleEaten }) {
+function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, servingText, kcal, ingredientMatchLabels = [], compact = false, isEaten = false, onToggleEaten }) {
   const metaText = servingText || "1 phần";
+  const matchBadges = Array.isArray(ingredientMatchLabels) ? ingredientMatchLabels.slice(0, 2) : [];
 
   return (
-    <article className={`relative flex min-h-[120px] gap-4 rounded-[28px] p-3 transition hover:shadow-lg hover:shadow-slate-900/5 sm:block sm:min-h-[290px] w-full ${isEaten ? "ring-2 ring-emerald-300 bg-emerald-50/50" : "bg-slate-50 ring-1 ring-slate-100 hover:bg-white"}`}>
+    <article className={`relative w-full min-w-0 rounded-[24px] p-3 transition hover:shadow-lg hover:shadow-slate-900/5 ${compact ? "shrink-0 basis-[280px] snap-start" : ""} ${isEaten ? "ring-2 ring-emerald-300 bg-emerald-50/50" : "bg-slate-50 ring-1 ring-slate-100 hover:bg-white"}`}>
       <button
         type="button"
         onClick={onToggleEaten}
-        className={`absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full border text-sm font-black shadow-sm transition ${
+        className={`absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full border-2 text-sm font-black shadow-md transition-all ${
           isEaten
-            ? "border-emerald-500 bg-emerald-600 text-white"
-            : "border-white/80 bg-white/90 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
+            ? "border-white bg-emerald-600 text-white shadow-[0_8px_20px_rgba(5,150,105,0.35)] hover:bg-emerald-700 hover:scale-105"
+            : "border-emerald-200 bg-white text-emerald-400 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 hover:scale-105"
         }`}
-        aria-label={isEaten ? "Bỏ đánh dấu đã ăn" : "Đánh dấu đã ăn"}
+        aria-label={isEaten ? "Bỏ đánh dấu món đã ăn" : "Đánh dấu món đã ăn"}
       >
-        {isEaten ? "✓" : ""}
+        {isEaten ? (
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" className="h-4 w-4 opacity-40" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        )}
       </button>
       
       {isEaten && (
@@ -3267,11 +3462,22 @@ function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, servingText, kc
           Đã ăn
         </div>
       )}
-      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[22px] bg-emerald-50 sm:h-40 sm:w-full">
+
+      {matchBadges.length ? (
+        <div className="absolute left-3 top-3 z-10 flex max-w-[70%] flex-wrap gap-1.5">
+          {matchBadges.map((label) => (
+            <span key={label} className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black text-emerald-800 ring-1 ring-emerald-200">
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className={`w-full overflow-hidden rounded-[20px] bg-emerald-50 ${compact ? "aspect-[4/3]" : "aspect-[5/4]"}`}>
         <img
           src={imageUrl || defaultFoodImage}
           alt={imageAlt || name}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover object-center"
           onError={(event) => {
             const image = event.currentTarget;
             if (image.dataset.usedFallback === "true") return;
@@ -3280,7 +3486,7 @@ function MealFoodCard({ imageUrl, imageAlt, fallbackImage, name, servingText, kc
           }}
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-between px-1 py-1 sm:px-2 sm:py-3 sm:min-h-[110px]">
+      <div className="mt-3 flex min-w-0 flex-1 flex-col justify-between px-1 py-1 sm:px-2 sm:py-2 sm:min-h-[100px]">
         <div>
           <h4 
             className="text-base font-black leading-snug text-[#0F172A]"
@@ -3647,6 +3853,7 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [draft, setDraft] = useState(() => buildWeightDraft(profileSettings));
+  const weightInputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -3715,9 +3922,49 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
   async function handleWeightSubmit(event) {
     event.preventDefault();
     const weight = Number(draft.weight_kg);
-    if (!Number.isFinite(weight) || weight <= 0) {
-      setSaveError("Vui lòng nhập cân nặng hợp lệ.");
+    
+    // Validation 1: Kiểm tra số hợp lệ
+    if (!Number.isFinite(weight)) {
+      setSaveError("Cân nặng phải là số.");
+      weightInputRef.current?.focus();
       return;
+    }
+    
+    // Validation 2: Kiểm tra > 0
+    if (weight <= 0) {
+      setSaveError("Cân nặng phải lớn hơn 0 kg.");
+      weightInputRef.current?.focus();
+      return;
+    }
+    
+    // Validation 3: Kiểm tra range hợp lý
+    if (weight < 25 || weight > 250) {
+      setSaveError("Cân nặng này có vẻ chưa hợp lý. Vui lòng kiểm tra lại đơn vị kg và nhập lại.");
+      weightInputRef.current?.focus();
+      return;
+    }
+    
+    // Validation 4: Kiểm tra BMI nếu có chiều cao
+    const height = Number(profileSettings?.height_cm || profileSettings?.height || formState?.height_cm || formState?.height);
+    if (Number.isFinite(height) && height > 0) {
+      const heightM = height / 100;
+      const bmi = weight / (heightM * heightM);
+      
+      if (Number.isFinite(bmi)) {
+        // BMI quá cao (>= 25 theo chuẩn Châu Á)
+        if (bmi >= 25) {
+          setSaveError("Cân nặng này làm BMI của bạn nằm ngoài phạm vi NutriGain có thể ước tính an toàn (BMI >= 25). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng.");
+          weightInputRef.current?.focus();
+          return;
+        }
+        
+        // BMI quá thấp (< 12)
+        if (bmi < 12) {
+          setSaveError("Cân nặng này làm BMI của bạn quá thấp (< 12). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng.");
+          weightInputRef.current?.focus();
+          return;
+        }
+      }
     }
 
     setIsSaving(true);
@@ -3728,11 +3975,29 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
         log_date: draft.log_date || undefined,
         note: draft.note?.trim() || null,
       });
+      // Chỉ đóng modal và refresh khi thành công
       setIsFormOpen(false);
       setRefreshKey((value) => value + 1);
       await onProfileRefresh?.();
     } catch (error) {
-      setSaveError(error.message || "Không thể lưu cân nặng.");
+      // Chỉ xử lý validation error trong modal, không chuyển trang
+      const isValidationError = error?.status === 400 || error?.status === 422 || ["INVALID_WEIGHT", "INVALID_PROFILE", "INVALID_TARGET", "INVALID_HEIGHT"].includes(error?.code);
+      
+      // Map technical error codes to friendly messages
+      let errorMessage = error?.message || "Không thể lưu cân nặng.";
+      if (errorMessage.includes("BMI_OBESE_NOT_SUPPORTED") || errorMessage.includes("BMI_OVERWEIGHT_NOT_SUPPORTED")) {
+        errorMessage = "Cân nặng này làm hồ sơ vượt phạm vi NutriGain có thể ước tính. Vui lòng kiểm tra lại cân nặng hoặc chỉnh lại hồ sơ.";
+      } else if (errorMessage.includes("BMI_NOT_UNDERWEIGHT")) {
+        errorMessage = "Cân nặng này làm BMI của bạn không còn thuộc nhóm thiếu cân. NutriGain được thiết kế cho người thiếu cân cần tăng cân lành mạnh.";
+      }
+      
+      setSaveError(errorMessage);
+      
+      if (isValidationError) {
+        // Giữ modal mở, focus input để user sửa
+        weightInputRef.current?.focus();
+      }
+      // Không logout, không chuyển trang, không refresh profile với validation error
     } finally {
       setIsSaving(false);
     }
@@ -3933,15 +4198,30 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
               <label className="block">
                 <span className="text-sm font900 text-[#0F172A]">Cân nặng hiện tại (kg)</span>
                 <input
+                  ref={weightInputRef}
                   type="number"
                   min="1"
                   step="0.1"
                   value={draft.weight_kg}
                   onChange={(event) => setDraft((current) => ({ ...current, weight_kg: event.target.value }))}
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font800 text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 focus:ring-emerald-100"
+                  className={`mt-2 h-12 w-full rounded-2xl border ${saveError ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200 bg-white'} px-4 text-sm font800 text-[#0F172A] outline-none transition focus:border-[#10B981] focus:ring-4 ${saveError ? 'focus:ring-rose-100' : 'focus:ring-emerald-100'}`}
                   required
                 />
               </label>
+              
+              {saveError ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="h-5 w-5 flex-shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-black text-amber-900">Cần kiểm tra lại cân nặng</p>
+                      <p className="mt-1 text-sm font-semibold leading-relaxed text-amber-800">{saveError}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <label className="block">
                 <span className="text-sm font900 text-[#0F172A]">Ngày ghi nhận</span>
                 <input
@@ -3962,12 +4242,6 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
                 />
               </label>
             </div>
-
-            {saveError ? (
-              <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font800 text-rose-700">
-                {saveError}
-              </div>
-            ) : null}
 
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
@@ -7578,9 +7852,99 @@ function buildWeeklyCalories(result, summary) {
   ];
 }
 
+function normalizeIngredientKey(value) {
+  return stripAccents(String(value || "")).toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function ingredientMatchLabelsForFood(food, selectedIngredients = []) {
+  if (!Array.isArray(selectedIngredients) || !selectedIngredients.length) return [];
+  const matchedIngredients = selectedIngredients
+    .filter((ingredient) => foodMatchesIngredient(food, ingredient))
+    .map(displayIngredientLabel);
+
+  console.log("[INGREDIENT BADGE CHECK]", {
+    foodName: food?.name,
+    selectedIngredients,
+    foodSearchText: getFoodSearchText(food),
+    matchedIngredients,
+  });
+
+  return matchedIngredients;
+}
+
+function summarizeIngredientCoverageFromMeals(meals = [], selectedIngredients = []) {
+  const selected = Array.from(
+    new Set((selectedIngredients || []).map((item) => String(item || "").trim()).filter(Boolean)),
+  );
+  if (!selected.length) {
+    return { hasSelected: false, selected: [], covered: [], missing: [] };
+  }
+
+  const mealDistribution = meals.map((meal) => ({
+    meal: meal?.title || meal?.mealType || meal?.meal_type || "",
+    items: Array.isArray(meal?.items) ? meal.items : [],
+  }));
+
+  const covered = [];
+  const notCovered = [];
+
+  for (const ingredient of selected) {
+    const matchedFoods = [];
+    for (const meal of mealDistribution) {
+      for (const item of meal.items) {
+        if (foodMatchesIngredient(item, ingredient)) {
+          matchedFoods.push(item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "");
+        }
+      }
+    }
+
+    const displayLabel = displayIngredientLabel(ingredient);
+    console.log("[INGREDIENT MATCH DEBUG]", {
+      rawIngredient: ingredient,
+      displayLabel,
+      aliases: expandIngredientAliases(ingredient),
+      finalFoodNames: mealDistribution.flatMap((meal) => meal.items.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "")).filter(Boolean),
+      matchedFoodNames: Array.from(new Set(matchedFoods)).filter(Boolean),
+    });
+
+    if (matchedFoods.length > 0) {
+      covered.push(ingredient);
+    } else {
+      notCovered.push(ingredient);
+    }
+  }
+
+  console.log("[INGREDIENT COVERAGE FINAL]", {
+    covered: covered.map((value) => displayIngredientLabel(value)),
+    notCovered: notCovered.map((value) => displayIngredientLabel(value)),
+    mealDistribution: mealDistribution.map((meal) => ({
+      meal: meal.meal,
+      itemCount: meal.items.length,
+      itemNames: meal.items.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "").filter(Boolean),
+    })),
+  });
+
+  return {
+    hasSelected: true,
+    selected,
+    covered: covered.map((value) => displayIngredientLabel(value)),
+    missing: notCovered.map((value) => displayIngredientLabel(value)),
+  };
+}
+
 function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
   if (!mealPlan) return [];
   const itemCountSummary = mealPlan.meal_item_count_summary || mealPlan.item_count_summary || {};
+  const selectedIngredients = Array.from(
+    new Set(
+      [
+        ...(profileSettings?.available_ingredients || []),
+        ...(profileSettings?.ingredients || []),
+      ]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
   
   if (Array.isArray(mealPlan.meals)) {
     return mealPlan.meals.filter((meal) => {
@@ -7600,7 +7964,7 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
         items: filterFoodsByDietType(
           items
             .filter(isUiMenuEligible)
-            .map((item, index) => mapFoodPayload(item, `${meal.meal_type}-${index}`, mealLabels[meal.meal_type] || meal.meal_type)),
+            .map((item, index) => mapFoodPayload(item, `${meal.meal_type}-${index}`, mealLabels[meal.meal_type] || meal.meal_type, selectedIngredients)),
           dietType,
         ).filter((item) => !isFoodDisliked(item, profileSettings)),
       };
@@ -7623,7 +7987,7 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
         items: filterFoodsByDietType(
           safeItems
             .filter(isUiMenuEligible)
-            .map((item, index) => mapFoodPayload(item, `${mealKey}-${index}`, mealLabels[mealKey] || mealKey)),
+            .map((item, index) => mapFoodPayload(item, `${mealKey}-${index}`, mealLabels[mealKey] || mealKey, selectedIngredients)),
           dietType,
         ).filter((item) => !isFoodDisliked(item, profileSettings)),
       };
@@ -7710,8 +8074,8 @@ function accentClass(accent) {
   return "bg-brand-primary";
 }
 
-function mapFoodPayload(item, fallbackId, mealTitle = "") {
-  const name = item.dish_name_vi || item.name || "Món ăn";
+function mapFoodPayload(item, fallbackId, mealTitle = "", selectedIngredients = []) {
+  const name = normalizePorkDisplayText(item.dish_name_vi || item.name || "Món ăn");
   const cleanCategory = normalizeFoodCategory(
     item.normalized_food_group || item.clean_category || item.category || item.category_name || item.normalized_category || "",
     name,
@@ -7727,6 +8091,7 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
   const imageVerified = item.image_verified === true || item.image_verified === 1 || item.image_verified === "1" || item.image_verified === "true";
   const canShowRealImage = Boolean(imageUrl) && imageVerified && normalizedImageSourceType === "real";
   const imageSourceType = canShowRealImage ? rawImageSourceType : "placeholder";
+  const ingredientMatchLabels = ingredientMatchLabelsForFood(item, selectedIngredients);
   return {
     id,
     food_id: item.food_id || id,
@@ -7757,6 +8122,11 @@ function mapFoodPayload(item, fallbackId, mealTitle = "") {
     imageRequirement: item.image_requirement || "",
     qualityFlags: item.quality_flags || "",
     menuEligible: item.menu_eligible !== false && item.menu_eligible !== "false",
+    ingredientMatchLabels,
+    ingredientMatched: ingredientMatchLabels.length > 0,
+    ingredientMatchedIngredients: (selectedIngredients || []).filter((ingredient) =>
+      ingredientMatchLabelsForFood(item, [ingredient]).length > 0,
+    ),
     mealTitle,
     is_eaten: item.is_eaten === true || item.consumed === true || item.eaten === true,
     consumed: item.consumed === true,

@@ -917,16 +917,18 @@ INGREDIENT_ALIASES: dict[str, list[str]] = {
     "trung":    ["trung", "egg", "trung ga", "trung vit"],
     "egg":      ["trung", "egg", "trung ga", "trung vit"],
     "trung ga": ["trung", "egg", "trung ga"],
-    "thit ga":  ["thit ga", "ga", "chicken", "uc ga", "ga nuong", "ga luoc"],
-    "ga":       ["thit ga", "ga", "chicken", "uc ga"],
-    "chicken":  ["thit ga", "ga", "chicken", "uc ga"],
-    "thit bo":  ["thit bo", "bo", "beef", "bo nac", "bo xao", "bo nuong"],
-    "bo":       ["thit bo", "bo", "beef", "bo nac"],
-    "beef":     ["thit bo", "bo", "beef", "bo nac"],
+    "thit ga":  ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay", "ga nuong", "ga luoc"],
+    "ga":       ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
+    "chicken":  ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
+    "thit bo":  ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac", "bo xao", "bo nuong"],
+    "bo":       ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac"],
+    "beef":     ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac"],
+    "trung":    ["trung", "egg", "long do trung", "long trang trung"],
+    "egg":      ["trung", "egg", "long do trung", "long trang trung"],
     "dau hu":   ["dau hu", "dau phu", "tofu"],
     "dau phu":  ["dau hu", "dau phu", "tofu"],
     "tofu":     ["dau hu", "dau phu", "tofu"],
-    "rau cai":  ["rau cai", "cai xanh", "bok choy", "rau"],
+    "rau cai":  ["rau cai", "cai xanh", "cai thia", "cai mu tat", "bok choy", "rau"],
     "nam":      ["nam", "mushroom", "nam huong", "nam rom"],
     "mushroom": ["nam", "mushroom", "nam huong"],
     "ca chua":  ["ca chua", "tomato"],
@@ -935,6 +937,8 @@ INGREDIENT_ALIASES: dict[str, list[str]] = {
     "salmon":   ["ca hoi", "salmon"],
     "tom":      ["tom", "shrimp", "prawn"],
     "shrimp":   ["tom", "shrimp", "prawn"],
+    "cua":      ["cua", "crab", "cua bien", "cua dong"],
+    "crab":     ["cua", "crab", "cua bien", "cua dong"],
     "khoai lang":["khoai lang", "sweet potato", "khoai"],
     "khoai tay":["khoai tay", "potato", "khoai"],
     "bong cai": ["bong cai", "broccoli", "bong cai xanh"],
@@ -2094,6 +2098,21 @@ def _is_animal_meat_or_seafood_row(row: pd.Series | dict) -> bool:
     return category in {"protein_meat", "protein_seafood"} or _row_matches_terms(row, list(VEGETARIAN_BLOCKED_TERMS)) or is_non_vegetarian_food(row)
 
 
+def _row_is_animal_protein(row: pd.Series | dict) -> bool:
+    """
+    Return True if a food row is animal protein (meat/seafood).
+    Safe for dict, pandas Series, or SQLAlchemy-like objects.
+    """
+    try:
+        category = _canonical_food_category(
+            row.get("clean_category", row.get("category", "")),
+            row.get("name", "")
+        )
+        return category in {"protein_meat", "protein_seafood"} or _is_animal_meat_or_seafood_row(row)
+    except Exception:
+        return False
+
+
 def _is_vegetarian_diet(value: object) -> bool:
     normalized = _normalize_search_text(value or "")
     return normalized in {"vegetarian", "chay"} or "vegetarian" in normalized or "an chay" in normalized
@@ -2685,6 +2704,22 @@ class RecommenderService:
         raw_df = catalog["raw_df"].copy(deep=True)  # type: ignore[index, union-attr]
         scaled_df = catalog["scaled_df"].copy(deep=True)  # type: ignore[index, union-attr]
         merged_df = catalog["merged_df"].copy(deep=True)  # type: ignore[index, union-attr]
+
+        try:
+            sample_names = raw_df["name"].astype(str).head(12).tolist()
+            lower_names = raw_df["name"].astype(str).str.lower()
+            pool_debug = {
+                "totalFoods": int(len(raw_df)),
+                "menuEligibleCount": int(len(raw_df)),
+                "sampleNames": sample_names,
+                "hasPork": bool(lower_names.str.contains(r"(thit|thịt).*(lon|heo)|\blon\b|\bheo\b|pork", regex=True).any()),
+                "hasBeef": bool(lower_names.str.contains(r"(thit|thịt).*(bo)|\bbo\b|beef|bit tet|suon bo|bo bap|thit bo xay", regex=True).any()),
+                "hasChicken": bool(lower_names.str.contains(r"(thit|thịt).*(ga)|\bga\b|chicken|uc ga|dui ga|canh ga|ga tay", regex=True).any()),
+                "hasCrab": bool(lower_names.str.contains(r"\bcua\b|crab|cua bien|cua dong", regex=True).any()),
+            }
+            logger.info("[FOOD POOL DEBUG] %s", pool_debug)
+        except Exception as exc:
+            logger.info("[FOOD POOL DEBUG] unavailable: %s", exc)
 
         recommender = HealthyWeightGainRecommender(
             "mysql:foods",
@@ -5712,6 +5747,7 @@ class RecommenderService:
         self._hydrate_payload_from_saved_profile(payload, saved_profile)
         profile_goal, profile_surplus = self._profile_goal_and_surplus(payload)
         available_ingredients = normalize_ingredient_list(getattr(payload, "available_ingredients", []))
+        print("[RECOMMENDER INGREDIENT PREFERENCES]", available_ingredients, flush=True)
         print("[REQUIRED INGREDIENT INPUT NORMALIZED]", {
             "raw_available_ingredients": getattr(payload, "available_ingredients", None),
             "normalized": available_ingredients,
@@ -6351,6 +6387,21 @@ class RecommenderService:
                     "selected_food_names": selected_food_names,
                     "matched_food_names": matched_food_names,
                 })
+                matched_by_ingredient: dict[str, list[str]] = {}
+                for ingredient in available_ingredients:
+                    key = str(ingredient or "").strip()
+                    if not key:
+                        continue
+                    matched_by_ingredient[key] = [
+                        str(item.get("name") or "")
+                        for meal in meal_plan_payload
+                        for item in meal.get("items", [])
+                        if item.get("name") and ingredient_match_quality(item, key) >= 2.0
+                    ]
+                print("[RECOMMENDER INGREDIENT MATCHES]", {
+                    "selected": available_ingredients,
+                    "matchedFoods": matched_by_ingredient,
+                }, flush=True)
             except Exception as exc:
                 logger.warning("[INGREDIENT PREFERENCE SUMMARY FAILED] %s", repr(exc))
 
@@ -7594,11 +7645,237 @@ class RecommenderService:
 
         scale_p = 1.0
         if target_protein > 0 and total_protein > target_protein * 1.10:
+            pass
+
+        if ENABLE_HARD_INGREDIENT_COVERAGE and available_ingredients:
+            forced_selected_ingredients = normalize_ingredient_list(available_ingredients)
+            forced_before_snapshot = [
+                {
+                    "meal_type": str(meal.get("meal_type") or "meal"),
+                    "items": [str(item.get("name") or item.get("food_id") or "item") for item in meal.get("items", [])],
+                }
+                for meal in meal_plan_payload
+            ]
+            forced_coverage_not_found: list[str] = []
+            forced_coverage_not_inserted: list[str] = []
+
+            def _forced_final_coverage() -> set[str]:
+                covered: set[str] = set()
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        covered.update(ingredient_match_list(item, forced_selected_ingredients))
+                return covered
+
+            def _forced_meal_priority(meal_type: str) -> int:
+                return {"lunch": 0, "dinner": 1, "breakfast": 2, "snack": 3}.get(meal_type, 4)
+
+            def _forced_target_meals_for_ingredient(ingredient: str) -> list[tuple[int, dict]]:
+                preferred_types = ["lunch", "dinner", "breakfast", "snack"] if _ingredient_is_meat(ingredient) else ["breakfast", "lunch", "dinner", "snack"]
+                meals_by_type = {
+                    str(meal.get("meal_type") or "meal").lower(): meal
+                    for meal in meal_plan_payload
+                }
+                result: list[tuple[int, dict]] = []
+                for meal_type in preferred_types:
+                    meal = meals_by_type.get(meal_type)
+                    if meal is not None:
+                        result.append((_forced_meal_priority(meal_type), meal))
+                for meal in meal_plan_payload:
+                    meal_type = str(meal.get("meal_type") or "meal").lower()
+                    if meal_type not in preferred_types:
+                        result.append((_forced_meal_priority(meal_type), meal))
+                result.sort(key=lambda item: item[0])
+                return result
+
+            def _forced_candidate_score(ingredient: str, candidate_item: dict, replaced_item: dict | None, meal_type: str) -> tuple:
+                candidate_name = normalize_text_vi(str(candidate_item.get("name") or candidate_item.get("food_name") or candidate_item.get("display_name") or ""))
+                is_clear_meat_name = any(token in candidate_name for token in ("thit bo", "bo bap", "bit tet", "suon bo", "thit lon", "thit heo", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo", "thit ga", "uc ga", "dui ga", "canh ga", "cua", "crab", "trung", "long do trung", "long trang trung", "ca chua", "tomato"))
+                match_bonus = 10000.0 if ingredient_match_quality(candidate_item, ingredient) >= 2.0 else 0.0
+                protein_bonus = 20.0 if _ingredient_is_meat(ingredient) and _row_is_animal_protein(candidate_item) else 0.0
+                breakfast_penalty = 30.0 if meal_type == "breakfast" and _ingredient_is_meat(ingredient) else 0.0
+                clarity_bonus = 25.0 if is_clear_meat_name else 0.0
+                duplicate_penalty = 40.0 if _row_has_meal_semantic_duplicate(candidate_item, [item for meal in meal_plan_payload for item in meal.get("items", [])]) else 0.0
+                unhealthy_penalty = 0.0
+                if _is_processed_meat_row(candidate_item) or _is_dessert_or_sweet_row(candidate_item):
+                    unhealthy_penalty += 80.0
+                if _is_low_fat_dairy_row(candidate_item) and _ingredient_is_meat(ingredient):
+                    unhealthy_penalty += 10.0
+                calorie_delta = abs(float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0) - float(replaced_item.get("calories") or replaced_item.get("kcal") or 0.0)) if replaced_item else 0.0
+                protein_delta = abs(float(candidate_item.get("protein") or 0.0) - float(replaced_item.get("protein") or 0.0)) if replaced_item else 0.0
+                replacement_bonus = 0.0 if replaced_item is None else 1.0
+                return (
+                    -(match_bonus + protein_bonus + clarity_bonus + replacement_bonus),
+                    breakfast_penalty,
+                    unhealthy_penalty,
+                    duplicate_penalty,
+                    calorie_delta * 0.5,
+                    protein_delta * 1.0,
+                    -float(candidate_item.get("score") or 0.0),
+                    str(candidate_item.get("name") or candidate_item.get("food_id") or ""),
+                )
+
+            def _forced_replaceable_index(meal: dict, ingredient: str) -> int | None:
+                items = meal.get("items", [])
+                best_index: int | None = None
+                best_score: tuple | None = None
+                for index, item in enumerate(items):
+                    if item.get("_forcedIngredient"):
+                        continue
+                    if ingredient_match_count(item, forced_selected_ingredients) > 0:
+                        continue
+                    role = str(item.get("meal_role") or item.get("culinary_role") or "").lower()
+                    category = macro_group(item.get("category") or item.get("clean_category") or "")
+                    if category == "starch" and sum(1 for existing in items if macro_group(existing.get("category") or existing.get("clean_category") or "") == "starch") <= 1:
+                        continue
+                    if category == "vegetable" and sum(1 for existing in items if macro_group(existing.get("category") or existing.get("clean_category") or "") == "vegetable") <= 1:
+                        continue
+                    if category == "protein" and sum(1 for existing in items if macro_group(existing.get("category") or existing.get("clean_category") or "") == "protein") <= 1 and _ingredient_is_meat(ingredient):
+                        continue
+                    if _row_has_meal_semantic_duplicate(item, [existing for idx, existing in enumerate(items) if idx != index]):
+                        continue
+                    if category not in {"extra", "fruit", "dairy", "protein", "vegetable", "starch"} and role not in {"extra", "side", "snack"}:
+                        continue
+                    calories = float(item.get("calories") or item.get("kcal") or 0.0)
+                    protein = float(item.get("protein") or 0.0)
+                    score = (
+                        0.0 if role in {"extra", "side", "snack"} else 1.0,
+                        0.0 if category in {"extra", "fruit", "dairy"} else 1.0,
+                        calories,
+                        protein,
+                        str(item.get("name") or item.get("food_id") or ""),
+                    )
+                    if best_score is None or score < best_score:
+                        best_score = score
+                        best_index = index
+                return best_index
+
+            force_selected_ingredients_logs: list[dict[str, object]] = []
+            _debug_print("[FORCE INGREDIENT START]", {
+                "selectedIngredients": forced_selected_ingredients,
+                "finalBefore": forced_before_snapshot,
+            })
+            final_covered_before = _forced_final_coverage()
+            for ingredient in forced_selected_ingredients:
+                if ingredient in final_covered_before:
+                    continue
+
+                candidate_rows = [
+                    row
+                    for _, row in ranked.iterrows()
+                    if _row_passes_hard_constraints(row, [], {
+                        str(item.get("food_id"))
+                        for meal in meal_plan_payload
+                        for item in meal.get("items", [])
+                        if item.get("food_id") is not None
+                    }) and ingredient_match_quality(row, ingredient) > 0
+                ]
+                candidate_rows.sort(
+                    key=lambda row: (
+                        0 if ingredient_match_quality(row, ingredient) >= 2.0 else 1,
+                        0 if _ingredient_is_meat(ingredient) and _row_is_animal_protein(row) else 1,
+                        0 if any(token in normalize_text_vi(str(row.get("name") or "")) for token in ("thit bo", "bo bap", "bit tet", "suon bo", "thit lon", "thit heo", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo", "thit ga", "uc ga", "dui ga", "canh ga", "cua", "crab", "trung", "long do trung", "long trang trung", "ca chua", "tomato")) else 1,
+                        -float(row.get("score") or 0.0),
+                        abs(float(row.get("kcal_per_serving_clean") or row.get("calories_raw") or row.get("calories") or 0.0)),
+                        str(row.get("name") or row.get("food_id") or ""),
+                    )
+                )
+                _debug_print("[FORCE INGREDIENT CANDIDATES]", {
+                    "ingredient": ingredient,
+                    "candidateCount": len(candidate_rows),
+                    "candidateNames": [str(row.get("name") or row.get("food_id") or "item") for row in candidate_rows[:20]],
+                })
+
+                if not candidate_rows:
+                    forced_coverage_not_found.append(ingredient)
+                    _debug_print("[FORCE INGREDIENT FAILED]", {
+                        "ingredient": ingredient,
+                        "reason": "no_candidate",
+                    })
+                    continue
+
+                selected_candidate: dict | None = None
+                selected_meal: dict | None = None
+                selected_index: int | None = None
+                selected_replaced_name: str | None = None
+                final_covered_current = _forced_final_coverage()
+                for _, meal in _forced_target_meals_for_ingredient(ingredient):
+                    replace_index = _forced_replaceable_index(meal, ingredient)
+                    if replace_index is None and len(meal.get("items", [])) >= _expected_slots_for_meal(str(meal.get("meal_type") or "meal").lower()):
+                        continue
+                    for row in candidate_rows:
+                        candidate_item = self._to_food_item_payload(row)
+                        if ingredient_match_quality(candidate_item, ingredient) <= 0:
+                            continue
+                        if ingredient in final_covered_current:
+                            break
+                        if replace_index is not None:
+                            replaced_item = meal.get("items", [])[replace_index]
+                            candidate_score = _forced_candidate_score(ingredient, candidate_item, replaced_item, str(meal.get("meal_type") or "meal").lower())
+                        else:
+                            candidate_score = _forced_candidate_score(ingredient, candidate_item, None, str(meal.get("meal_type") or "meal").lower())
+                        if selected_candidate is None or candidate_score < selected_candidate.get("_forcedScore", (999999,)):
+                            selected_candidate = dict(candidate_item)
+                            selected_candidate["_forcedScore"] = candidate_score
+                            selected_meal = meal
+                            selected_index = replace_index
+                            selected_replaced_name = str(meal.get("items", [])[replace_index].get("name") or "") if replace_index is not None else None
+                    if selected_candidate is not None:
+                        break
+
+                if selected_candidate is None or selected_meal is None:
+                    forced_coverage_not_inserted.append(ingredient)
+                    _debug_print("[FORCE INGREDIENT FAILED]", {
+                        "ingredient": ingredient,
+                        "reason": "no_safe_slot",
+                    })
+                    continue
+
+                if selected_index is None:
+                    selected_meal.setdefault("items", []).append(selected_candidate)
+                else:
+                    selected_meal["items"][selected_index] = selected_candidate
+                selected_candidate["_forcedIngredient"] = ingredient
+                selected_candidate["_forcedFrom"] = selected_replaced_name
+                selected_candidate["_forcedInserted"] = True
+                force_selected_ingredients_logs.append({
+                    "ingredient": ingredient,
+                    "targetMeal": str(selected_meal.get("meal_type") or "meal"),
+                    "insertedFood": selected_candidate.get("name") or selected_candidate.get("food_id"),
+                    "replacedFood": selected_replaced_name,
+                })
+                _debug_print("[FORCE INGREDIENT INSERTED]", force_selected_ingredients_logs[-1])
+
+            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            final_covered_after = _forced_final_coverage()
+            forced_final_after_snapshot = [
+                {
+                    "meal_type": str(meal.get("meal_type") or "meal"),
+                    "items": [str(item.get("name") or item.get("food_id") or "item") for item in meal.get("items", [])],
+                }
+                for meal in meal_plan_payload
+            ]
+            response_hard_coverage_debug = {
+                "selectedIngredients": forced_selected_ingredients,
+                "finalBefore": forced_before_snapshot,
+                "finalAfter": forced_final_after_snapshot,
+                "covered": sorted(final_covered_after),
+                "notFound": forced_coverage_not_found,
+                "notInserted": forced_coverage_not_inserted,
+                "inserted": force_selected_ingredients_logs,
+            }
+            _debug_print("[FORCE INGREDIENT FINAL COVERAGE]", response_hard_coverage_debug)
             scale_p = (target_protein * 1.05) / total_protein
 
         hard_coverage_start = time.perf_counter()
         if ENABLE_HARD_INGREDIENT_COVERAGE and available_ingredients:
             requested_ingredients = list(available_ingredients)
+            final_before_snapshot = [
+                {
+                    "meal_type": str(meal.get("meal_type") or "meal"),
+                    "items": [str(item.get("name") or item.get("food_id") or "item") for item in meal.get("items", [])],
+                }
+                for meal in meal_plan_payload
+            ]
             baseline_food_ids = {
                 str(item.get("food_id"))
                 for meal in meal_plan_payload
@@ -7606,6 +7883,13 @@ class RecommenderService:
                 if item.get("food_id") is not None
             }
             coverage_added_foods: list[str] = []
+            coverage_not_found: list[str] = []
+            coverage_not_inserted: list[str] = []
+
+            _debug_print("[HARD COVERAGE START]", {
+                "selectedIngredients": requested_ingredients,
+                "finalBefore": final_before_snapshot,
+            })
 
             def _current_covered_ingredients() -> set[str]:
                 covered: set[str] = set()
@@ -7616,16 +7900,23 @@ class RecommenderService:
 
             def _select_coverage_target(candidate_item: dict, candidate_group: str):
                 best_choice: tuple[tuple[float, float, float, float], int, int | None] | None = None
+                meal_priority = {"lunch": 0, "dinner": 1, "breakfast": 2, "snack": 3}
                 for meal_index, meal in enumerate(meal_plan_payload):
                     items = meal.get("items", [])
                     meal_type = str(meal.get("meal_type") or "meal").lower()
                     expected = _expected_slots_for_meal(meal_type)
+                    priority_base = float(meal_priority.get(meal_type, 4))
+                    meal_group_counts: dict[str, int] = {}
+                    for existing in items:
+                        existing_group = macro_group(existing.get("category") or existing.get("clean_category") or "")
+                        meal_group_counts[existing_group] = meal_group_counts.get(existing_group, 0) + 1
                     same_group_present = any(
                         macro_group(existing.get("category") or existing.get("clean_category") or "") == candidate_group
                         for existing in items
                     )
                     if len(items) < expected:
                         append_score = (
+                            priority_base,
                             0.0 if same_group_present else 1.0,
                             float(len(items)),
                             float(expected - len(items)),
@@ -7639,20 +7930,34 @@ class RecommenderService:
                         if ingredient_match_count(current_item, requested_ingredients) > 0:
                             continue
                         current_group = macro_group(current_item.get("category") or current_item.get("clean_category") or "")
-                        if candidate_group == "protein" and current_group not in {"protein", "extra"}:
+                        current_role = str(current_item.get("meal_role") or current_item.get("culinary_role") or "").lower()
+                        if current_group == "starch" and meal_group_counts.get("starch", 0) <= 1:
                             continue
-                        if candidate_group == "starch" and current_group not in {"starch", "extra"}:
+
+                        if candidate_group == "protein" and current_group in {"starch", "vegetable"} and not _is_optional_item(current_item):
+                            if current_group == "starch" and meal_group_counts.get("starch", 0) <= 1:
+                                continue
+                            if current_group == "vegetable" and meal_group_counts.get("vegetable", 0) <= 1 and meal_type in {"breakfast", "snack"}:
+                                continue
+
+                        if candidate_group == "starch" and current_group not in {"starch", "extra", "fruit", "dairy"} and not _is_optional_item(current_item):
                             continue
-                        if candidate_group == "vegetable" and current_group not in {"vegetable", "extra"}:
+                        if candidate_group == "vegetable" and current_group not in {"vegetable", "extra", "fruit", "dairy"} and not _is_optional_item(current_item):
                             continue
-                        if candidate_group == "dairy" and current_group not in {"dairy", "extra"}:
+                        if candidate_group == "dairy" and current_group not in {"dairy", "extra", "fruit"} and not _is_optional_item(current_item):
                             continue
-                        if candidate_group == "fruit" and current_group not in {"fruit", "extra"}:
+                        if candidate_group == "fruit" and current_group not in {"fruit", "extra", "dairy"} and not _is_optional_item(current_item):
                             continue
-                        if candidate_group == "extra" and current_group not in {"extra", "fruit", "dairy"}:
+                        if candidate_group == "extra" and current_group not in {"extra", "fruit", "dairy"} and not _is_optional_item(current_item):
                             continue
+
                         if current_group != candidate_group and not _is_optional_item(current_item):
-                            continue
+                            if candidate_group == "protein" and current_group in {"fruit", "dairy", "extra"}:
+                                pass
+                            elif candidate_group in {"starch", "vegetable"} and current_group == "extra":
+                                pass
+                            else:
+                                continue
 
                         meal_without_target = [existing for idx, existing in enumerate(items) if idx != item_index]
                         if _row_has_meal_semantic_duplicate(candidate_item, meal_without_target):
@@ -7661,8 +7966,9 @@ class RecommenderService:
                         current_kcal = float(current_item.get("calories") or current_item.get("kcal") or 0.0)
                         candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
                         replace_score = (
+                            priority_base,
                             0.0 if current_group == candidate_group else 1.0,
-                            0.0 if _is_optional_item(current_item) else 1.0,
+                            0.0 if _is_optional_item(current_item) or current_role in {"extra", "side", "snack"} else 1.0,
                             abs(candidate_kcal - current_kcal),
                             -float(current_item.get("score") or 0.0),
                         )
@@ -7697,6 +8003,12 @@ class RecommenderService:
                         )
             for candidate_rows in coverage_candidate_map.values():
                 candidate_rows.sort(key=lambda item: item[0], reverse=True)
+            for ingredient, candidate_rows in coverage_candidate_map.items():
+                _debug_print("[HARD COVERAGE CANDIDATES]", {
+                    "ingredient": ingredient,
+                    "candidateCount": len(candidate_rows),
+                    "candidateNames": [str(item[1].get("name") or item[1].get("food_id") or "item") for item in candidate_rows[:20]],
+                })
             logger.info(
                 "[HARD COVERAGE TIMING] candidate_map_ms=%s candidate_pool_count=%s requested_count=%s",
                 _elapsed_ms(candidate_map_start),
@@ -7858,14 +8170,97 @@ class RecommenderService:
                     break
 
                 if not accepted:
-                    _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
-                        "ingredient": ingredient,
-                        "reason": "strong_candidate_filtered_out" if strong_candidate_rows else "no_safe_candidate_after_balance",
-                    })
+                    relaxed_candidate_rows = candidate_rows if candidate_rows else []
+                    relaxed_choice = None
+                    if relaxed_candidate_rows:
+                        for _, candidate_item, candidate_group, candidate_quality in relaxed_candidate_rows:
+                            relaxed_target = None
+                            best_relaxed_score = None
+                            for meal_index, meal in enumerate(meal_plan_payload):
+                                items = meal.get("items", [])
+                                meal_type = str(meal.get("meal_type") or "meal").lower()
+                                expected = _expected_slots_for_meal(meal_type)
+                                if len(items) < expected:
+                                    score = (
+                                        0,
+                                        0 if meal_type in {"lunch", "dinner"} else 1,
+                                        float(expected - len(items)),
+                                        -float(candidate_item.get("score") or 0.0),
+                                    )
+                                    if relaxed_choice is None or score < relaxed_choice[0]:
+                                        relaxed_choice = (score, meal_index, None, candidate_item)
+                                    continue
+                                for item_index, current_item in enumerate(items):
+                                    if ingredient_match_count(current_item, requested_ingredients) > 0:
+                                        continue
+                                    current_group = macro_group(current_item.get("category") or current_item.get("clean_category") or "")
+                                    current_role = str(current_item.get("meal_role") or current_item.get("culinary_role") or "").lower()
+                                    if current_group == "starch" and sum(1 for existing in items if macro_group(existing.get("category") or existing.get("clean_category") or "") == "starch") <= 1:
+                                        continue
+                                    if current_group == "vegetable" and sum(1 for existing in items if macro_group(existing.get("category") or existing.get("clean_category") or "") == "vegetable") <= 1 and meal_type in {"breakfast", "snack"}:
+                                        continue
+                                    if current_group not in {"extra", "fruit", "dairy", candidate_group} and not _is_optional_item(current_item):
+                                        continue
+                                    if _row_has_meal_semantic_duplicate(candidate_item, [existing for idx, existing in enumerate(items) if idx != item_index]):
+                                        continue
+                                    current_kcal = float(current_item.get("calories") or current_item.get("kcal") or 0.0)
+                                    candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
+                                    score = (
+                                        1,
+                                        0 if meal_type in {"lunch", "dinner"} else 1,
+                                        0 if _is_optional_item(current_item) or current_role in {"extra", "side", "snack"} else 1,
+                                        abs(candidate_kcal - current_kcal),
+                                        -float(candidate_quality),
+                                        -float(candidate_item.get("score") or 0.0),
+                                    )
+                                    if relaxed_choice is None or score < relaxed_choice[0]:
+                                        relaxed_choice = (score, meal_index, item_index, candidate_item)
+
+                    if relaxed_choice is not None:
+                        _, meal_index, target_index, candidate_item = relaxed_choice
+                        target_meal = meal_plan_payload[meal_index]
+                        if target_index is None:
+                            target_meal.setdefault("items", []).append(candidate_item)
+                            replaced_item_name = None
+                            action = "append"
+                        else:
+                            replaced_item_name = str(target_meal.get("items", [])[target_index].get("name") or "")
+                            target_meal["items"][target_index] = candidate_item
+                            action = "replace"
+                            preserved_item_count_note = True
+                        meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        current_covered = _current_covered_ingredients()
+                        if ingredient in current_covered:
+                            coverage_added_foods.append(str(candidate_item.get("name") or candidate_item.get("food_id") or "item"))
+                            accepted = True
+                            _debug_print("[HARD COVERAGE INSERT]", {
+                                "ingredient": ingredient,
+                                "chosenFood": candidate_item.get("name") or candidate_item.get("food_id"),
+                                "targetMeal": str(target_meal.get("meal_type") or "meal"),
+                                "replacedFood": replaced_item_name,
+                                "mode": "relaxed",
+                            })
+
+                    if not accepted:
+                        if not candidate_rows:
+                            coverage_not_found.append(ingredient)
+                        else:
+                            coverage_not_inserted.append(ingredient)
+                        _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
+                            "ingredient": ingredient,
+                            "reason": "strong_candidate_filtered_out" if strong_candidate_rows else "no_safe_candidate_after_balance",
+                        })
 
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
             final_covered = _current_covered_ingredients()
             final_uncovered = [ingredient for ingredient in requested_ingredients if ingredient not in final_covered]
+            final_after_snapshot = [
+                {
+                    "meal_type": str(meal.get("meal_type") or "meal"),
+                    "items": [str(item.get("name") or item.get("food_id") or "item") for item in meal.get("items", [])],
+                }
+                for meal in meal_plan_payload
+            ]
             added_balance_foods = [
                 str(item.get("name") or item.get("food_id") or "item")
                 for meal in meal_plan_payload
@@ -7877,6 +8272,8 @@ class RecommenderService:
                 "requested_ingredients": requested_ingredients,
                 "covered_ingredients": sorted(final_covered),
                 "uncovered_ingredients": final_uncovered,
+                "not_found": coverage_not_found,
+                "not_inserted": coverage_not_inserted,
                 "nutrition_after": {
                     "total_kcal": round(total_kcal, 2),
                     "target_kcal": round(target_kcal, 2),
@@ -7884,8 +8281,18 @@ class RecommenderService:
                 },
                 "added_balance_foods": added_balance_foods,
             })
+            response_hard_coverage_debug = {
+                "selectedIngredients": requested_ingredients,
+                "finalBefore": final_before_snapshot,
+                "finalAfter": final_after_snapshot,
+                "covered": sorted(final_covered),
+                "notFound": coverage_not_found,
+                "notInserted": coverage_not_inserted,
+            }
             _scale_protein_items(scale_p)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        else:
+            response_hard_coverage_debug = None
 
         _record_timing(timing, "hard_coverage_ms", hard_coverage_start)
         target_fat = float(nutrition_target.get("fat_g") or nutrition_target.get("fat_target") or nutrition_target.get("fat") or 0.0)
@@ -7932,6 +8339,7 @@ class RecommenderService:
                     _debug_warning("DEBUG_FINAL_ENERGY_CATCHUP applied scale=%s", catchup_scale)
                     meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
 
+        response_hard_coverage_debug = None
         fill_added_count = _fill_missing_items_for_all_meals("post_macro_adjustment")
         if fill_added_count:
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
@@ -8247,7 +8655,8 @@ class RecommenderService:
                 "total_carbs_g": round(total_carbs),
                 "status": validation_result["status"],
                 "meal_item_count_summary": meal_item_count_summary,
-                "meals": meal_plan_payload
+                "meals": meal_plan_payload,
+                "coverage_debug": response_hard_coverage_debug,
             },
             "validation": validation_result,
             "recommendation_explanations": recommendation_explanations,

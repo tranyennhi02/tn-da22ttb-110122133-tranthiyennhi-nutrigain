@@ -17,10 +17,25 @@ class UserLogin(BaseModel):
 
 
 class GoogleLoginInput(BaseModel):
-    id_token: str
+    id_token: str | None = None
+    credential: str | None = None
+    access_token: str | None = None
+
+
+class GoogleOAuthUrlResponse(BaseModel):
+    url: str
 
 
 class ForgotPasswordInput(BaseModel):
+    email: str
+
+
+class EmailVerificationInput(BaseModel):
+    email: str
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class ResendVerificationInput(BaseModel):
     email: str
 
 
@@ -31,6 +46,12 @@ class ResetPasswordInput(BaseModel):
 
 
 class MessageResponse(BaseModel):
+    message: str
+
+
+class RegistrationVerificationResponse(BaseModel):
+    requires_email_verification: bool = True
+    email: str
     message: str
 
 
@@ -140,6 +161,7 @@ class UserView(BaseModel):
     id: int
     email: str
     full_name: str | None = None
+    email_verified: bool = False
     role: str
     status: str = "ACTIVE"
     is_active: bool

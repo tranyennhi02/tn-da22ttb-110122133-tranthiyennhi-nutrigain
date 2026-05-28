@@ -1,4 +1,5 @@
 import { parseFoodList } from "../utils/foodList.js";
+import { clearAuthStorage } from "./authService";
 
 const API_BASE_URL = "";
 
@@ -115,7 +116,14 @@ async function parseResponse(response, fallbackMessage) {
       data,
     });
 
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.status = response.status;
+    error.data = data;
+    if (data?.detail && typeof data.detail === "object" && data.detail !== null) {
+      error.code = data.detail.code || undefined;
+      error.detail = data.detail;
+    }
+    throw error;
   }
 
   return data;
@@ -200,6 +208,7 @@ export async function fetchCurrentUser() {
     });
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
+        clearAuthStorage();
         return null;
       }
       throw new Error(`Failed to fetch current user: ${response.status} ${response.statusText}`);

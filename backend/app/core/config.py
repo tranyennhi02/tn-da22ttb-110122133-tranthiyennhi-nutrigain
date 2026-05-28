@@ -51,6 +51,11 @@ class Settings:
     )
     access_token_expire_minutes: int = _int_env("ACCESS_TOKEN_EXPIRE_MINUTES", 1440)
     google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID", None)
+    google_client_secret: str | None = os.getenv("GOOGLE_CLIENT_SECRET", None)
+    google_redirect_uri: str = os.getenv(
+        "GOOGLE_REDIRECT_URI",
+        "http://localhost:8000/api/v1/auth/google/callback",
+    )
     reset_password_token_expire_minutes: int = _int_env("RESET_PASSWORD_TOKEN_EXPIRE_MINUTES", 30)
     smtp_host: str = os.getenv("SMTP_HOST", "")
     smtp_port: int = _int_env("SMTP_PORT", 587)

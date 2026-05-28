@@ -36,6 +36,7 @@ class UserRepository:
         role: str = "USER",
         auth_provider: str = "email",
         google_sub: str | None = None,
+        email_verified: bool = False,
     ) -> User:
         user = User(
             email=email.strip().lower(),
@@ -44,6 +45,7 @@ class UserRepository:
             role=role,
             auth_provider=auth_provider,
             google_sub=google_sub,
+            email_verified=email_verified,
         )
         self.db.add(user)
         self.db.commit()

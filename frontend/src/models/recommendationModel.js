@@ -26,6 +26,9 @@ export function normalizePayload(formState) {
   const dislikedFoods = parseFoodList(formState.disliked_foods);
   const dislikedFoodGroups = parseFoodList(formState.disliked_food_groups);
   const typedUnfavorites = parseFoodList(formState.unfavorite_foods);
+  const selectedIngredients = parseFoodList(
+    formState.available_ingredients || formState.ingredients || formState.selectedIngredients || [],
+  );
   const itemsPerMeal = formState.meal_complexity === "simple"
     ? 3
     : formState.meal_complexity === "full"
@@ -60,6 +63,8 @@ export function normalizePayload(formState) {
     allergens: typedUnfavorites,
     disliked_foods: Array.from(new Set([...dislikedFoods, ...typedUnfavorites])),
     disliked_food_groups: Array.from(new Set(dislikedFoodGroups)),
+    available_ingredients: selectedIngredients,
+    ingredients: selectedIngredients,
     energy_tolerance_kcal: 80,
     use_personalization: true,
     min_protein_ratio: 0.9,

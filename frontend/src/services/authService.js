@@ -87,6 +87,43 @@ async function requestAuth(path, payload) {
         errorMsg = await response.text();
       } catch {}
     }
+
+    if (path.includes("/api/v1/auth/google")) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(errorMsg || "Google credential không hợp lệ hoặc client ID chưa đúng.");
+      }
+      if (response.status >= 500) {
+        throw new Error(errorMsg || "Máy chủ đăng nhập đang lỗi. Vui lòng kiểm tra backend log.");
+      }
+    }
+
+    throw new Error(errorMsg || "Authentication failed");
+  }
+
+  return response.json();
+}
+
+async function requestAuthGet(path) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    let errorMsg = "";
+    try {
+      const clone = response.clone();
+      const errJson = await clone.json();
+      if (errJson && errJson.detail) {
+        errorMsg = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+      }
+    } catch {
+      try {
+        errorMsg = await response.text();
+      } catch {}
+    }
     throw new Error(errorMsg || "Authentication failed");
   }
 
@@ -123,12 +160,31 @@ export async function register(payload) {
   if (!payload.email || !payload.password) {
     throw new Error("Vui lòng nhập email và mật khẩu.");
   }
-  const data = await requestAuth("/api/v1/auth/register", {
+  return requestAuth("/api/v1/auth/register", {
     email: payload.email,
     password: payload.password,
     full_name: payload.fullName || null,
   });
+}
+
+export async function verifyEmail({ email, code }) {
+  if (!email || !code) {
+    throw new Error("Vui lòng nhập mã xác thực.");
+  }
+  const data = await requestAuth("/api/v1/auth/verify-email", {
+    email: String(email).trim().toLowerCase(),
+    code: String(code).trim(),
+  });
   return persistSession(data);
+}
+
+export async function resendVerification({ email }) {
+  if (!email) {
+    throw new Error("Vui lòng nhập email.");
+  }
+  return requestAuth("/api/v1/auth/resend-verification", {
+    email: String(email).trim().toLowerCase(),
+  });
 }
 
 export async function loginWithGoogle(idToken) {
@@ -137,11 +193,21 @@ export async function loginWithGoogle(idToken) {
   }
 
   clearAuthStorage();
+  console.log("[GOOGLE AUTH PAYLOAD]", { hasCredential: Boolean(idToken) });
 
   const data = await requestAuth("/api/v1/auth/google", {
+    credential: idToken,
     id_token: idToken,
   });
   return persistSession(data);
+}
+
+export async function getGoogleOAuthUrl() {
+  const data = await requestAuthGet("/api/v1/auth/google/url");
+  if (!data?.url) {
+    throw new Error("Không lấy được liên kết đăng nhập Google.");
+  }
+  return data;
 }
 export async function forgotPassword(email) {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {

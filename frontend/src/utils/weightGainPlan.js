@@ -1,5 +1,8 @@
-export const SAFE_GAIN_MIN_KG_PER_MONTH = 0.5;
-export const SAFE_GAIN_MAX_KG_PER_MONTH = 1.0;
+// Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
+// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
+//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
+export const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
+export const SAFE_GAIN_MAX_KG_PER_MONTH = 3.6;
 export const WEEKS_PER_MONTH = 4;
 export const SAFE_GAIN_MAX_KG_PER_WEEK = SAFE_GAIN_MAX_KG_PER_MONTH / WEEKS_PER_MONTH;
 
@@ -34,6 +37,7 @@ export function validateWeightGoalTimeline({ currentWeightKg, targetWeightKg, du
     weightToGain: null,
     requiredGainPerMonth: null,
     minMonths: null,
+    maxMonths: null,
     minWeeks: null,
     suggestedSpeed: null,
     message: "",
@@ -53,26 +57,39 @@ export function validateWeightGoalTimeline({ currentWeightKg, targetWeightKg, du
   const durationMonths = normalizedUnit === "weeks" ? durationNumber / WEEKS_PER_MONTH : durationNumber;
   const weightToGain = targetWeight - currentWeight;
   const requiredGainPerMonth = weightToGain / durationMonths;
-  const minMonths = Math.ceil(weightToGain / SAFE_GAIN_MAX_KG_PER_MONTH);
+  // Gợi ý thời gian dựa trên mốc Intermountain Health
+  const minMonths = Math.ceil(weightToGain / SAFE_GAIN_MAX_KG_PER_MONTH); // thời gian tối thiểu (tốc độ nhanh nhất)
+  const maxMonths = Math.ceil(weightToGain / SAFE_GAIN_MIN_KG_PER_MONTH); // thời gian tối đa (tốc độ chậm nhất)
   const minWeeks = minMonths * WEEKS_PER_MONTH;
 
   result.durationMonths = durationMonths;
   result.weightToGain = weightToGain;
   result.requiredGainPerMonth = requiredGainPerMonth;
   result.minMonths = minMonths;
+  result.maxMonths = maxMonths;
   result.minWeeks = minWeeks;
 
+  // Tốc độ quá nhanh (> 3.6 kg/tháng)
   if (requiredGainPerMonth > SAFE_GAIN_MAX_KG_PER_MONTH) {
-    result.fieldErrors.target_duration_value = `Bạn cần tăng khoảng ${formatKgRate(requiredGainPerMonth)}kg/tháng, vượt mức khuyến nghị 0,5–1kg/tháng cho người trưởng thành. Vui lòng chọn thời gian dài hơn. Nên chọn tối thiểu khoảng ${minMonths} tháng hoặc ${minWeeks} tuần.`;
+    result.fieldErrors.target_duration_value = `Bạn muốn tăng ${formatKgRate(weightToGain)}kg trong ${durationNumber} ${normalizedUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${formatKgRate(requiredGainPerMonth)}kg/tháng. Mốc tham khảo quy đổi từ Intermountain Health là khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Tốc độ bạn nhập đang cao hơn mốc này. Gợi ý: với mục tiêu tăng ${formatKgRate(weightToGain)}kg, bạn nên chọn khoảng ${minMonths}–${maxMonths} tháng.`;
     return result;
   }
 
   result.ok = true;
-  result.severity = requiredGainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH ? "info" : "success";
-  result.suggestedSpeed = requiredGainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH ? "slow" : requiredGainPerMonth <= 0.75 ? "moderate" : "fast";
-  result.message = requiredGainPerMonth >= SAFE_GAIN_MIN_KG_PER_MONTH
-    ? "Tốc độ tăng cân này phù hợp với mức khuyến nghị 0,5–1kg/tháng."
-    : "Tốc độ này khá chậm và an toàn, phù hợp nếu bạn muốn tăng cân bền vững.";
+
+  // Tốc độ quá chậm (< 1 kg/tháng)
+  if (requiredGainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH) {
+    result.severity = "info";
+    result.suggestedSpeed = "slow";
+    result.message = `Bạn muốn tăng ${formatKgRate(weightToGain)}kg trong ${durationNumber} ${normalizedUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${formatKgRate(requiredGainPerMonth)}kg/tháng. Tốc độ này chậm hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`;
+  } 
+  // Tốc độ nằm trong mốc (1–3.6 kg/tháng)
+  else {
+    result.severity = "success";
+    result.suggestedSpeed = requiredGainPerMonth <= 2 ? "moderate" : "fast";
+    result.message = `Bạn muốn tăng ${formatKgRate(weightToGain)}kg trong ${durationNumber} ${normalizedUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${formatKgRate(requiredGainPerMonth)}kg/tháng. Tốc độ này nằm trong mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`;
+  }
+
   return result;
 }
 

@@ -10,4 +10,7 @@ bcrypt==4.2.1
 python-dotenv==1.0.1
 python-multipart
 pillow
-python-multipart
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+requests

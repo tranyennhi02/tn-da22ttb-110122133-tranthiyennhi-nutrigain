@@ -29,7 +29,14 @@ export default function Sidebar({
       }`}
     >
       <div className="flex items-center justify-between px-5 pb-4 pt-5">
-        <NutriGainLogo size="sm" />
+        <button
+          type="button"
+          onClick={() => onNavigate?.("overview", "/dashboard")}
+          aria-label="Về trang tổng quan"
+          className="rounded-xl transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40"
+        >
+          <NutriGainLogo size="sm" />
+        </button>
         <button
           className="grid h-10 w-10 place-items-center rounded-xl bg-white text-brand-text-sub shadow-sm lg:hidden"
           onClick={onClose}

@@ -87,20 +87,39 @@ function profileToRegenerateForm(profile, fallback = {}) {
 export async function regenerateMealPlan(formState, options = {}) {
   const freshProfile = options.profile || formState?.profile || null;
   const payload = normalizePayload(profileToRegenerateForm(freshProfile, formState));
-  const result = await postRegenerateMealPlan({
+  const selectedIngredients = Array.from(
+    new Set(
+      [
+        ...(options.available_ingredients || []),
+        ...(options.ingredients || []),
+        ...(payload.available_ingredients || []),
+        ...(formState?.available_ingredients || []),
+        ...(formState?.ingredients || []),
+      ]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const requestPayload = {
     ...payload,
     userId: options.userId || undefined,
     date: options.date || getVietnamDateString(),
     previousMealPlanId: options.previousMealPlanId || undefined,
     targetKcal: options.targetKcal || payload.target_calories || undefined,
     excludePreviousItems: options.excludePreviousItems !== false,
-    available_ingredients: options.available_ingredients || payload.available_ingredients || [],
-    ingredients: options.ingredients || payload.ingredients || [],
+    available_ingredients: selectedIngredients,
+    ingredients: selectedIngredients,
     generation_seed: options.generation_seed || options.randomSeed || Date.now(),
     randomSeed: options.randomSeed || Date.now(),
     force_regenerate: true,
     profile: freshProfile || undefined,
-  });
+  };
+
+  console.log("[MEAL SETUP SELECTED INGREDIENTS]", selectedIngredients);
+  console.log("[MEAL SETUP SUBMIT PAYLOAD]", requestPayload);
+
+  const result = await postRegenerateMealPlan(requestPayload);
   return assertNonEmptyMealPlan(result);
 }
 

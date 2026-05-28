@@ -51,8 +51,11 @@ function buildWeightGoalPreview(data) {
   };
 }
 
-const SAFE_GAIN_MIN_KG_PER_MONTH = 0.5;
-const SAFE_GAIN_MAX_KG_PER_MONTH = 1;
+// Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
+// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
+//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
+const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
+const SAFE_GAIN_MAX_KG_PER_MONTH = 3.6;
 const WEEKS_PER_MONTH = 4;
 
 const validateWeightGoalTimeline = ({
@@ -101,9 +104,11 @@ const validateWeightGoalTimeline = ({
   }
 
   const gainPerMonth = weightToGain / durationMonths;
-  const minMonths = Math.ceil(weightToGain / SAFE_GAIN_MAX_KG_PER_MONTH);
+  const minMonths = Math.ceil(weightToGain / SAFE_GAIN_MAX_KG_PER_MONTH); // thời gian tối thiểu
+  const maxMonths = Math.ceil(weightToGain / SAFE_GAIN_MIN_KG_PER_MONTH); // thời gian tối đa
   const minWeeks = minMonths * WEEKS_PER_MONTH;
 
+  // Tốc độ quá nhanh (> 3.6 kg/tháng)
   if (gainPerMonth > SAFE_GAIN_MAX_KG_PER_MONTH) {
     return {
       ok: false,
@@ -112,23 +117,38 @@ const validateWeightGoalTimeline = ({
       durationMonths,
       gainPerMonth,
       minMonths,
+      maxMonths,
       minWeeks,
-      error: `Mục tiêu này cần tăng khoảng ${gainPerMonth.toFixed(1)}kg/tháng, vượt mức khuyến nghị 0,5–1kg/tháng. Vui lòng chọn tối thiểu khoảng ${minMonths} tháng hoặc ${minWeeks} tuần.`,
+      error: `Bạn muốn tăng ${gainPerMonth.toFixed(1)}kg/tháng. Mốc tham khảo quy đổi từ Intermountain Health là khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Tốc độ bạn nhập đang cao hơn mốc này. Gợi ý: với mục tiêu tăng ${weightToGain.toFixed(1)}kg, bạn nên chọn khoảng ${minMonths}–${maxMonths} tháng.`,
     };
   }
 
+  // Tốc độ quá chậm (< 1 kg/tháng)
+  if (gainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH) {
+    return {
+      ok: true,
+      severity: "info",
+      weightToGain,
+      durationMonths,
+      gainPerMonth,
+      minMonths,
+      maxMonths,
+      minWeeks,
+      message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này chậm hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`,
+    };
+  }
+
+  // Tốc độ nằm trong mốc (1–3.6 kg/tháng)
   return {
     ok: true,
-    severity: gainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH ? "info" : "success",
+    severity: "success",
     weightToGain,
     durationMonths,
     gainPerMonth,
     minMonths,
+    maxMonths,
     minWeeks,
-    message:
-      gainPerMonth < SAFE_GAIN_MIN_KG_PER_MONTH
-        ? "Tốc độ này khá chậm và an toàn, phù hợp nếu bạn muốn tăng cân bền vững."
-        : "Tốc độ tăng cân này phù hợp với mức khuyến nghị 0,5–1kg/tháng.",
+    message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này nằm trong mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`,
   };
 };
 
@@ -399,13 +419,18 @@ function StepGoal({ data, update, errors, validation }) {
   const hasValidGoal = goalPreview.hasWeights && isValidNumber(goalPreview.currentWeight) && isValidNumber(goalPreview.targetWeight) && goalPreview.targetDiff > 0;
   const targetIsInvalid = goalPreview.hasWeights && isValidNumber(goalPreview.currentWeight) && isValidNumber(goalPreview.targetWeight) && goalPreview.targetWeight <= goalPreview.currentWeight;
   const hasFullTimeline = hasValidGoal && goalPreview.hasDuration && isValidNumber(goalPreview.monthlyGain);
+  
+  // Tính gợi ý thời gian dựa trên mốc Intermountain Health
+  const recommendedMinMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MAX_KG_PER_MONTH) : null;
+  const recommendedMaxMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MIN_KG_PER_MONTH) : null;
+  
   const speedNote = hasFullTimeline
-    ? (goalPreview.monthlyGain < 0.5
-        ? "Tốc độ này khá chậm. Bạn có thể giữ nếu muốn tăng cân từ từ và thoải mái."
-        : goalPreview.monthlyGain <= 1
-          ? "Tốc độ này nằm trong mức tăng cân lành mạnh thường được khuyến nghị: 0,5–1kg/tháng."
-          : "Tốc độ này khá nhanh. Bạn nên theo dõi cơ thể và điều chỉnh nếu thấy khó duy trì.")
-    : "Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn.";
+    ? (goalPreview.monthlyGain < SAFE_GAIN_MIN_KG_PER_MONTH
+        ? `Tốc độ này chậm hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`
+        : goalPreview.monthlyGain <= SAFE_GAIN_MAX_KG_PER_MONTH
+          ? `Tốc độ này nằm trong mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`
+          : `Tốc độ này cao hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Bạn nên theo dõi cơ thể và điều chỉnh nếu thấy khó duy trì.`)
+    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng.`;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -425,7 +450,7 @@ function StepGoal({ data, update, errors, validation }) {
         </select>
         {errors.target_duration_unit ? <p className="mt-1 text-xs font-semibold text-[#EF4444]">{errors.target_duration_unit}</p> : null}
       </div>
-      <div className={`rounded-2xl border p-4 text-sm font-semibold ${isBlocked ? "border-rose-200 bg-rose-50/80 text-rose-800" : "border-[#D1FAE5] bg-[#ECFDF5] text-[#065F46]"}`}>
+      <div className={`rounded-2xl border p-4 text-sm font-semibold ${isBlocked ? "border-rose-200 bg-rose-50/80 text-rose-800" : hasFullTimeline && goalPreview.monthlyGain >= SAFE_GAIN_MIN_KG_PER_MONTH && goalPreview.monthlyGain <= SAFE_GAIN_MAX_KG_PER_MONTH ? "border-[#D1FAE5] bg-[#ECFDF5] text-[#065F46]" : hasFullTimeline && goalPreview.monthlyGain < SAFE_GAIN_MIN_KG_PER_MONTH ? "border-blue-200 bg-blue-50 text-blue-800" : "border-[#D1FAE5] bg-[#ECFDF5] text-[#065F46]"}`}>
         {targetIsInvalid ? (
           <>
             <p className="text-rose-700">Mục tiêu cân nặng cần lớn hơn cân nặng hiện tại để NutriGain ước tính lộ trình tăng cân.</p>
@@ -433,22 +458,28 @@ function StepGoal({ data, update, errors, validation }) {
           </>
         ) : hasFullTimeline ? (
           <>
-            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg/tháng.</p>
+            <p className={isBlocked ? "text-rose-700" : ""}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg/tháng.</p>
             <p className="mt-2">{speedNote}</p>
+            {isBlocked && weightGoalValidation.minMonths && weightGoalValidation.maxMonths && (
+              <p className="mt-2 text-rose-700">Gợi ý: với mục tiêu tăng {targetDiffLabel}kg, bạn nên chọn khoảng {weightGoalValidation.minMonths}–{weightGoalValidation.maxMonths} tháng.</p>
+            )}
           </>
         ) : hasValidGoal ? (
           <>
-            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Bạn muốn tăng {targetDiffLabel}kg so với cân nặng hiện tại.</p>
-            <p className="mt-2">Hãy bổ sung thời gian mục tiêu để NutriGain ước tính tốc độ tăng cân mỗi tháng.</p>
+            <p className={isBlocked ? "text-rose-700" : ""}>Bạn muốn tăng {targetDiffLabel}kg so với cân nặng hiện tại.</p>
+            <p className="mt-2">Vui lòng bổ sung thời gian mục tiêu để NutriGain ước tính tốc độ tăng cân mỗi tháng.</p>
             <p className="mt-2">{speedNote}</p>
+            {recommendedMinMonths && recommendedMaxMonths && (
+              <p className="mt-2">Gợi ý: với mục tiêu tăng {targetDiffLabel}kg, bạn có thể chọn khoảng {recommendedMinMonths}–{recommendedMaxMonths} tháng.</p>
+            )}
           </>
         ) : (
           <>
-            <p className={isBlocked ? "text-rose-700" : "text-[#047857]"}>Hãy nhập cân nặng hiện tại và cân nặng mục tiêu để NutriGain ước tính lộ trình tăng cân.</p>
+            <p className={isBlocked ? "text-rose-700" : ""}>Hãy nhập cân nặng hiện tại và cân nặng mục tiêu để NutriGain ước tính lộ trình tăng cân.</p>
             <p className="mt-2">Khi có đủ dữ liệu, NutriGain sẽ tính giúp bạn tốc độ tăng cân mỗi tháng.</p>
           </>
         )}
-        <p className={`mt-2 text-xs font-medium ${isBlocked ? "text-rose-700" : "text-[#047857]"}`}>NutriGain chỉ hỗ trợ ước tính tham khảo, không thay thế tư vấn từ chuyên gia dinh dưỡng.</p>
+        <p className={`mt-2 text-xs font-medium ${isBlocked ? "text-rose-700" : ""}`}>NutriGain chỉ hỗ trợ ước tính tham khảo, không thay thế tư vấn từ chuyên gia dinh dưỡng.</p>
       </div>
     </div>
   );

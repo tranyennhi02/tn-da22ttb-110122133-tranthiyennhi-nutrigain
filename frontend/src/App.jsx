@@ -148,6 +148,21 @@ function syncSessionUser(currentUser, setSession) {
   });
 }
 
+function storeSessionFromAccessToken(accessToken) {
+  const session = {
+    accessToken,
+    tokenType: "bearer",
+    user: null,
+    email: "",
+    name: "",
+    role: "USER",
+    status: "ACTIVE",
+    loggedInAt: new Date().toISOString(),
+  };
+  localStorage.setItem("nutrigain_auth", JSON.stringify(session));
+  return session;
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => readSession());
@@ -162,6 +177,7 @@ export default function App() {
   const [locationPath, setLocationPath] = useState(() => window.location.pathname);
   const [authLoadTimedOut, setAuthLoadTimedOut] = useState(false);
   const fetchedTokenRef = useRef("");
+  const handledGoogleCallbackRef = useRef(false);
 
   const sessionToken = useMemo(() => session?.accessToken || "", [session?.accessToken]);
   const userEmail = useMemo(() => authUser?.email || session?.email || "", [authUser?.email, session?.email]);
@@ -182,6 +198,24 @@ export default function App() {
     window.addEventListener("popstate", syncLocation);
     return () => window.removeEventListener("popstate", syncLocation);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const googleToken = params.get("token") || "";
+    if (!googleToken || sessionToken || handledGoogleCallbackRef.current) return;
+
+    handledGoogleCallbackRef.current = true;
+    const nextSession = storeSessionFromAccessToken(googleToken);
+    setSession((current) => current || nextSession);
+    setAuthUser(null);
+    setJustLoggedIn(false);
+    setProfileFormState(defaultFormState);
+    setInitialMealResult(null);
+    setInitialSection("overview");
+    setAppView("checking");
+    window.history.replaceState({}, "", window.location.pathname);
+    setLocationPath(window.location.pathname);
+  }, [sessionToken]);
 
   function handleBackToLogin() {
     performLogout();
@@ -402,6 +436,9 @@ export default function App() {
 
   async function handleAuthSubmit(loginState) {
     const authResult = await submitLogin(loginState);
+    if (authResult?.requires_email_verification) {
+      return authResult;
+    }
     console.log("[AUTH SUCCESS]", authResult);
     await handleUserAuthSuccess(authResult);
   }

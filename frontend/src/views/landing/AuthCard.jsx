@@ -1,205 +1,441 @@
-import { forwardRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import NutriGainLogo from "../../components/NutriGainLogo";
+import { getGoogleOAuthUrl } from "../../services/authService";
 
-export default function AuthCard({ mode, onSubmit, onSwitchMode, onGoogleLogin, onForgotPassword, isSubmitting, serverError, toast }) {
+let googleInitializedGlobally = false;
+
+export default function AuthCard({
+  mode,
+  registerStep,
+  verificationEmail,
+  onLoginSubmit,
+  onRegisterSubmit,
+  onVerifyEmail,
+  onResendVerification,
+  onChangeEmail,
+  onSwitchMode,
+  onGoogleLogin,
+  onForgotPassword,
+  isSubmitting,
+  serverError,
+  toast,
+}) {
+  useEffect(() => {
+    console.log("[AUTH FORM ACTIVE] restored old form, empty credentials");
+  }, []);
+
   const isRegister = mode === "register";
-  const [form, setForm] = useState({ fullName: "", email: "", password: "" });
-  const [showPw, setShowPw] = useState(false);
+  const isVerificationStep = isRegister && registerStep === 2;
+
+  const [form, setForm] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    verificationCode: "",
+  });
   const [errors, setErrors] = useState({});
+  const [showPw, setShowPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
 
+  const googleInitializedRef = useRef(false);
+  const googleLoginRef = useRef(onGoogleLogin);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  const isGoogleConfigured = !!googleClientId && googleClientId !== "YOUR_GOOGLE_CLIENT_ID_HERE" && googleClientId !== "";
-
-  console.log("[GOOGLE CLIENT ID]", isGoogleConfigured ? "loaded" : "missing");
+  const isGoogleConfigured = !!googleClientId && googleClientId !== "YOUR_GOOGLE_CLIENT_ID_HERE" && googleClientId !== "" && googleClientId !== "undefined";
 
   useEffect(() => {
-    if (!isGoogleConfigured) return;
+    googleLoginRef.current = onGoogleLogin;
+  }, [onGoogleLogin]);
+
+  useEffect(() => {
+    setErrors({});
+    setShowPw(false);
+    setShowConfirmPw(false);
+    setForm({
+      fullName: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+      verificationCode: "",
+    });
+  }, [mode, registerStep]);
+
+  useEffect(() => {
+    if (!isGoogleConfigured || googleInitializedGlobally || googleInitializedRef.current) return;
 
     let active = true;
-    let interval = setInterval(() => {
-      if (window.google) {
-        clearInterval(interval);
-        if (active) {
-          initGoogleSignIn();
-        }
+    const interval = window.setInterval(() => {
+      if (!window.google) return;
+      window.clearInterval(interval);
+      if (active && !googleInitializedRef.current) {
+        initGoogleSignIn();
       }
     }, 100);
 
     return () => {
       active = false;
-      clearInterval(interval);
+      window.clearInterval(interval);
     };
 
     function initGoogleSignIn() {
-      if (window.google) {
-        window.google.accounts.id.initialize({
-          client_id: googleClientId,
-          callback: (res) => {
-            if (res.credential) {
-              onGoogleLogin(res.credential);
-            }
-          },
-        });
-        window.google.accounts.id.renderButton(
-          document.getElementById("google-signin-btn"),
-          {
-            theme: "outline",
-            size: "large",
-            width: "376",
-            text: "continue_with",
-            shape: "pill",
+      if (!window.google || googleInitializedRef.current || googleInitializedGlobally) return;
+      googleInitializedRef.current = true;
+      googleInitializedGlobally = true;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        use_fedcm_for_prompt: false,
+        callback: (response) => {
+          if (response?.credential) {
+            googleLoginRef.current?.(response.credential);
           }
-        );
+        },
+      });
+      try {
+        console.log("[GOOGLE CLIENT ID FRONTEND RAW]", JSON.stringify(import.meta.env.VITE_GOOGLE_CLIENT_ID));
+        console.log("[APP ORIGIN]", window.location.origin);
+      } catch {
+        // ignore
       }
     }
-  }, [isGoogleConfigured, onGoogleLogin, googleClientId]);
+  }, [isGoogleConfigured, googleClientId]);
 
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setForm((p) => ({ ...p, [name]: value }));
-    setErrors((p) => ({ ...p, [name]: "" }));
+  function handleChange(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+    setErrors((current) => ({ ...current, [name]: "" }));
   }
 
-  function validate() {
-    const errs = {};
-    if (isRegister && !form.fullName.trim()) errs.fullName = "Vui lòng nhập họ tên";
-    if (!form.email.trim()) errs.email = "Vui lòng nhập email";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Email không hợp lệ";
-    if (!form.password) errs.password = "Vui lòng nhập mật khẩu";
-    else if (form.password.length < 8) errs.password = "Mật khẩu cần có ít nhất 8 ký tự.";
-    return errs;
+  function validateLogin() {
+    const nextErrors = {};
+    if (!form.email.trim()) nextErrors.email = "Vui lòng nhập email.";
+    else if (!isValidEmail(form.email)) nextErrors.email = "Email chưa đúng định dạng.";
+    if (!form.password) nextErrors.password = "Vui lòng nhập mật khẩu.";
+    return nextErrors;
   }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    const errs = validate();
-    setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-    onSubmit({ ...form, mode });
+  function validateRegister() {
+    const nextErrors = {};
+    if (!form.fullName.trim()) nextErrors.fullName = "Vui lòng nhập họ tên.";
+    if (!form.email.trim()) nextErrors.email = "Vui lòng nhập email.";
+    else if (!isValidEmail(form.email)) nextErrors.email = "Email chưa đúng định dạng.";
+    if (!form.password) nextErrors.password = "Vui lòng nhập mật khẩu.";
+    else if (form.password.length < 8) nextErrors.password = "Mật khẩu cần ít nhất 8 ký tự.";
+    if (!form.confirmPassword) nextErrors.confirmPassword = "Vui lòng nhập lại mật khẩu.";
+    else if (form.password !== form.confirmPassword) nextErrors.confirmPassword = "Mật khẩu nhập lại chưa khớp.";
+    return nextErrors;
   }
 
+  function validateVerification() {
+    const nextErrors = {};
+    if (!form.verificationCode.trim()) nextErrors.verificationCode = "Vui lòng nhập mã xác thực.";
+    else if (!/^\d{6}$/.test(form.verificationCode.trim())) nextErrors.verificationCode = "Mã xác thực phải gồm 6 chữ số.";
+    return nextErrors;
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const nextErrors = isVerificationStep ? validateVerification() : isRegister ? validateRegister() : validateLogin();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    if (isVerificationStep) {
+      await onVerifyEmail?.({
+        email: verificationEmail || form.email,
+        code: form.verificationCode.trim(),
+      });
+      return;
+    }
+
+    if (isRegister) {
+      await onRegisterSubmit?.({
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        confirmPassword: form.confirmPassword,
+      });
+      return;
+    }
+
+    await onLoginSubmit?.({
+      email: form.email.trim(),
+      password: form.password,
+    });
+  }
+
+  async function handleGoogleClick() {
+    console.log("[GOOGLE LOGIN CLICK]");
+    try {
+      const data = await getGoogleOAuthUrl();
+      console.log("[GOOGLE REDIRECT FALLBACK]");
+      window.location.href = data.url;
+    } catch (error) {
+      console.warn("[GOOGLE FEDCM BLOCKED]", error);
+    }
+  }
+
+  const title = isVerificationStep
+    ? "Kiểm tra email của bạn"
+    : isRegister
+      ? "Tạo tài khoản mới"
+      : "Chào mừng trở lại";
+  const subtitle = isVerificationStep
+    ? `NutriGain đã gửi mã xác thực 6 số đến ${verificationEmail || form.email}. Nhập mã để hoàn tất đăng ký.`
+    : isRegister
+      ? "Bắt đầu xây dựng kế hoạch dinh dưỡng của bạn."
+      : "Đăng nhập để tiếp tục kế hoạch dinh dưỡng của bạn.";
+
+  const submitLabel = isVerificationStep ? "Xác thực email" : isRegister ? "Tạo tài khoản" : "Đăng nhập";
+  const submittingLabel = isVerificationStep ? "Đang xác thực..." : isRegister ? "Đang tạo tài khoản..." : "Đang đăng nhập...";
   return (
-    <div className="w-full max-w-[440px]">
-      {/* Card */}
-      <div className="rounded-[28px] border border-brand-border bg-white p-8 shadow-2xl shadow-brand-navy/10">
-        {/* Logo */}
-        <NutriGainLogo size="sm" />
-
-        <div className="mt-7">
-          <h2 className="text-2xl font900 text-brand-navy">{isRegister ? "Tạo tài khoản" : "Chào mừng trở lại"}</h2>
-          <p className="mt-1 text-sm font600 text-brand-text-sub">
-            {isRegister ? "Bắt đầu hành trình tăng cân của bạn" : "Tiếp tục kế hoạch dinh dưỡng hôm nay"}
-          </p>
+    <div className="w-full px-4 py-0 overflow-x-hidden">
+      <div className="mx-auto w-full max-w-[500px] rounded-[36px] border border-emerald-100 bg-white/95 p-8 shadow-[0_28px_90px_rgba(15,23,42,0.14)] backdrop-blur md:p-10">
+        <div className="mb-6 flex justify-center">
+          <NutriGainLogo size="sm" />
         </div>
 
-        {/* Google button */}
-        {isGoogleConfigured ? (
-          <div id="google-signin-btn" className="mt-7 flex w-full justify-center" />
-        ) : (
+        <div className="mb-8 text-center">
+          <h2 className="text-3xl font-black leading-tight tracking-tight text-slate-950 md:text-4xl">{title}</h2>
+          <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-500 md:text-base">{subtitle}</p>
+        </div>
+
+        {!isVerificationStep && (
           <>
             <button
               type="button"
-              disabled
-              className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-sm font800 text-brand-text-main opacity-60 cursor-not-allowed"
+              onClick={handleGoogleClick}
+              disabled={!isGoogleConfigured}
+              className="mb-5 flex h-12 w-full items-center justify-center gap-2.5 rounded-[16px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <GoogleIcon />
-              Tiếp tục với Google
+              <span>Tiếp tục với Google</span>
             </button>
-            <p className="mt-2 text-center text-xs font700 text-amber-600">
-              Tính năng đăng nhập Google đang được phát triển. Vui lòng đăng nhập bằng email.
-            </p>
+
+            <div className="mb-5 flex items-center gap-4">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">hoặc đăng nhập bằng email</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+              {isRegister && (
+                <TextField
+                  label="Họ tên"
+                  name="fullName"
+                  placeholder="Họ và tên"
+                  value={form.fullName}
+                  error={errors.fullName}
+                  onChange={handleChange}
+                  autoComplete="name"
+                />
+              )}
+
+              <TextField
+                label="Email"
+                name="email"
+                type="email"
+                placeholder="email@example.com"
+                value={form.email}
+                error={errors.email}
+                onChange={handleChange}
+                autoComplete={isRegister ? "email" : "username"}
+              />
+
+              <PasswordField
+                label="Mật khẩu"
+                name="password"
+                placeholder="Nhập mật khẩu"
+                value={form.password}
+                error={errors.password}
+                onChange={handleChange}
+                autoComplete={isRegister ? "new-password" : "current-password"}
+                showPw={showPw}
+                onToggleShow={() => setShowPw((current) => !current)}
+              />
+
+              {isRegister && (
+                <PasswordField
+                  label="Nhập lại mật khẩu"
+                  name="confirmPassword"
+                  placeholder="Nhập lại mật khẩu"
+                  value={form.confirmPassword}
+                  error={errors.confirmPassword}
+                  onChange={handleChange}
+                  autoComplete="new-password"
+                  showPw={showConfirmPw}
+                  onToggleShow={() => setShowConfirmPw((current) => !current)}
+                />
+              )}
+
+              {!isRegister && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onForgotPassword?.();
+                    }}
+                    className="text-sm font-semibold text-slate-500 transition hover:text-emerald-600"
+                  >
+                    Quên mật khẩu?
+                  </button>
+                </div>
+              )}
+
+              {serverError && <ServerErrorBox message={serverError} />}
+              {toast && <ToastBox message={toast} />}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-sm font-extrabold text-white shadow-[0_16px_32px_rgba(5,150,105,0.28)] transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? <LoadingLabel label={submittingLabel} /> : submitLabel}
+              </button>
+            </form>
           </>
         )}
 
-        {/* Divider */}
-        <div className="my-6 flex items-center gap-4">
-          <div className="h-px flex-1 bg-brand-border" />
-          <span className="text-xs font700 text-brand-text-sub">hoặc đăng nhập bằng email</span>
-          <div className="h-px flex-1 bg-brand-border" />
-        </div>
+        {isVerificationStep && (
+          <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+            <TextField
+              label="Mã xác thực"
+              name="verificationCode"
+              placeholder="123456"
+              value={form.verificationCode}
+              error={errors.verificationCode}
+              onChange={handleChange}
+              inputMode="numeric"
+              maxLength={6}
+              autoComplete="one-time-code"
+            />
 
-        {/* Form */}
-        <form className="space-y-4" onSubmit={handleSubmit} noValidate>
-          {isRegister && (
-            <Field label="Họ tên" name="fullName" placeholder="Nguyễn Văn A" value={form.fullName} error={errors.fullName} onChange={handleChange} />
-          )}
-          <Field label="Email" name="email" type="email" placeholder="ban@example.com" value={form.email} error={errors.email} onChange={handleChange} />
-          <div>
-            <div className="relative">
-              <Field label="Mật khẩu" name="password" type={showPw ? "text" : "password"} placeholder="Tối thiểu 8 ký tự" value={form.password} error={errors.password} onChange={handleChange} />
-              <button
-                type="button"
-                onClick={() => setShowPw((v) => !v)}
-                className="absolute right-3 top-9 grid h-8 w-8 place-items-center rounded-lg text-brand-text-sub hover:bg-brand-mint hover:text-brand-primary"
-              >
-                {showPw ? <EyeOffIcon /> : <EyeIcon />}
+            <div className="flex flex-col gap-2 text-sm font-semibold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={onResendVerification} className="text-left transition hover:text-emerald-600">
+                Gửi lại mã
+              </button>
+              <button type="button" onClick={onChangeEmail} className="text-left transition hover:text-emerald-600">
+                Đổi email
               </button>
             </div>
-            {!isRegister && (
-              <div className="mt-1.5 flex justify-end">
-                <button type="button" onClick={(e) => { e.preventDefault(); if (onForgotPassword) onForgotPassword(); }} className="text-xs font800 text-brand-text-sub transition hover:text-brand-primary">Quên mật khẩu?</button>
-              </div>
-            )}
-          </div>
 
-          {serverError && (
-            <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font700 text-red-600">{serverError}</div>
+            {serverError && <ServerErrorBox message={serverError} />}
+            {toast && <ToastBox message={toast} />}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-sm font-extrabold text-white shadow-[0_16px_32px_rgba(5,150,105,0.28)] transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? <LoadingLabel label={submittingLabel} /> : submitLabel}
+            </button>
+          </form>
+        )}
+
+        <p className="mt-6 text-center text-sm font-semibold text-slate-500">
+          {isRegister ? (
+            <>
+              Đã có tài khoản?{" "}
+              <button type="button" onClick={onSwitchMode} className="font-extrabold text-emerald-600 transition hover:underline">
+                Đăng nhập
+              </button>
+            </>
+          ) : (
+            <>
+              Chưa có tài khoản?{" "}
+              <button type="button" onClick={onSwitchMode} className="font-extrabold text-emerald-600 transition hover:underline">
+                Đăng ký miễn phí
+              </button>
+            </>
           )}
-          {toast && (
-            <div className="rounded-2xl border border-brand-primary/20 bg-brand-mint px-4 py-3 text-sm font800 text-brand-primary">{toast}</div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex h-12 w-full items-center justify-center rounded-2xl bg-brand-primary text-sm font900 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {isSubmitting ? (
-              <span className="flex items-center gap-2"><Spinner />{isRegister ? "Đang tạo tài khoản..." : "Đang đăng nhập..."}</span>
-            ) : isRegister ? "Đăng ký" : "Đăng nhập"}
-          </button>
-        </form>
-
-        {/* Switch mode */}
-        <p className="mt-6 text-center text-sm font700 text-brand-text-sub">
-          {isRegister ? "Đã có tài khoản? " : "Chưa có tài khoản? "}
-          <button type="button" onClick={onSwitchMode} className="font900 text-brand-primary transition hover:text-brand-primary-dark">
-            {isRegister ? "Đăng nhập" : "Đăng ký miễn phí"}
-          </button>
         </p>
-      </div>
 
-      {/* Back to home */}
-      <div className="mt-5 text-center">
-        <a href="#hero" className="text-sm font700 text-brand-text-sub transition hover:text-brand-primary">
-          ← Quay lại trang chủ
-        </a>
+        <div className="mt-8 text-center">
+          <a href="#hero" className="text-sm font-semibold text-slate-500 transition hover:text-emerald-600">
+            ← Quay lại trang chủ
+          </a>
+        </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, name, type = "text", placeholder, value, error, onChange }) {
+function TextField({ label, name, type = "text", placeholder, value, error, onChange, autoComplete, inputMode, maxLength }) {
   return (
-    <div>
-      <label className="mb-1.5 block text-sm font800 text-brand-text-main">{label}</label>
+    <div className="space-y-2">
+      <label className="block text-sm font-bold text-slate-700">{label}</label>
       <input
         name={name}
         type={type}
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className={`h-12 w-full rounded-xl border bg-white px-4 text-sm font600 text-brand-text-main outline-none transition placeholder:text-brand-text-sub focus:ring-4 focus:ring-brand-primary/10 ${
-          error ? "border-red-400 focus:border-red-400" : "border-brand-border focus:border-brand-primary"
-        }`}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
+        maxLength={maxLength}
+        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+        style={{
+          WebkitBoxShadow: "0 0 0px 1000px rgb(255,255,255) inset",
+          WebkitTextFillColor: "rgb(15,23,42)",
+          transition: "background-color 9999s ease-in-out 0s"
+        }}
       />
-      {error && <p className="mt-1.5 text-xs font700 text-red-500">{error}</p>}
+      {error && <p className="text-xs font-semibold text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+function PasswordField({ label, name, placeholder, value, error, onChange, autoComplete, showPw, onToggleShow }) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-bold text-slate-700">{label}</label>
+      <div className="relative">
+        <input
+          name={name}
+          type={showPw ? "text" : "password"}
+          placeholder={placeholder}
+          value={value}
+          onChange={onChange}
+          autoComplete={autoComplete}
+          className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 pr-12 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+          style={{
+            WebkitBoxShadow: "0 0 0px 1000px rgb(255,255,255) inset",
+            WebkitTextFillColor: "rgb(15,23,42)",
+            transition: "background-color 9999s ease-in-out 0s"
+          }}
+        />
+        <button
+          type="button"
+          onClick={onToggleShow}
+          aria-label={showPw ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+          className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-xl text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-600"
+        >
+          {showPw ? <EyeOffIcon /> : <EyeIcon />}
+        </button>
+      </div>
+      {error && <p className="text-xs font-semibold text-red-600">{error}</p>}
     </div>
   );
 }
 
 function Spinner() {
   return <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />;
+}
+
+function LoadingLabel({ label }) {
+  return (
+    <span className="flex items-center gap-2">
+      <Spinner />
+      {label}
+    </span>
+  );
+}
+
+function ServerErrorBox({ message }) {
+  return <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-600">{message}</div>;
+}
+
+function ToastBox({ message }) {
+  return <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{message}</div>;
 }
 
 function GoogleIcon() {
@@ -216,7 +452,8 @@ function GoogleIcon() {
 function EyeIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
@@ -228,4 +465,8 @@ function EyeOffIcon() {
       <path d="M9.9 4.2A10.7 10.7 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-2.2 3.3M6.6 6.6C3.6 8.5 2 12 2 12s3.5 8 10 8a10.9 10.9 0 0 0 4.9-1.2" />
     </svg>
   );
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }

@@ -7,13 +7,15 @@ import time
 import traceback
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
+from urllib.parse import urlencode
 
 from app.api.dependencies import get_current_user, require_admin
 from app.api.v1.routes.ai_chat import router as ai_chat_router
 from app.controllers.recommendation_controller import controller
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.entities import User
 from app.services.auth_service import AuthService
 from app.services.admin_service import AdminService
@@ -59,11 +61,15 @@ from app.views.schemas import (
     RecommendationHistoryResponse,
     RecommendationInput,
     RecommendationOutput,
+    EmailVerificationInput,
+    RegistrationVerificationResponse,
+    ResendVerificationInput,
     ResetPasswordInput,
     TodayMealPlanResponse,
     UserCreate,
     UserLogin,
     GoogleLoginInput,
+    GoogleOAuthUrlResponse,
     UserProfileInput,
     UserProfileView,
     UserUpdate,
@@ -210,8 +216,8 @@ def debug_db_reset(email: str, db: Session = Depends(get_db)) -> dict:
     return {"status": "reset_successful"}
 
 
-@router.post("/auth/register", response_model=AuthTokenResponse, tags=["auth"])
-def register(payload: UserCreate, db: Session = Depends(get_db)) -> AuthTokenResponse:
+@router.post("/auth/register", response_model=RegistrationVerificationResponse, tags=["auth"])
+def register(payload: UserCreate, db: Session = Depends(get_db)) -> RegistrationVerificationResponse:
     return auth_service.register(payload, db)
 
 
@@ -220,9 +226,74 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> AuthTokenRespons
     return auth_service.login(payload, db)
 
 
+@router.post("/auth/verify-email", response_model=AuthTokenResponse, tags=["auth"])
+def verify_email(payload: EmailVerificationInput, db: Session = Depends(get_db)) -> AuthTokenResponse:
+    return auth_service.verify_email(payload, db)
+
+
+@router.post("/auth/resend-verification", response_model=MessageResponse, tags=["auth"])
+def resend_verification(payload: ResendVerificationInput, db: Session = Depends(get_db)) -> MessageResponse:
+    return auth_service.resend_verification(payload, db)
+
+
 @router.post("/auth/google", response_model=AuthTokenResponse, tags=["auth"])
 def google_login(payload: GoogleLoginInput, db: Session = Depends(get_db)) -> AuthTokenResponse:
-    return auth_service.google_login(payload.id_token, db)
+    """Google OAuth login endpoint with improved error handling"""
+    try:
+        token = payload.credential or payload.id_token or payload.access_token
+        
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing Google credential. Please provide credential, id_token, or access_token."
+            )
+        
+        return auth_service.google_login(token, db)
+    
+    except HTTPException:
+        # Re-raise HTTPException from auth_service (already has proper status codes)
+        raise
+    
+    except Exception as e:
+        logger.error(f"[GOOGLE LOGIN ERROR] Unexpected error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Google login failed: {str(e)}"
+        )
+
+
+@router.get("/auth/google/url", response_model=GoogleOAuthUrlResponse, tags=["auth"])
+def google_oauth_url() -> GoogleOAuthUrlResponse:
+    return GoogleOAuthUrlResponse(url=auth_service.get_google_oauth_url())
+
+
+@router.get("/auth/google/callback", tags=["auth"])
+def google_oauth_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    frontend_url = settings.frontend_url.rstrip("/")
+    if error:
+        logger.warning("[GOOGLE OAUTH CALLBACK ERROR] error=%s desc=%s", error, error_description or "")
+        query = urlencode({"google_error": error_description or error})
+        return RedirectResponse(url=f"{frontend_url}/login?{query}", status_code=302)
+
+    try:
+        token_response = auth_service.google_oauth_callback(code, state, db)
+    except HTTPException as exc:
+        logger.warning("[GOOGLE OAUTH CALLBACK FAILED] status=%s detail=%s", exc.status_code, str(exc.detail)[:240])
+        query = urlencode({"google_error": "google_oauth_failed"})
+        return RedirectResponse(url=f"{frontend_url}/login?{query}", status_code=302)
+    except Exception as exc:
+        logger.exception("[GOOGLE OAUTH CALLBACK FAILED] unexpected_error=%s", type(exc).__name__)
+        query = urlencode({"google_error": "google_oauth_failed"})
+        return RedirectResponse(url=f"{frontend_url}/login?{query}", status_code=302)
+
+    query = urlencode({"token": token_response.access_token})
+    return RedirectResponse(url=f"{frontend_url}/login?{query}", status_code=302)
 
 
 @router.post("/auth/forgot-password", response_model=MessageResponse, tags=["auth"])
@@ -240,7 +311,7 @@ def get_me(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CurrentUserView:
-    return CurrentUserView(**user_service.get_me(db, current_user))
+    return user_service.get_me(db, current_user)
 
 
 @router.put("/users/me", response_model=CurrentUserView, tags=["users"])
@@ -249,7 +320,7 @@ def update_me(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CurrentUserView:
-    return CurrentUserView(**user_service.update_me(db, current_user, payload))
+    return user_service.update_me(db, current_user, payload)
 
 
 @router.put("/users/me/profile", response_model=UserProfileView, tags=["users"])
@@ -258,7 +329,7 @@ def update_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserProfileView:
-    return UserProfileView(**user_service.update_profile(db, current_user, payload))
+    return user_service.update_profile(db, current_user, payload)
 
 
 @router.post("/meal-reminders/test-email", response_model=MealReminderTestEmailResponse, tags=["meal-reminders"])

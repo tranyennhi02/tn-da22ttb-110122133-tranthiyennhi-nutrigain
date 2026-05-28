@@ -8,6 +8,7 @@ const GoogleAuthContext = createContext(null);
 
 export function GoogleOAuthProvider({ clientId, children }) {
   console.log("[GOOGLE CLIENT ID FRONTEND]", import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  console.log("[APP ORIGIN]", window.location.origin);
 
   useEffect(() => {
     const isConfigured = !!clientId && clientId !== "YOUR_GOOGLE_CLIENT_ID_HERE" && clientId !== "";

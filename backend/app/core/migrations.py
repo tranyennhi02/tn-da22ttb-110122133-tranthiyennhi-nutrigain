@@ -27,6 +27,7 @@ def ensure_database_schema(engine: Engine) -> None:
     """
     _add_column_if_missing(engine, "users", "auth_provider", "auth_provider VARCHAR(50) NULL DEFAULT 'email'")
     _add_column_if_missing(engine, "users", "google_sub", "google_sub VARCHAR(255) NULL")
+    _add_column_if_missing(engine, "users", "email_verified", "email_verified BOOLEAN NOT NULL DEFAULT 0")
     _add_column_if_missing(engine, "users", "role", "role VARCHAR(30) NOT NULL DEFAULT 'USER'")
     _add_column_if_missing(engine, "users", "status", "status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'")
     _add_column_if_missing(engine, "foods", "name", "name TEXT NULL")
@@ -171,6 +172,27 @@ def ensure_database_schema(engine: Engine) -> None:
                 )
             )
 
+    if "email_verification_tokens" not in inspector.get_table_names():
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE email_verification_tokens (
+                        id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        code_hash VARCHAR(64) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        last_sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        consumed_at DATETIME NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_email_verification_tokens_user_id (user_id)
+                    )
+                    """
+                )
+            )
+
     if "meal_reminder_logs" not in inspector.get_table_names():
         with engine.begin() as connection:
             connection.execute(
@@ -200,6 +222,7 @@ def ensure_database_schema(engine: Engine) -> None:
         connection.execute(text("UPDATE users SET role = 'USER' WHERE role IS NULL OR role = ''"))
         connection.execute(text("UPDATE users SET status = 'LOCKED' WHERE is_active = 0"))
         connection.execute(text("UPDATE users SET status = 'ACTIVE' WHERE status IS NULL OR status = ''"))
+        connection.execute(text("UPDATE users SET email_verified = 1 WHERE email_verified IS NULL OR email_verified = 0"))
         connection.execute(
             text(
                 """

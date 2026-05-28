@@ -30,7 +30,7 @@ function FoodImageArea({ item }) {
         src={imageUrl}
         alt={altText}
         loading="lazy"
-        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        className="h-full w-full object-cover object-center transition duration-500 group-hover:scale-105"
         onError={(event) => {
           const img = event.currentTarget;
           if (img.dataset.usedFallback === "true") return;
@@ -56,7 +56,7 @@ function FoodImageArea({ item }) {
       src={placeholderSrc}
       alt={altText}
       loading="lazy"
-      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+      className="h-full w-full object-cover object-center transition duration-500 group-hover:scale-105"
       onError={(event) => {
         // Nếu cả placeholder cũng lỗi → ẩn img, không trắng trang
         event.currentTarget.style.display = "none";
