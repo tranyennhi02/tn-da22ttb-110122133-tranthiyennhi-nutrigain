@@ -425,12 +425,8 @@ function StepGoal({ data, update, errors, validation }) {
   const recommendedMaxMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MIN_KG_PER_MONTH) : null;
   
   const speedNote = hasFullTimeline
-    ? (goalPreview.monthlyGain < SAFE_GAIN_MIN_KG_PER_MONTH
-        ? `Tốc độ này chậm hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`
-        : goalPreview.monthlyGain <= SAFE_GAIN_MAX_KG_PER_MONTH
-          ? `Tốc độ này nằm trong mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`
-          : `Tốc độ này cao hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Bạn nên theo dõi cơ thể và điều chỉnh nếu thấy khó duy trì.`)
-    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng.`;
+    ? `Con số này được tính từ cân nặng hiện tại, cân nặng mục tiêu và thời gian bạn chọn. Mức này nằm trong khoảng tăng cân tham khảo an toàn khoảng 0.2–0.9kg mỗi tuần theo Intermountain Health, nên NutriGain sẽ dùng để ước tính lượng calo cần bổ sung và gợi ý thực đơn phù hợp.`
+    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo từ Intermountain Health: khoảng 0.2–0.9kg mỗi tuần.`;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -458,7 +454,7 @@ function StepGoal({ data, update, errors, validation }) {
           </>
         ) : hasFullTimeline ? (
           <>
-            <p className={isBlocked ? "text-rose-700" : ""}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg/tháng.</p>
+            <p className={isBlocked ? "text-rose-700" : ""}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg mỗi tháng.</p>
             <p className="mt-2">{speedNote}</p>
             {isBlocked && weightGoalValidation.minMonths && weightGoalValidation.maxMonths && (
               <p className="mt-2 text-rose-700">Gợi ý: với mục tiêu tăng {targetDiffLabel}kg, bạn nên chọn khoảng {weightGoalValidation.minMonths}–{weightGoalValidation.maxMonths} tháng.</p>
@@ -570,10 +566,13 @@ function StepDiet({ data, update }) {
 }
 
 // ─── TagChip ─────────────────────────────────────────────────────────────────
-function TagInput({ label, name, value, onChange, placeholder }) {
+function TagInput({ label, name, value, onChange, placeholder, noneCheckboxLabel, helperText }) {
   const [draft, setDraft] = useState("");
+  const [noneActive, setNoneActive] = useState(false);
   const tags = value ? String(value).split(",").map(t=>t.trim()).filter(Boolean) : [];
+
   function addTag(e){
+    if(noneActive) return;
     if((e.key==="Enter"||e.key===",") && draft.trim()){
       e.preventDefault();
       const next=[...tags,draft.trim()].join(", ");
@@ -585,23 +584,55 @@ function TagInput({ label, name, value, onChange, placeholder }) {
     const next=tags.filter(t=>t!==tag).join(", ");
     onChange({ target:{ name, value:next } });
   }
+  function handleDraftChange(e){
+    if(noneActive) return;
+    setDraft(e.target.value);
+  }
+  function toggleNone(e) {
+    const checked = e.target.checked;
+    setNoneActive(checked);
+    if (checked) {
+      onChange({ target:{ name, value:"" } });
+      setDraft("");
+    }
+  }
+
+  const effectivePlaceholder = noneActive ? "Đã chọn không có" : (tags.length===0 ? placeholder : "Nhấn Enter để thêm...");
+
   return (
     <div>
       <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">{label}</label>
-      <div className="min-h-[52px] rounded-2xl border-2 border-[#E2E8F0] bg-white p-2 focus-within:border-[#10B981]">
+      <div className={`min-h-[52px] rounded-2xl border-2 p-2 transition ${noneActive ? "border-[#E2E8F0] bg-[#F8FAFC] opacity-80" : "border-[#E2E8F0] bg-white focus-within:border-[#10B981]"}`}>
         <div className="flex flex-wrap gap-1.5 mb-1">
           {tags.map(t=>(
             <span key={t} className="flex items-center gap-1 rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-bold text-[#10B981]">
               {t}
-              <button type="button" onClick={()=>removeTag(t)} className="text-[#10B981]/60 hover:text-[#EF4444]">×</button>
+              {!noneActive && (
+                <button type="button" onClick={()=>removeTag(t)} className="text-[#10B981]/60 hover:text-[#EF4444]">×</button>
+              )}
             </span>
           ))}
         </div>
-        <input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={addTag}
-          placeholder={tags.length===0 ? placeholder : "Nhấn Enter để thêm..."}
-          className="w-full bg-transparent px-2 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B]" />
+        <input value={draft} onChange={handleDraftChange} onKeyDown={addTag}
+          disabled={noneActive}
+          placeholder={effectivePlaceholder}
+          className="w-full bg-transparent px-2 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] disabled:cursor-not-allowed" />
       </div>
-      <p className="mt-1 text-xs text-[#64748B]">Nhấn Enter để thêm tag.</p>
+      <div className="mt-2 space-y-2">
+        {helperText && <p className="text-xs text-[#64748B]">{helperText} Nhấn Enter để thêm tag.</p>}
+        {!helperText && <p className="text-xs text-[#64748B]">Nhấn Enter để thêm tag.</p>}
+        {noneCheckboxLabel && (
+          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#0F172A] cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={noneActive}
+              onChange={toggleNone}
+              className="h-4 w-4 rounded border-[#CBD5E1] text-[#10B981] focus:ring-[#10B981]" 
+            />
+            {noneCheckboxLabel}
+          </label>
+        )}
+      </div>
     </div>
   );
 }
@@ -611,8 +642,24 @@ function StepFoods({ data, update }) {
   function handle(e){ update(e.target.name, e.target.value); }
   return (
     <div className="space-y-6">
-      <TagInput label="Món yêu thích" name="favorite_foods" value={data.favorite_foods} onChange={handle} placeholder="Ví dụ: chuối, sữa, cơm, trứng" />
-      <TagInput label="Món không thích / dị ứng" name="unfavorite_foods" value={data.unfavorite_foods} onChange={handle} placeholder="Ví dụ: tôm, đậu phộng, trứng" />
+      <TagInput 
+        label="Món yêu thích" 
+        name="favorite_foods" 
+        value={data.favorite_foods} 
+        onChange={handle} 
+        placeholder="Ví dụ: chuối, sữa, cơm, trứng" 
+        noneCheckboxLabel="Tôi không có món yêu thích cụ thể"
+        helperText="Nhập món bạn muốn hệ thống ưu tiên khi gợi ý thực đơn."
+      />
+      <TagInput 
+        label="Món không thích / dị ứng" 
+        name="unfavorite_foods" 
+        value={data.unfavorite_foods} 
+        onChange={handle} 
+        placeholder="Ví dụ: tôm, đậu phộng, trứng" 
+        noneCheckboxLabel="Tôi không có món cần tránh"
+        helperText="Nhập món bạn không muốn ăn hoặc bị dị ứng để hệ thống tránh đưa vào thực đơn."
+      />
     </div>
   );
 }

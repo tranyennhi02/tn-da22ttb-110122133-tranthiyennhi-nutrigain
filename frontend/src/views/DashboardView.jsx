@@ -33,7 +33,7 @@ class ErrorBoundary extends Component {
 }
 
 import { loadTodayMealPlan, regenerateMealPlan, saveUserProfile, submitRecommendation } from "../controllers/recommendationController";
-import { completeGamificationChallenge, fetchCurrentUser, fetchEatingHistory, fetchWeightLogSummary, fetchWeightLogs, getAuthHeaders, getAuthToken, saveWeightLog, toggleMealConsumption } from "../services/apiService";
+import { completeGamificationChallenge, fetchCurrentUser, fetchEatingHistory, fetchWeightLogSummary, fetchWeightLogs, getAuthHeaders, getAuthToken, saveWeightLog, toggleMealConsumption, postIngredientCandidates } from "../services/apiService";
 import { mapUserProfileToFormState } from "../App";
 import { normalizeProfilePayload, foodListToInput } from "../utils/profileFormUtils.js";
 import AccountPanel from "../components/AccountPanel";
@@ -44,7 +44,7 @@ import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
 import { defaultFormState } from "../models/recommendationModel";
 import HealthEducationView from "./HealthEducationView";
-import GentleMotivationPanel from "../components/gamification/GentleMotivationPanel";
+import ThanhTuuView from "./ThanhTuuView";
 import NutritionReportTemplate from "../components/reports/NutritionReportTemplate";
 import { exportNutritionReportPdf } from "../utils/exportNutritionReportPdf";
 import NutriGainChatbot from "../components/ai/NutriGainChatbot";
@@ -77,6 +77,7 @@ const fallbackSummary = {
 const pageTitles = {
   overview: "Tổng quan dinh dưỡng",
   "health-education": "Giáo dục sức khỏe",
+  "thanh-tich": "Thành tích",
   journal: "Nhật ký ăn uống",
   charts: "Theo dõi tăng cân",
   "meal-plan": "Kế hoạch bữa ăn",
@@ -121,25 +122,187 @@ function normalizeText(value) {
     .trim();
 }
 
-const INGREDIENT_ALIAS_GROUPS = {
-  chicken: ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
-  pork: ["thit lon", "lon", "thit heo", "heo", "pork", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo"],
-  beef: ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay"],
-  egg: ["trung", "trung ga", "long do trung", "long trang trung", "egg"],
-  tomato: ["ca chua", "tomato"],
-  crab: ["cua", "crab"],
-  shrimp: ["tom", "shrimp", "prawn"],
-  fish: ["ca", "fish"],
-  tofu: ["dau hu", "dau phu", "tofu"],
-  mustard_greens: ["rau cai", "cai", "cai xanh", "cai thia", "cai xoan", "cai mu tat", "greens", "mustard greens"],
-  carrot: ["ca rot", "carrot"],
-  mushroom: ["nam", "mushroom"],
-  milk: ["sua", "sua tuoi", "milk"],
-  yogurt: ["sua chua", "yogurt"],
-  rice: ["com", "gao", "rice"],
-  potato: ["khoai tay", "potato"],
-  sweet_potato: ["khoai lang", "sweet potato"],
+function formatIngredientDisplayName(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) return "";
+
+  return text.charAt(0).toLocaleUpperCase("vi-VN") + text.slice(1).toLocaleLowerCase("vi-VN");
+}
+
+const INGREDIENT_MATCH_RULES = {
+  chicken: {
+    label: "Thịt gà",
+    detectionAliases: ["thịt gà", "gà", "chicken", "ức gà", "đùi gà", "cánh gà"],
+    matchAliases: ["thịt gà", "thit ga", "gà", "chicken", "ức gà", "uc ga", "đùi gà", "dui ga", "cánh gà", "canh ga", "gà hầm", "ga ham", "gà quay", "ga quay", "gà nướng", "ga nuong", "gà chiên", "ga chien", "gà nugget", "ga nugget", "miếng gà", "mieng ga", "nước luộc gà", "nuoc luoc ga", "súp gà", "sup ga"],
+    contextualTokens: ["thit", "ga", "chicken", "uc", "dui", "canh", "tay"],
+    negativePhrases: ["trứng gà", "trung ga", "trứng", "trung", "lòng đỏ", "long do", "lòng trắng", "long trang", "gà tây", "ga tay", "thịt gà tây", "thit ga tay", "đùi gà tây", "dui ga tay", "cánh gà tây", "canh ga tay", "ức gà tây", "uc ga tay"],
+    negativeTokens: ["trung", "egg", "turkey"],
+  },
+  pork: {
+    label: "Thịt lợn",
+    detectionAliases: ["thịt lợn", "lợn", "thịt heo", "heo", "pork", "đùi heo", "xúc xích lợn", "xúc xích heo"],
+    matchAliases: ["thit lon", "lon", "thit heo", "heo", "pork", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo"],
+    contextualTokens: ["thit", "lon", "heo", "pork", "dui", "xuc", "xich", "giam", "bong"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  lamb: {
+    label: "Cừu",
+    detectionAliases: ["cừu", "thịt cừu", "lamb"],
+    matchAliases: ["thit cuu", "cuu", "lamb"],
+    contextualTokens: ["cuu", "lamb", "thit"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  beef: {
+    label: "Thịt bò",
+    detectionAliases: ["thịt bò", "bò", "beef", "bít tết", "sườn bò", "ức bò", "bắp bò", "thịt bò xay"],
+    matchAliases: ["thịt bò", "thit bo", "bò", "beef", "bít tết", "bit tet", "sườn bò", "suon bo", "ức bò", "uc bo", "bắp bò", "bap bo", "thịt bò xay", "thit bo xay"],
+    contextualTokens: ["thit", "beef", "bit", "tet", "suon", "uc", "bap"],
+    negativePhrases: ["cá bơ", "ca bo", "butter", "avocado", "butterfish"],
+    negativeTokens: ["butter", "avocado"],
+  },
+  egg: {
+    label: "Trứng",
+    detectionAliases: ["trứng", "trứng gà", "lòng đỏ trứng", "lòng trắng trứng", "egg"],
+    matchAliases: ["trung", "trung ga", "long do trung", "long trang trung", "egg"],
+    contextualTokens: ["trung", "egg", "long", "do", "trang"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  tomato: {
+    label: "Cà chua",
+    detectionAliases: ["cà chua", "tomato"],
+    matchAliases: ["ca chua", "tomato"],
+    contextualTokens: ["ca", "chua", "tomato"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  crab: {
+    label: "Cua",
+    detectionAliases: ["cua", "crab"],
+    matchAliases: ["cua", "crab"],
+    contextualTokens: ["cua", "crab"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  shrimp: {
+    label: "Tôm",
+    detectionAliases: ["tôm", "tôm sú", "shrimp", "prawn"],
+    matchAliases: ["tom", "tom su", "shrimp", "prawn"],
+    contextualTokens: ["tom", "shrimp", "prawn", "su"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  sausage: {
+    label: "Xúc xích",
+    detectionAliases: ["xúc xích", "xuc xich", "sausage", "frankfurter", "hot dog", "kielbasa", "bratwurst"],
+    matchAliases: ["xuc xich", "sausage", "frankfurter", "hot dog", "kielbasa", "bratwurst"],
+    contextualTokens: ["xuc", "xich", "sausage", "hot", "dog", "kielbasa", "bratwurst"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  fish: {
+    label: "Cá",
+    detectionAliases: ["cá", "fish"],
+    matchAliases: ["cá", "ca", "fish"],
+    contextualTokens: ["ca", "fish", "hai", "san"],
+    negativePhrases: ["cá bơ", "ca bo", "butterfish"],
+    negativeTokens: ["butterfish"],
+  },
+  butter_or_avocado: {
+    label: "Bơ",
+    detectionAliases: ["bơ", "avocado", "butter"],
+    matchAliases: ["bơ", "avocado", "butter"],
+    contextualTokens: ["bo", "avocado", "butter"],
+    negativePhrases: ["cá bơ", "ca bo", "butterfish"],
+    negativeTokens: ["butterfish"],
+  },
+  butterfish: {
+    label: "Cá bơ",
+    detectionAliases: ["cá bơ", "butterfish"],
+    matchAliases: ["cá bơ", "ca bo", "butterfish"],
+    contextualTokens: ["ca", "bo", "butterfish"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  tofu: {
+    label: "Đậu hũ",
+    detectionAliases: ["đậu hũ", "đậu phụ", "tofu"],
+    matchAliases: ["dau hu", "dau phu", "tofu"],
+    contextualTokens: ["dau", "hu", "phu", "tofu"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  mustard_greens: {
+    label: "Rau cải",
+    detectionAliases: ["rau cải", "cải", "cải xanh", "cải thìa", "cải xoăn", "cải mù tạt", "greens", "mustard greens"],
+    matchAliases: ["rau cai", "cai", "cai xanh", "cai thia", "cai xoan", "cai mu tat", "greens", "mustard greens"],
+    contextualTokens: ["rau", "cai", "greens", "mustard"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  carrot: {
+    label: "Cà rốt",
+    detectionAliases: ["cà rốt", "carrot"],
+    matchAliases: ["ca rot", "carrot"],
+    contextualTokens: ["ca", "rot", "carrot"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  mushroom: {
+    label: "Nấm",
+    detectionAliases: ["nấm", "mushroom"],
+    matchAliases: ["nam", "mushroom"],
+    contextualTokens: ["nam", "mushroom"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  milk: {
+    label: "Sữa",
+    detectionAliases: ["sữa", "sữa tươi", "milk"],
+    matchAliases: ["sua", "sua tuoi", "milk"],
+    contextualTokens: ["sua", "milk"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  yogurt: {
+    label: "Sữa chua",
+    detectionAliases: ["sữa chua", "yogurt"],
+    matchAliases: ["sua chua", "yogurt"],
+    contextualTokens: ["sua", "chua", "yogurt"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  rice: {
+    label: "Cơm",
+    detectionAliases: ["cơm", "gạo", "rice"],
+    matchAliases: ["com", "gao", "rice"],
+    contextualTokens: ["com", "gao", "rice"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  potato: {
+    label: "Khoai tây",
+    detectionAliases: ["khoai tây", "potato"],
+    matchAliases: ["khoai tay", "potato"],
+    contextualTokens: ["khoai", "tay", "potato"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
+  sweet_potato: {
+    label: "Khoai lang",
+    detectionAliases: ["khoai lang", "sweet potato"],
+    matchAliases: ["khoai lang", "sweet potato"],
+    contextualTokens: ["khoai", "lang", "sweet", "potato"],
+    negativePhrases: [],
+    negativeTokens: [],
+  },
 };
+
+const INGREDIENT_ALIAS_GROUPS = Object.fromEntries(
+  Object.entries(INGREDIENT_MATCH_RULES).map(([groupKey, rule]) => [groupKey, rule.matchAliases]),
+);
 
 const INGREDIENT_DISPLAY_LABELS = {
   chicken: "Thịt gà",
@@ -162,10 +325,18 @@ const INGREDIENT_DISPLAY_LABELS = {
 };
 
 function getIngredientGroupKey(rawIngredient) {
+  const rawValue = String(rawIngredient || "").trim().toLowerCase();
   const normalized = normalizeText(rawIngredient);
-  if (!normalized) return "";
-  for (const [groupKey, aliases] of Object.entries(INGREDIENT_ALIAS_GROUPS)) {
-    if (aliases.some((alias) => normalizeText(alias) === normalized)) {
+  if (!rawValue && !normalized) return "";
+  for (const [groupKey, rule] of Object.entries(INGREDIENT_MATCH_RULES)) {
+    const detectionAliases = Array.isArray(rule.detectionAliases) ? rule.detectionAliases : [];
+    if (detectionAliases.some((alias) => {
+      const normalizedAlias = normalizeText(alias);
+      const rawAlias = String(alias || "").trim().toLowerCase();
+      if (rawAlias === rawValue) return true;
+      if (!normalizedAlias || normalizedAlias !== normalized) return false;
+      return normalizedAlias.length > 2 || String(alias || "").includes(" ");
+    })) {
       return groupKey;
     }
   }
@@ -173,61 +344,605 @@ function getIngredientGroupKey(rawIngredient) {
 }
 
 function expandIngredientAliases(rawIngredient) {
-  const normalized = normalizeText(rawIngredient);
-  if (!normalized) return [];
   const groupKey = getIngredientGroupKey(rawIngredient);
   const aliases = INGREDIENT_ALIAS_GROUPS[groupKey];
-  return Array.isArray(aliases) && aliases.length ? aliases : [normalized];
+  const normalized = normalizeText(rawIngredient);
+  return Array.isArray(aliases) && aliases.length ? aliases : normalized ? [normalized] : [];
+}
+
+function buildSearchableText(food) {
+  const rawText = [
+    food?.name,
+    food?.vi_name,
+    food?.title,
+    food?.displayName,
+    food?.display_name,
+    food?.food_name,
+    food?.ingredient_name,
+    food?.label,
+    food?.category,
+    food?.food_group,
+    food?.description,
+    Array.isArray(food?.tags) ? food.tags.join(" ") : food?.tags,
+    Array.isArray(food?.ingredients) ? food.ingredients.join(" ") : food?.ingredients,
+    food?.recipe?.ingredients
+      ? Array.isArray(food.recipe.ingredients)
+        ? food.recipe.ingredients.join(" ")
+        : food.recipe.ingredients
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  
+  return normalizeText(rawText);
+}
+
+function flattenFinalMeals(plan) {
+  const planEntries = Array.isArray(plan) ? plan : plan ? [plan] : [];
+
+  const pushItems = (value, result) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach((entry) => pushItems(entry, result));
+      return;
+    }
+    if (Array.isArray(value.items)) {
+      value.items.forEach((entry) => pushItems(entry, result));
+      return;
+    }
+    if (Array.isArray(value.foods)) {
+      value.foods.forEach((entry) => pushItems(entry, result));
+      return;
+    }
+    if (Array.isArray(value.meals)) {
+      value.meals.forEach((entry) => pushItems(entry, result));
+      return;
+    }
+    if (Array.isArray(value.dishes)) {
+      value.dishes.forEach((entry) => pushItems(entry, result));
+      return;
+    }
+    result.push(value);
+  };
+
+  const result = [];
+  return planEntries
+    .reduce((accumulator, entry) => {
+      pushItems(entry?.breakfast, accumulator);
+      pushItems(entry?.lunch, accumulator);
+      pushItems(entry?.dinner, accumulator);
+      pushItems(entry?.snacks, accumulator);
+      pushItems(entry?.items, accumulator);
+      pushItems(entry?.meals, accumulator);
+      pushItems(entry?.dishes, accumulator);
+      if (!entry?.breakfast && !entry?.lunch && !entry?.dinner && !entry?.snacks && !entry?.items && !entry?.meals && !entry?.dishes) {
+        pushItems(entry, accumulator);
+      }
+      return accumulator;
+    }, result)
+    .filter(Boolean);
+}
+
+let coverageFoodsCache = null;
+let coverageFoodsPromise = null;
+
+async function loadCoverageSourceFoods() {
+  if (Array.isArray(coverageFoodsCache) && coverageFoodsCache.length > 0) {
+    return coverageFoodsCache;
+  }
+  if (coverageFoodsPromise) {
+    return coverageFoodsPromise;
+  }
+
+  coverageFoodsPromise = (async () => {
+    const pageSize = 100;
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+    const items = [];
+
+    while (offset < total) {
+      const query = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+      const response = await fetch(`/api/v1/foods?${query.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load foods: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const batch = Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+      if (!batch.length) break;
+
+      items.push(...batch);
+      const nextTotal = Number(data?.total ?? data?.count ?? data?.meta?.total ?? items.length);
+      if (Number.isFinite(nextTotal) && nextTotal > 0) {
+        total = nextTotal;
+      }
+
+      offset += batch.length;
+      if (batch.length < pageSize) break;
+    }
+
+    coverageFoodsCache = items.filter(Boolean).filter(isUiMenuEligible);
+    return coverageFoodsCache;
+  })();
+
+  try {
+    return await coverageFoodsPromise;
+  } finally {
+    coverageFoodsPromise = null;
+  }
 }
 
 function getFoodSearchText(food) {
-  return normalizeText(
-    [
-      food?.name,
-      food?.food_name,
-      food?.display_name,
-      food?.category,
-      food?.food_group,
-      food?.description,
-      Array.isArray(food?.ingredients) ? food.ingredients.join(" ") : food?.ingredients,
-      Array.isArray(food?.tags) ? food.tags.join(" ") : food?.tags,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
+  return normalizeText(buildSearchableText(food));
 }
 
-function foodTextHasAlias(foodText, alias) {
-  const normalizedAlias = normalizeText(alias);
-  if (!normalizedAlias || normalizedAlias.length < 2) return false;
-  if (normalizedAlias.includes(" ")) {
-    return foodText.includes(normalizedAlias);
+function getFoodSearchRawText(food) {
+  return String(
+    buildSearchableText(food),
+  )
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function textContainsPhrase(text, phrase) {
+  const normalizedText = normalizeText(text);
+  const normalizedPhrase = normalizeText(phrase);
+  if (!normalizedText || !normalizedPhrase) return false;
+  return normalizedText.includes(normalizedPhrase);
+}
+
+function hasShortAliasContext(tokens, contextTokens) {
+  if (!Array.isArray(tokens) || !tokens.length || !Array.isArray(contextTokens) || !contextTokens.length) {
+    return false;
   }
-  const tokens = foodText.split(" ").filter(Boolean);
-  return tokens.includes(normalizedAlias);
+  return tokens.some((token) => contextTokens.includes(token));
+}
+
+function evaluateIngredientMatch(food, ingredient) {
+  const selectedIngredient = String(ingredient || "").trim();
+  const normalizedSelectedIngredient = normalizeText(selectedIngredient);
+  const detectedGroup = getIngredientGroupKey(selectedIngredient);
+  const candidateName = String(food?.name || food?.food_name || food?.display_name || "").trim();
+  const normalizedCandidateName = getFoodSearchText(food);
+  const rawCandidateText = getFoodSearchRawText(food);
+  const rawCandidateTokens = tokenizeSearchText(rawCandidateText);
+  const normalizedCandidateTokens = normalizedCandidateName.split(" ").filter(Boolean);
+  const rule = INGREDIENT_MATCH_RULES[detectedGroup];
+
+  let matchReason = "";
+  let rejectedReason = "";
+
+  if (!selectedIngredient || !normalizedCandidateName) {
+    rejectedReason = "missing ingredient or candidate text";
+    return {
+      selectedIngredient,
+      normalizedSelectedIngredient,
+      detectedGroup,
+      candidateName,
+      normalizedCandidateName,
+      matchReason,
+      rejectedReason,
+      matched: false,
+    };
+  }
+
+  const negativePhrases = rule?.negativePhrases || [];
+  const negativeTokens = rule?.negativeTokens || [];
+  const negativeHit = negativePhrases.some((phrase) => textContainsPhrase(rawCandidateText, phrase) || textContainsPhrase(normalizedCandidateName, phrase))
+    || negativeTokens.some((token) => rawCandidateTokens.includes(token) || normalizedCandidateTokens.includes(token));
+
+  if (negativeHit) {
+    rejectedReason = "negative ingredient rule matched";
+    return {
+      selectedIngredient,
+      normalizedSelectedIngredient,
+      detectedGroup,
+      candidateName,
+      normalizedCandidateName,
+      matchReason,
+      rejectedReason,
+      matched: false,
+    };
+  }
+
+  const matchAliases = (rule?.matchAliases || expandIngredientAliases(selectedIngredient)).filter(Boolean);
+  const exactPhraseAliases = matchAliases.filter((alias) => normalizeText(alias).includes(" ") || String(alias || "").trim().length > 2);
+  const shortAliases = matchAliases.filter((alias) => normalizeText(alias).length > 0 && normalizeText(alias).length <= 2);
+  const contextualTokens = rule?.contextualTokens || [];
+
+  if (detectedGroup === "pork" && isPorkMatch(food)) {
+    return {
+      selectedIngredient,
+      normalizedSelectedIngredient,
+      detectedGroup,
+      candidateName,
+      normalizedCandidateName,
+      matchReason: "pork-specific matcher",
+      rejectedReason,
+      matched: true,
+    };
+  }
+
+  for (const alias of exactPhraseAliases) {
+    if (textContainsPhrase(rawCandidateText, alias)) {
+      matchReason = `raw phrase match: ${alias}`;
+      return {
+        selectedIngredient,
+        normalizedSelectedIngredient,
+        detectedGroup,
+        candidateName,
+        normalizedCandidateName,
+        matchReason,
+        rejectedReason,
+        matched: true,
+      };
+    }
+    if (textContainsPhrase(normalizedCandidateName, alias)) {
+      matchReason = `normalized phrase match: ${normalizeText(alias)}`;
+      return {
+        selectedIngredient,
+        normalizedSelectedIngredient,
+        detectedGroup,
+        candidateName,
+        normalizedCandidateName,
+        matchReason,
+        rejectedReason,
+        matched: true,
+      };
+    }
+  }
+
+  if (shortAliases.length > 0) {
+    for (const alias of shortAliases) {
+      const normalizedAlias = normalizeText(alias);
+      const rawAlias = String(alias || "").trim().toLowerCase();
+      const rawAliasHit = rawCandidateTokens.includes(rawAlias);
+      const normalizedAliasHit = normalizedCandidateTokens.includes(normalizedAlias);
+      const contextualHit = hasShortAliasContext(rawCandidateTokens, contextualTokens) || hasShortAliasContext(normalizedCandidateTokens, contextualTokens);
+      if (rawAliasHit || (normalizedAliasHit && contextualHit)) {
+        matchReason = `contextual short-token match: ${alias}`;
+        return {
+          selectedIngredient,
+          normalizedSelectedIngredient,
+          detectedGroup,
+          candidateName,
+          normalizedCandidateName,
+          matchReason,
+          rejectedReason,
+          matched: true,
+        };
+      }
+    }
+  }
+
+  if (detectedGroup === "beef") {
+    const beefContextHit = hasShortAliasContext(rawCandidateTokens, rule.contextualTokens) || hasShortAliasContext(normalizedCandidateTokens, rule.contextualTokens);
+    const rawBeefWordHit = rawCandidateTokens.includes("bò") || rawCandidateTokens.includes("beef");
+    const normalizedBeefTokenHit = normalizedCandidateTokens.includes("bo") && beefContextHit;
+    if (rawBeefWordHit || normalizedBeefTokenHit) {
+      matchReason = rawBeefWordHit ? "raw beef token match" : "contextual beef token match";
+      return {
+        selectedIngredient,
+        normalizedSelectedIngredient,
+        detectedGroup,
+        candidateName,
+        normalizedCandidateName,
+        matchReason,
+        rejectedReason,
+        matched: true,
+      };
+    }
+    rejectedReason = "beef context missing";
+  } else if (detectedGroup === "butter_or_avocado") {
+    const butterWordHit = rawCandidateTokens.includes("bơ") || rawCandidateTokens.includes("butter") || rawCandidateTokens.includes("avocado");
+    const normalizedButterHit = normalizedCandidateTokens.includes("bo") && (rawCandidateTokens.includes("bơ") || rawCandidateTokens.includes("butter") || rawCandidateTokens.includes("avocado"));
+    if (butterWordHit || normalizedButterHit) {
+      matchReason = butterWordHit ? "raw butter/avocado token match" : "normalized butter/avocado token match";
+      return {
+        selectedIngredient,
+        normalizedSelectedIngredient,
+        detectedGroup,
+        candidateName,
+        normalizedCandidateName,
+        matchReason,
+        rejectedReason,
+        matched: true,
+      };
+    }
+    rejectedReason = "butter/avocado context missing";
+  }
+
+  return {
+    selectedIngredient,
+    normalizedSelectedIngredient,
+    detectedGroup,
+    candidateName,
+    normalizedCandidateName,
+    matchReason,
+    rejectedReason: rejectedReason || "no ingredient match",
+    matched: false,
+  };
+}
+
+function isChickenMatch(item) {
+  const text = typeof item === "string" ? normalizeText(item) : getFoodSearchText(item);
+
+  const positive = [
+    "thit ga",
+    "uc ga",
+    "dui ga",
+    "canh ga",
+    "chan ga",
+    "co ga",
+    "lung ga",
+    "ga ham",
+    "ga quay",
+    "ga nuong",
+    "ga chien",
+    "ga nugget",
+    "mieng ga",
+    "ga thit",
+    "nuoc luoc ga",
+    "bot nuoc dung ga",
+    "vien nuoc dung ga",
+    "sup ga",
+    "com mien vi ga",
+    "chicken",
+    "ga tay",
+    "thit ga tay",
+    "uc ga tay",
+    "dui ga tay",
+    "canh ga tay",
+    "dui duoi ga tay",
+    "lung ga tay",
+    "co ga tay",
+    "ga tay xay",
+    "turkey",
+  ];
+
+  const negative = [
+    "trung ga",
+    "long trang trung",
+    "long do trung",
+    "trung",
+    "egg",
+  ];
+
+  if (negative.some((alias) => text.includes(alias))) {
+    return false;
+  }
+
+  return positive.some((alias) => text.includes(alias));
+}
+
+function isPorkMatch(item) {
+  const text = typeof item === "string" ? item : buildSearchableText(item);
+  const normalizedText = normalizeText(text);
+
+  const positive = [
+    "thit lon",
+    "thit heo",
+    "dui heo",
+    "giam bong heo",
+    "xuc xich thit lon",
+    "xuc xich heo",
+    "banh mi thit heo",
+    "pork",
+  ];
+
+  const negative = [
+    "trung",
+    "long do trung",
+    "long trang trung",
+    "trung ga",
+    "egg",
+  ];
+
+  if (negative.some((alias) => normalizedText.includes(alias))) {
+    return false;
+  }
+
+  return positive.some((alias) => normalizedText.includes(alias));
+}
+
+function isBeefMatch(item) {
+  const text = typeof item === "string" ? item : buildSearchableText(item);
+  const normalizedText = normalizeText(text);
+
+  const positive = [
+    "thit bo",
+    "bo xay",
+    "thit bo bam",
+    "bit tet",
+    "suon bo",
+    "uc bo",
+    "beef"
+  ];
+
+  const negative = [
+    "ca bo",
+    "bo thuc vat",
+    "bo trai cay",
+    "butter",
+    "avocado"
+  ];
+
+  if (negative.some((alias) => normalizedText.includes(alias))) {
+    return false;
+  }
+
+  return positive.some((alias) => normalizedText.includes(alias));
+}
+
+function doesGenericIngredientMatch(requiredIngredient, item) {
+  const normalizedRequired = normalizeText(requiredIngredient);
+  if (!normalizedRequired) return false;
+  const searchableText = normalizeText(buildSearchableText(item));
+  return searchableText.includes(normalizedRequired);
+}
+
+function doesItemMatchRequiredIngredient(requiredIngredient, item) {
+  const normalizedRequired = normalizeText(requiredIngredient);
+
+  if (
+    normalizedRequired.includes("thit lon") ||
+    normalizedRequired.includes("thit heo") ||
+    normalizedRequired === "heo" ||
+    normalizedRequired === "lon"
+  ) {
+    return isPorkMatch(item);
+  }
+
+  if (
+    normalizedRequired.includes("thit ga") ||
+    normalizedRequired === "ga"
+  ) {
+    return isChickenMatch(item);
+  }
+
+  if (
+    normalizedRequired.includes("thit bo") ||
+    normalizedRequired === "bo"
+  ) {
+    return isBeefMatch(item);
+  }
+
+  return doesGenericIngredientMatch(requiredIngredient, item) || foodMatchesIngredient(item, requiredIngredient);
+}
+
+function getMissingRequiredIngredientsInFinalPlan(finalPlan, requiredIngredients) {
+  const finalMealsFlat = flattenFinalMeals(finalPlan);
+
+  return (requiredIngredients || []).filter((requiredIngredient) => {
+    return !finalMealsFlat.some((mealItem) => doesItemMatchRequiredIngredient(requiredIngredient, mealItem));
+  });
+}
+
+function ensureRequiredIngredientsInFinalPlan(finalPlan, requiredIngredients, candidatesByIngredient) {
+  const missingBeforeInjection = getMissingRequiredIngredientsInFinalPlan(finalPlan, requiredIngredients);
+  let updatedPlan = finalPlan;
+
+  for (const ingredient of missingBeforeInjection) {
+    const candidates = candidatesByIngredient?.[ingredient] || [];
+    if (!Array.isArray(candidates) || candidates.length === 0) continue;
+    updatedPlan = injectCandidateIntoPlan(updatedPlan, candidates[0], ingredient);
+  }
+
+  const missingAfterInjection = getMissingRequiredIngredientsInFinalPlan(updatedPlan, requiredIngredients);
+  console.log("[FINAL INGREDIENT FIX DEBUG]", {
+    requiredIngredients,
+    finalMealNames: flattenFinalMeals(updatedPlan).map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name),
+    missingBeforeInjection,
+    missingAfterInjection,
+    candidatesByIngredient: Object.fromEntries(
+      Object.entries(candidatesByIngredient || {}).map(([key, value]) => [
+        key,
+        (value || []).slice(0, 5).map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name),
+      ]),
+    ),
+  });
+
+  return {
+    finalPlan: updatedPlan,
+    missingBeforeInjection,
+    missingAfterInjection,
+  };
+}
+
+function injectCandidateIntoPlan(finalPlan, candidate, requiredIngredient) {
+  if (!finalPlan || !candidate) return finalPlan;
+
+  const candidateItem = toMealPlanPayload(candidate, "suggested");
+  const nextPlan = Array.isArray(finalPlan)
+    ? [...finalPlan]
+    : {
+        ...finalPlan,
+      };
+
+  const mealEntries = Array.isArray(nextPlan?.meals)
+    ? nextPlan.meals.map((meal) => ({
+        ...meal,
+        items: Array.isArray(meal?.items) ? [...meal.items] : [],
+      }))
+    : null;
+
+  if (mealEntries && mealEntries.length > 0) {
+    const targetMeal = mealEntries.reduce((best, current) => {
+      const currentCount = Array.isArray(current.items) ? current.items.length : 0;
+      const bestCount = Array.isArray(best.items) ? best.items.length : 0;
+      return currentCount < bestCount ? current : best;
+    }, mealEntries[0]);
+
+    targetMeal.items = Array.isArray(targetMeal.items) ? [...targetMeal.items, candidateItem] : [candidateItem];
+    nextPlan.meals = mealEntries;
+    return nextPlan;
+  }
+
+  const mealKeyCandidates = ["breakfast", "lunch", "dinner", "snacks"]
+    .filter((mealKey) => Array.isArray(nextPlan?.[mealKey]))
+    .sort((left, right) => {
+      const leftItems = Array.isArray(nextPlan[left]) ? nextPlan[left] : nextPlan[left]?.items || [];
+      const rightItems = Array.isArray(nextPlan[right]) ? nextPlan[right] : nextPlan[right]?.items || [];
+      return leftItems.length - rightItems.length;
+    });
+
+  if (mealKeyCandidates.length > 0) {
+    const mealKey = mealKeyCandidates[0];
+    nextPlan[mealKey] = [...nextPlan[mealKey], candidateItem];
+    return nextPlan;
+  }
+
+  if (Array.isArray(nextPlan?.items)) {
+    nextPlan.items = [...nextPlan.items, candidateItem];
+    return nextPlan;
+  }
+
+  if (requiredIngredient) {
+    nextPlan.meals = [{ meal_type: "dinner", items: [candidateItem] }];
+  }
+
+  return nextPlan;
 }
 
 function foodMatchesIngredient(food, ingredient) {
-  const aliases = expandIngredientAliases(ingredient);
-  const text = getFoodSearchText(food);
-  return aliases.some((alias) => foodTextHasAlias(text, alias));
+  const result = evaluateIngredientMatch(food, ingredient);
+  console.log({
+    selectedIngredient: result.selectedIngredient,
+    normalizedSelectedIngredient: result.normalizedSelectedIngredient,
+    detectedGroup: result.detectedGroup,
+    candidateName: result.candidateName,
+    normalizedCandidateName: result.normalizedCandidateName,
+    matchReason: result.matchReason,
+    rejectedReason: result.rejectedReason,
+  });
+  return result.matched;
 }
 
 function displayIngredientLabel(raw) {
   const normalized = normalizeText(raw);
-  for (const [groupKey, aliases] of Object.entries(INGREDIENT_ALIAS_GROUPS)) {
-    if (aliases.some((alias) => normalizeText(alias) === normalized)) {
-      return INGREDIENT_DISPLAY_LABELS[groupKey] || titleCase(raw);
+  const rawValue = String(raw || "").trim().toLowerCase();
+  for (const [groupKey, rule] of Object.entries(INGREDIENT_MATCH_RULES)) {
+    const aliases = Array.isArray(rule.detectionAliases) ? rule.detectionAliases : [];
+    if (aliases.some((alias) => {
+      const normalizedAlias = normalizeText(alias);
+      const rawAlias = String(alias || "").trim().toLowerCase();
+      if (rawAlias === rawValue) return true;
+      if (!normalizedAlias || normalizedAlias !== normalized) return false;
+      return normalizedAlias.length > 2 || String(alias || "").includes(" ");
+    })) {
+      return INGREDIENT_DISPLAY_LABELS[groupKey] || rule.label || formatIngredientDisplayName(raw);
     }
   }
-  return titleCase(raw);
-}
-
-function titleCase(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return formatIngredientDisplayName(raw);
 }
 
 function normalizeIngredientForPayload(value) {
@@ -307,7 +1022,7 @@ export default function DashboardViewWrapper(props) {
   );
 }
 
-function DashboardView({ userEmail, onLogout, initialFormState, initialResult, initialSection, onRequireProfile, onEditProfile, onProfileUpdate }) {
+function DashboardView({ userEmail, onLogout, initialFormState, initialResult, initialSection, onRequireProfile, onEditProfile, onProfileUpdate, onNavigatePath }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState(initialSection || "overview");
 
@@ -371,8 +1086,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   const profileOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(profileOutOfScopeResult), [profileOutOfScopeResult]);
   const resultOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(result), [result]);
   const outOfScopeNotice = profileOutOfScopeNotice || resultOutOfScopeNotice;
-  const meals = useMemo(
-    () => buildMeals(result?.meal_plan, formState.diet_style, {
+  const meals = useMemo(() => {
+    const builtMeals = buildMeals(result?.meal_plan, formState.diet_style, {
       ...formState,
       available_ingredients: Array.from(
         new Set([
@@ -381,9 +1096,20 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           ...(selectedIngredients || []),
         ]),
       ),
-    }),
-    [result, formState, selectedIngredients],
-  );
+    });
+    
+    // Debug log when rendering meals
+    const renderedMealNames = builtMeals.flatMap((meal) =>
+      (meal?.items || []).map((item) => item?.name || item?.food_name || "")
+    );
+    console.log("[FRONTEND RENDER MEALS DEBUG]", {
+      renderedMealNames,
+      mealsCount: builtMeals.length,
+      hasMealPlan: Boolean(result?.meal_plan),
+    });
+    
+    return builtMeals;
+  }, [result, formState, selectedIngredients]);
   const hasTodayMeals = useMemo(
     () => Array.isArray(meals) && meals.some((meal) => Array.isArray(meal?.items) && meal.items.length > 0),
     [meals],
@@ -886,6 +1612,16 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         console.error("Failed to reload user profile:", profileErr);
       }
 
+      // Debug log after receiving response
+      const responseMealNames = extractMealsFromPlan(data).flatMap((meal) =>
+        (meal?.items || []).map((item) => item?.name || item?.food_name || "")
+      );
+      console.log("[FRONTEND REGENERATE RESPONSE DEBUG]", {
+        responseMealNames,
+        selectedIngredients: currentAvailableIngredients,
+        unavailableIngredients: data?.ingredientWarnings?.unavailableIngredients || data?.unavailableIngredients || [],
+      });
+
       // Nếu thành công thì mới reset các state liên quan
       setFavoriteMeals(new Set());
       setRatings({});
@@ -948,6 +1684,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     console.log("[MEAL SETUP SUBMIT PAYLOAD]", mergedSettings);
     setMealSetupError("");
     setGenerationNotice("");
+    // Clear stale ingredientWarnings from previous generation immediately
+    setResult((current) => current ? { ...current, ingredientWarnings: null } : current);
     setIsGeneratingMealPlan(true);
     console.log("[MEAL SETUP GENERATING START]");
 
@@ -959,7 +1697,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       } else {
         console.log("[PROFILE UPDATE SKIPPED] reason=no_changes");
       }
-      const data = await regenerateMealPlan(mergedSettings, {
+      // First generation attempt
+      let data = await regenerateMealPlan(mergedSettings, {
         ingredients: availableIngredients,
         available_ingredients: availableIngredients,
         generation_seed: generationSeed,
@@ -968,6 +1707,25 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
         profile: mergedSettings,
         items_per_meal: itemsPerMeal,
       });
+
+      try {
+        const normalized = normalizeResultWithMealPlan(data);
+        const unavailable = normalized?.ingredientWarnings?.missingIngredients || normalized?.unavailableIngredients || [];
+        
+        let ingredientWarnings = null;
+        if (Array.isArray(unavailable) && unavailable.length > 0) {
+          ingredientWarnings = normalized?.ingredientWarnings || {
+            missingIngredients: unavailable,
+            message: `Một số nguyên liệu chưa có món phù hợp trong dữ liệu: ${unavailable.join(", ")}`
+          };
+        }
+        
+        data = { ...normalized, ingredientWarnings };
+      } catch (coverageErr) {
+        console.warn("[MEAL SETUP INGREDIENT COVERAGE ERROR]", coverageErr);
+        throw coverageErr;
+      }
+
       applyGeneratedMealPlan(data, {
         nextSection: "meal-plan",
         notice: "Đã tạo thực đơn hôm nay",
@@ -1028,9 +1786,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     }
   }
 
-  function handleSidebarNavigate(sectionId) {
+  function handleSidebarNavigate(sectionId, path = "/dashboard") {
     setActiveSection(sectionId);
     setDrawerOpen(false);
+    onNavigatePath?.(path);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1135,6 +1894,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     !showMealPlanSetup &&
     mealSetupDismissed;
 
+  const isThanhTichPage = activeSection === "thanh-tich";
+
   const isInitialDashboardLoading =
     (todayPlanLoading || !didCheckTodayPlan) &&
     !hasTodayMeals &&
@@ -1174,87 +1935,95 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       ) : null}
 
       <div className="lg:pl-72">
-        {![
-          "overview",
-          "journal",
-          "charts",
-          "meal-plan",
-          "health-education",
-          "account",
-          "profile",
-          "notifications",
-          "help",
-        ].includes(activeSection) ? (
-          <Header
-            title={pageTitles[activeSection] || pageTitles.overview}
-            variant={activeSection === "health-education" ? "education" : "default"}
-            onToggleMenu={() => setDrawerOpen(true)}
-            onEditProfile={handleEditProfile}
-            onExport={handleExportReport}
-          />
-        ) : null}
-
-        {isInitialDashboardLoading ? (
-          <div className="px-4 pb-8 pt-4 sm:px-6 xl:px-8 min-h-[calc(100vh-80px)] opacity-50 pointer-events-none">
-            <div className="animate-pulse flex flex-col space-y-6 mt-8 max-w-4xl mx-auto">
-              <div className="h-40 bg-slate-200 rounded-3xl w-full" />
-              <div className="h-64 bg-slate-200 rounded-3xl w-full" />
-            </div>
-          </div>
-        ) : outOfScopeNotice ? (
-          <NoMealPlanState
-            isSubmitting={isSubmitting}
-            submitError={submitError}
-            reason={outOfScopeNotice.reason}
-            onEditProfile={handleEditProfile}
-          />
-        ) : shouldShowNoMealPlanState ? (
-          <NoMealPlanState
-            isSubmitting={isSubmitting}
-            submitError={submitError}
-            onGenerate={openMealPlanSetup}
-            onEditProfile={handleEditProfile}
-          />
+        {isThanhTichPage ? (
+          <main className="px-4 pb-8 pt-4 sm:px-6 xl:px-8">
+            <ThanhTuuView onNavigate={handleSidebarNavigate} gamificationRefreshKey={gamificationRefreshKey} />
+          </main>
         ) : (
-          <DashboardContent
-            result={result}
-            userEmail={userEmail}
-            profileSettings={formState}
-            summary={summary}
-            meals={meals}
-            foodCatalog={foodCatalog}
-            datasetStats={datasetStats}
-            weeklyCalories={weeklyCalories}
-            calorieProgress={calorieProgress}
-            macroData={macroData}
-            nutritionTarget={effectiveTarget}
-            eligibility={eligibility}
-            dataWarnings={dataWarnings}
-            validation={mealPlanValidation}
-            activeSection={activeSection}
-            favoriteMeals={favoriteMeals}
-            ratings={ratings}
-            mealLog={mealLog}
-            consumedNutrition={consumedNutrition}
-            generationNotice={generationNotice}
-            submitError={submitError}
-            onFavorite={toggleFavorite}
-            onRate={rateMeal}
-            onMealLogChange={setMealLog}
-            onProfileChange={handleProfileChange}
-            onRegenerate={requestRegenerateRecommendation}
-            onOpenSetup={openMealPlanSetup}
-            onOpenAddToMeal={(food) => setAddToMealRequest({ food, mealKey: null })}
-            onOpenDislikeFood={(food) => setDislikeRequest(food)}
-            onProfileRefresh={refreshProfileFromBackend}
-            onEditProfile={handleEditProfile}
-            isSubmitting={isSubmitting}
-            handleSidebarNavigate={handleSidebarNavigate}
-            gamificationRefreshKey={gamificationRefreshKey}
-            onEatingDayCompleted={handleEatingDayCompleted}
-            eatingHistoryRefreshKey={eatingHistoryRefreshKey}
-            onEatingHistoryChanged={() => setEatingHistoryRefreshKey((value) => value + 1)}
-          />
+          <>
+            {![
+              "overview",
+              "journal",
+              "charts",
+              "meal-plan",
+              "health-education",
+              "account",
+              "profile",
+              "notifications",
+              "help",
+            ].includes(activeSection) ? (
+              <Header
+                title={pageTitles[activeSection] || pageTitles.overview}
+                variant={activeSection === "health-education" ? "education" : "default"}
+                onToggleMenu={() => setDrawerOpen(true)}
+                onEditProfile={handleEditProfile}
+                onExport={handleExportReport}
+              />
+            ) : null}
+
+            {isInitialDashboardLoading ? (
+              <div className="px-4 pb-8 pt-4 sm:px-6 xl:px-8 min-h-[calc(100vh-80px)] opacity-50 pointer-events-none">
+                <div className="animate-pulse flex flex-col space-y-6 mt-8 max-w-4xl mx-auto">
+                  <div className="h-40 bg-slate-200 rounded-3xl w-full" />
+                  <div className="h-64 bg-slate-200 rounded-3xl w-full" />
+                </div>
+              </div>
+            ) : outOfScopeNotice ? (
+              <NoMealPlanState
+                isSubmitting={isSubmitting}
+                submitError={submitError}
+                reason={outOfScopeNotice.reason}
+                onEditProfile={handleEditProfile}
+              />
+            ) : shouldShowNoMealPlanState ? (
+              <NoMealPlanState
+                isSubmitting={isSubmitting}
+                submitError={submitError}
+                onGenerate={openMealPlanSetup}
+                onEditProfile={handleEditProfile}
+              />
+            ) : (
+              <DashboardContent
+                result={result}
+                userEmail={userEmail}
+                profileSettings={formState}
+                summary={summary}
+                meals={meals}
+                foodCatalog={foodCatalog}
+                datasetStats={datasetStats}
+                weeklyCalories={weeklyCalories}
+                calorieProgress={calorieProgress}
+                macroData={macroData}
+                nutritionTarget={effectiveTarget}
+                eligibility={eligibility}
+                dataWarnings={dataWarnings}
+                validation={mealPlanValidation}
+                activeSection={activeSection}
+                favoriteMeals={favoriteMeals}
+                ratings={ratings}
+                mealLog={mealLog}
+                consumedNutrition={consumedNutrition}
+                generationNotice={generationNotice}
+                submitError={submitError}
+                onFavorite={toggleFavorite}
+                onRate={rateMeal}
+                onMealLogChange={setMealLog}
+                onProfileChange={handleProfileChange}
+                onRegenerate={requestRegenerateRecommendation}
+                onOpenSetup={openMealPlanSetup}
+                onOpenAddToMeal={(food) => setAddToMealRequest({ food, mealKey: null })}
+                onOpenDislikeFood={(food) => setDislikeRequest(food)}
+                onProfileRefresh={refreshProfileFromBackend}
+                onEditProfile={handleEditProfile}
+                isSubmitting={isSubmitting}
+                handleSidebarNavigate={handleSidebarNavigate}
+                gamificationRefreshKey={gamificationRefreshKey}
+                onEatingDayCompleted={handleEatingDayCompleted}
+                eatingHistoryRefreshKey={eatingHistoryRefreshKey}
+                onEatingHistoryChanged={() => setEatingHistoryRefreshKey((value) => value + 1)}
+              />
+            )}
+          </>
         )}
       </div>
       <AddToMealModal
@@ -1685,7 +2454,6 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
 
               <div className="rounded-[18px] border border-emerald-100 bg-emerald-50/35 px-3 py-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Nguyên liệu đã chọn</p>
                   {ingredientCount > 0 ? (
                     <button
                       type="button"
@@ -2314,9 +3082,7 @@ function OverviewPage({
           </div>
         ) : null}
       </section>
-      <div className="opacity-95 mt-6">
-        <GentleMotivationPanel onAction={() => onNavigate?.("journal")} refreshKey={gamificationRefreshKey} hideAction={true} />
-      </div>
+      
     </div>
   );
 }
@@ -3146,9 +3912,23 @@ function MealsPage({
   const totalItems = displayMeals.reduce((sum, meal) => sum + meal.items.length, 0);
   const totalMeals = displayMeals.length;
   const coverageDebug = result?.meal_plan?.coverage_debug || result?.coverage_debug || null;
+  const ingredientWarnings = useMemo(() => {
+    const raw = result?.ingredientWarnings || result?.meal_plan?.ingredientWarnings || null;
+    const unavailable = raw?.missingIngredients || result?.unavailableIngredients || result?.meal_plan?.unavailableIngredients || [];
+
+    if (Array.isArray(unavailable) && unavailable.length > 0) {
+      return {
+        message: raw?.message || `Một số nguyên liệu chưa có món phù hợp trong dữ liệu: ${unavailable.map((value) => displayIngredientLabel(value)).join(", ")}.`,
+        missingIngredients: unavailable,
+        unavailableIngredients: unavailable,
+        warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+      };
+    }
+    return null;
+  }, [result]);
   const ingredientCoverage = useMemo(
-    () => summarizeIngredientCoverageFromMeals(displayMeals, profileSettings?.available_ingredients || profileSettings?.ingredients || []),
-    [displayMeals, profileSettings?.available_ingredients, profileSettings?.ingredients],
+    () => summarizeIngredientCoverageFromMeals(result?.meal_plan || meals, profileSettings?.available_ingredients || profileSettings?.ingredients || []),
+    [result?.meal_plan, meals, profileSettings?.available_ingredients, profileSettings?.ingredients],
   );
 
   useEffect(() => {
@@ -3267,11 +4047,12 @@ function MealsPage({
           <p>
             Đang ưu tiên nguyên liệu: {ingredientCoverage.selected.map((value) => displayIngredientLabel(value)).join(", ")}
           </p>
-          {ingredientCoverage.missing.length ? (
+          {ingredientWarnings ? (
             <p className="mt-1 text-amber-700">
-              Chưa đưa được nguyên liệu này vào món cuối cùng: {ingredientCoverage.missing.map((value) => displayIngredientLabel(value)).join(", ")}
+              {ingredientWarnings.message}
             </p>
           ) : null}
+          {/* Fallback coverage warning removed: only show warnings from backend response */}
         </section>
       ) : null}
 
@@ -4848,8 +5629,8 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
               <ProfileSelect label="Chế độ ăn" name="diet_style" value={profile.diet_style} error={errors.diet_style} onChange={onChange} options={[{ value: "balanced", label: "Cân bằng" }, { value: "eat_clean", label: "Eat Clean" }, { value: "high_protein", label: "Giàu Protein" }, { value: "vegetarian", label: "Ăn chay" }]} />
               <ProfileSelect label="Ngân sách" name="budget_level" value={profile.budget_level} error={errors.budget_level} onChange={onChange} options={[{ value: "standard", label: "Tiêu chuẩn" }, { value: "low", label: "Tiết kiệm" }, { value: "high", label: "Linh hoạt" }]} />
               <ProfileSelect label="Số món mỗi bữa" name="meal_complexity" value={profile.meal_complexity} error={errors.meal_complexity} onChange={onChange} options={[{ value: "simple", label: "3 món/bữa" }, { value: "balanced", label: "4 món/bữa" }, { value: "full", label: "5 món/bữa" }]} />
-              <ProfileField label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} helperText="Nhập các món muốn ưu tiên, phân tách bằng dấu phẩy." />
-              <ProfileField label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} helperText="Ví dụ: sữa động vật, đậu nành, gà, bò. Phân tách bằng dấu phẩy." />
+              <TagInput label="Món yêu thích" name="favorite_foods" value={profile.favorite_foods} error={errors.favorite_foods} onChange={onChange} helperText="Nhập các món muốn ưu tiên." placeholder="Ví dụ: chuối, sữa, cơm, trứng" />
+              <TagInput label="Danh sách loại trừ" name="unfavorite_foods" value={profile.unfavorite_foods} error={errors.unfavorite_foods} onChange={onChange} helperText="Ví dụ: sữa động vật, đậu nành, gà, bò." placeholder="Ví dụ: tôm, đậu phộng, trứng" />
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
               <button
@@ -6027,6 +6808,7 @@ function ProfileSelect({ label, name, value, error, options, onChange }) {
 
 function TagInput({ label, name, value, error, placeholder, helperText, onChange }) {
   const [draft, setDraft] = useState("");
+  const [noneActive, setNoneActive] = useState(false);
   const tags = useMemo(() => parseTagValue(value), [value]);
 
   function emitChange(nextTags) {
@@ -6047,6 +6829,7 @@ function TagInput({ label, name, value, error, placeholder, helperText, onChange
     });
     emitChange(nextTags);
     setDraft("");
+    setNoneActive(false);
   }
 
   function handleKeyDown(event) {
@@ -6061,9 +6844,33 @@ function TagInput({ label, name, value, error, placeholder, helperText, onChange
     }
   }
 
+  function handleNone() {
+    emitChange([]);
+    setDraft("");
+    setNoneActive(true);
+  }
+
+  function handleDraftChange(event) {
+    setDraft(event.target.value);
+    if (event.target.value.trim()) setNoneActive(false);
+  }
+
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font900 text-slate-800">{label}</span>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-sm font900 text-slate-800">{label}</span>
+        <button
+          type="button"
+          onClick={handleNone}
+          className={`rounded-full px-3 py-0.5 text-xs font-bold transition ${
+            noneActive && tags.length === 0
+              ? "bg-emerald-500 text-white"
+              : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          Không có
+        </button>
+      </div>
       <div
         className={`flex min-h-[52px] flex-wrap items-center gap-2 rounded-3xl border bg-white px-3 py-2 shadow-sm transition focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-100 ${
           error ? "border-red-400" : "border-slate-200"
@@ -6086,7 +6893,7 @@ function TagInput({ label, name, value, error, placeholder, helperText, onChange
           type="text"
           name={name}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={handleDraftChange}
           onKeyDown={handleKeyDown}
           onBlur={() => commitTag(draft)}
           placeholder={tags.length ? "" : placeholder}
@@ -7858,16 +8665,11 @@ function normalizeIngredientKey(value) {
 
 function ingredientMatchLabelsForFood(food, selectedIngredients = []) {
   if (!Array.isArray(selectedIngredients) || !selectedIngredients.length) return [];
+  // Use doesItemMatchRequiredIngredient which has correct pork/beef/chicken negative guards
+  // to avoid false positives like tagging "Lòng đỏ trứng" with "Thịt lợn"
   const matchedIngredients = selectedIngredients
-    .filter((ingredient) => foodMatchesIngredient(food, ingredient))
+    .filter((ingredient) => doesItemMatchRequiredIngredient(ingredient, food))
     .map(displayIngredientLabel);
-
-  console.log("[INGREDIENT BADGE CHECK]", {
-    foodName: food?.name,
-    selectedIngredients,
-    foodSearchText: getFoodSearchText(food),
-    matchedIngredients,
-  });
 
   return matchedIngredients;
 }
@@ -7880,31 +8682,61 @@ function summarizeIngredientCoverageFromMeals(meals = [], selectedIngredients = 
     return { hasSelected: false, selected: [], covered: [], missing: [] };
   }
 
-  const mealDistribution = meals.map((meal) => ({
-    meal: meal?.title || meal?.mealType || meal?.meal_type || "",
-    items: Array.isArray(meal?.items) ? meal.items : [],
-  }));
+  const sourceFoods = flattenFinalMeals(meals);
+
+  console.log("[INGREDIENT COVERAGE SOURCE]", {
+    sourceType: Array.isArray(sourceFoods) ? "array" : typeof sourceFoods,
+    totalItems: sourceFoods.length,
+    sampleItems: sourceFoods.slice(0, 20).map((item) => ({
+      name: item?.name,
+      vi_name: item?.vi_name,
+      title: item?.title,
+      displayName: item?.displayName,
+      food_name: item?.food_name,
+      ingredient_name: item?.ingredient_name,
+    })),
+  });
+
+  if (selected.some((ingredient) => normalizeText(ingredient).includes("thit ga"))) {
+    console.log("[CHICKEN COVERAGE SOURCE]", {
+      totalItems: sourceFoods.length,
+      sampleItems: sourceFoods.slice(0, 20).map((item) => ({
+        name: item?.name,
+        vi_name: item?.vi_name,
+        title: item?.title,
+        displayName: item?.displayName,
+        food_name: item?.food_name,
+        ingredient_name: item?.ingredient_name,
+      })),
+    });
+  }
 
   const covered = [];
   const notCovered = [];
+  const finalMealNames = sourceFoods.map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "").filter(Boolean);
 
   for (const ingredient of selected) {
-    const matchedFoods = [];
-    for (const meal of mealDistribution) {
-      for (const item of meal.items) {
-        if (foodMatchesIngredient(item, ingredient)) {
-          matchedFoods.push(item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "");
-        }
-      }
-    }
+    const matchedFoods = sourceFoods.filter((item) => doesItemMatchRequiredIngredient(ingredient, item));
 
     const displayLabel = displayIngredientLabel(ingredient);
+    if (normalizeText(ingredient).includes("thit ga")) {
+      const chickenSample = sourceFoods
+        .filter((item) => isChickenMatch(item))
+        .slice(0, 10)
+        .map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "");
+
+      console.log("[CHICKEN DATASET SAMPLE]", {
+        totalItems: sourceFoods.length,
+        chickenSample,
+      });
+    }
+
     console.log("[INGREDIENT MATCH DEBUG]", {
       rawIngredient: ingredient,
       displayLabel,
       aliases: expandIngredientAliases(ingredient),
-      finalFoodNames: mealDistribution.flatMap((meal) => meal.items.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "")).filter(Boolean),
-      matchedFoodNames: Array.from(new Set(matchedFoods)).filter(Boolean),
+      finalFoodNames: sourceFoods.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "").filter(Boolean),
+      matchedFoodNames: Array.from(new Set(matchedFoods.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || ""))).filter(Boolean),
     });
 
     if (matchedFoods.length > 0) {
@@ -7914,14 +8746,48 @@ function summarizeIngredientCoverageFromMeals(meals = [], selectedIngredients = 
     }
   }
 
+  const missingDisplayLabels = notCovered.map((value) => displayIngredientLabel(value));
+  const missingInFinalPlan = missingDisplayLabels;
+
+  if (missingDisplayLabels.length > 0) {
+    console.log("[FINAL INGREDIENT VALIDATION DEBUG]", {
+      requiredIngredients: selected,
+      finalMealNames,
+      porkMatches: sourceFoods
+        .filter((item) => isPorkMatch(item))
+        .map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "")
+        .filter(Boolean),
+      missingInFinalPlan,
+    });
+  }
+
+  if (
+    selected.some((ingredient) => {
+      const normalized = normalizeText(ingredient);
+      return normalized.includes("thit lon") || normalized.includes("thit heo") || normalized === "heo" || normalized === "lon";
+    }) &&
+    missingDisplayLabels.includes("Thịt lợn")
+  ) {
+    console.log("[PORK FINAL VALIDATION DEBUG]", {
+      requiredIngredients: selected,
+      finalMealNames,
+      porkMatches: sourceFoods
+        .filter((item) => isPorkMatch(item))
+        .map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "")
+        .filter(Boolean),
+      porkCandidates: sourceFoods
+        .filter((item) => isPorkMatch(item))
+        .slice(0, 10)
+        .map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "")
+        .filter(Boolean),
+      missingInFinalPlan,
+    });
+  }
+
   console.log("[INGREDIENT COVERAGE FINAL]", {
     covered: covered.map((value) => displayIngredientLabel(value)),
-    notCovered: notCovered.map((value) => displayIngredientLabel(value)),
-    mealDistribution: mealDistribution.map((meal) => ({
-      meal: meal.meal,
-      itemCount: meal.items.length,
-      itemNames: meal.items.map((item) => item?.name || item?.dish_name_vi || item?.food_name || item?.food_id || "").filter(Boolean),
-    })),
+    notCovered: missingDisplayLabels,
+    mealDistribution: finalMealNames,
   });
 
   return {
@@ -8182,33 +9048,38 @@ function isBlockedByEatClean(item) {
 
 function toMealPlanPayload(item, status = "suggested") {
   return {
-    food_id: String(item.foodId || item.id || item.name),
-    original_name: item.originalName || item.name,
+    food_id: String(item.foodId || item.food_id || item.id || item.name),
+    original_name: item.originalName || item.original_name || item.name,
     name: item.name,
-    image_url: item.image || defaultFoodImage,
-    image_alt: item.imageAlt || `Ảnh món ${item.name}`,
-    image_source_type: item.imageSourceType || (item.imageMissing ? "placeholder" : "real_food_photo"),
-    image_verified: Boolean(item.imageVerified),
-    image_badge: item.imageBadge || null,
+    vi_name: item.vi_name || item.name,
+    title: item.title || item.name,
+    displayName: item.displayName || item.display_name || item.name,
+    food_name: item.food_name || item.name,
+    ingredient_name: item.ingredient_name,
+    image_url: item.image || item.image_url || defaultFoodImage,
+    image_alt: item.imageAlt || item.image_alt || `Ảnh món ${item.name}`,
+    image_source_type: item.imageSourceType || item.image_source_type || (item.imageMissing ? "placeholder" : "real_food_photo"),
+    image_verified: Boolean(item.imageVerified || item.image_verified),
+    image_badge: item.imageBadge || item.image_badge || null,
     category: item.technicalCategory || item.subCategory || item.category,
     normalized_category: item.technicalCategory || item.subCategory || item.category,
-    food_group: item.foodGroup || item.category,
-    meal_role: item.mealRole || "",
-    culinary_role: item.mealRole || "",
-    quantity_g: item.servingGrams || null,
-    serving_grams: item.servingGrams || null,
-    serving_display: item.servingDisplay || "",
-    portion_display: item.servingDisplay || "",
-    kcal: item.calories,
-    calories: item.calories,
+    food_group: item.foodGroup || item.food_group || item.category,
+    meal_role: item.mealRole || item.meal_role || "",
+    culinary_role: item.mealRole || item.meal_role || "",
+    quantity_g: item.servingGrams || item.serving_grams || item.quantity_g || null,
+    serving_grams: item.servingGrams || item.serving_grams || null,
+    serving_display: item.servingDisplay || item.serving_display || "",
+    portion_display: item.servingDisplay || item.serving_display || "",
+    kcal: item.calories || item.kcal,
+    calories: item.calories || item.kcal,
     protein: item.protein,
     fat: item.fat,
     carbs: item.carbs,
     reason: item.reason || buildSuggestionReason(item),
     status,
-    quality_flags: item.qualityFlags || "",
+    quality_flags: item.qualityFlags || item.quality_flags || "",
     score: Number(item.score || 0),
-    menu_eligible: item.menuEligible !== false,
+    menu_eligible: item.menuEligible !== false && item.menu_eligible !== false,
     is_eaten: item.is_eaten === true || item.consumed === true || item.eaten === true,
     eaten_at: item.eaten_at,
     eaten_date: item.eaten_date,

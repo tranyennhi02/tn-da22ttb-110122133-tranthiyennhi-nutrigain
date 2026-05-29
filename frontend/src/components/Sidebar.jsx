@@ -6,6 +6,7 @@ const menuItems = [
   { id: "journal", label: "Thống kê ăn uống", path: "/dashboard", icon: JournalIcon },
   { id: "charts", label: "Theo dõi tăng cân", path: "/dashboard", icon: ChartIcon },
   { id: "meal-plan", label: "Kế hoạch bữa ăn", path: "/dashboard", icon: MealIcon },
+  { id: "thanh-tich", label: "Thành tích", path: "/thanh-tich", icon: HealthEducationSidebarItem },
   { id: "health-education", label: "Giáo dục sức khỏe", path: "/health-education", icon: HealthEducationSidebarItem },
   { id: "account", label: "Tài khoản", path: "/dashboard", icon: UserIcon },
   { id: "notifications", label: "Thông báo", path: "/dashboard", icon: BellIcon },

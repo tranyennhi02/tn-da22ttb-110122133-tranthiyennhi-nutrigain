@@ -11,14 +11,12 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from urllib.parse import urlencode
 
-from app.api.dependencies import get_current_user, require_admin
+from app.api.dependencies import get_current_user, get_optional_current_user, require_admin
 from app.api.v1.routes.ai_chat import router as ai_chat_router
-from app.controllers.recommendation_controller import controller
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.entities import User
 from app.services.auth_service import AuthService
-from app.services.admin_service import AdminService
 from app.services.food_service import FoodService, InteractionService, UserService
 from app.services.nutrition_statistics_service import NutritionStatisticsService
 from app.services.ingredient_recognition_service import recognize_ingredients_from_image
@@ -85,6 +83,23 @@ from app.views.schemas import (
 
 router = APIRouter(prefix="/api/v1")
 logger = logging.getLogger(__name__)
+
+_admin_service_import_error: Exception | None = None
+try:
+    from app.services.admin_service import AdminService
+except Exception as exc:  # pragma: no cover - protects non-admin routes from unrelated import failures
+    AdminService = None  # type: ignore[assignment]
+    _admin_service_import_error = exc
+    logger.exception("[ADMIN SERVICE IMPORT ERROR] %s", exc)
+
+_recommendation_controller_import_error: Exception | None = None
+try:
+    from app.controllers.recommendation_controller import controller
+except Exception as exc:  # pragma: no cover - protects auth routes from unrelated import failures
+    controller = None
+    _recommendation_controller_import_error = exc
+    logger.exception("[RECOMMENDATION CONTROLLER IMPORT ERROR] %s", exc)
+
 router.include_router(ai_chat_router)
 auth_service = AuthService()
 food_service = FoodService()
@@ -93,7 +108,25 @@ interaction_service = InteractionService()
 weight_log_service = WeightLogService()
 nutrition_statistics_service = NutritionStatisticsService()
 gamification_service = GamificationService()
-admin_service = AdminService()
+admin_service = AdminService() if AdminService is not None else None
+
+
+def _require_recommendation_controller():
+    if controller is None:
+        detail = "Recommendation service is temporarily unavailable"
+        if _recommendation_controller_import_error is not None:
+            detail = f"Recommendation service unavailable: {type(_recommendation_controller_import_error).__name__}"
+        raise HTTPException(status_code=503, detail=detail)
+    return controller
+
+
+def _require_admin_service():
+    if admin_service is None:
+        detail = "Admin service is temporarily unavailable"
+        if _admin_service_import_error is not None:
+            detail = f"Admin service unavailable: {type(_admin_service_import_error).__name__}"
+        raise HTTPException(status_code=503, detail=detail)
+    return admin_service
 
 
 def normalize_ingredient_names(items):
@@ -264,7 +297,76 @@ def google_login(payload: GoogleLoginInput, db: Session = Depends(get_db)) -> Au
 
 @router.get("/auth/google/url", response_model=GoogleOAuthUrlResponse, tags=["auth"])
 def google_oauth_url() -> GoogleOAuthUrlResponse:
-    return GoogleOAuthUrlResponse(url=auth_service.get_google_oauth_url())
+    # Log immediate hit and env snapshot to help debugging from backend terminal
+    try:
+        print("[GOOGLE AUTH URL HIT]")
+        
+        # Detailed env check
+        google_client_secret_raw = os.getenv("GOOGLE_CLIENT_SECRET")
+        env_snapshot = {
+            "GOOGLE_CLIENT_ID_EXISTS": bool(os.getenv("GOOGLE_CLIENT_ID")),
+            "GOOGLE_CLIENT_SECRET_EXISTS": bool(google_client_secret_raw),
+            "GOOGLE_CLIENT_SECRET_LENGTH": len(google_client_secret_raw) if google_client_secret_raw else 0,
+            "GOOGLE_CLIENT_SECRET_IS_PLACEHOLDER": google_client_secret_raw == "GOCSPX-YOUR_GOOGLE_CLIENT_SECRET_HERE",
+            "GOOGLE_REDIRECT_URI": os.getenv("GOOGLE_REDIRECT_URI"),
+            "FRONTEND_URL": os.getenv("FRONTEND_URL") or settings.frontend_url,
+            "BACKEND_URL": os.getenv("BACKEND_URL") or f"{settings.app_host}:{settings.app_port}",
+            "VITE_GOOGLE_CLIENT_ID": bool(os.getenv("VITE_GOOGLE_CLIENT_ID")),
+            "settings.google_client_id_exists": bool(settings.google_client_id),
+            "settings.google_client_secret_exists": bool(settings.google_client_secret),
+            "settings.google_client_secret_is_placeholder": settings.google_client_secret == "GOCSPX-YOUR_GOOGLE_CLIENT_SECRET_HERE",
+        }
+        print("[GOOGLE AUTH ENV CHECK]", env_snapshot)
+        logger.info("[GOOGLE AUTH ENV CHECK] %s", env_snapshot)
+        
+        # If VITE_* exists but backend GOOGLE_* does not, warn the developer
+        if not settings.google_client_id and os.getenv("VITE_GOOGLE_CLIENT_ID"):
+            logger.warning("[GOOGLE AUTH ENV MISMATCH] backend GOOGLE_CLIENT_ID missing but VITE_GOOGLE_CLIENT_ID exists")
+            print("[GOOGLE AUTH ENV MISMATCH] backend GOOGLE_CLIENT_ID missing but VITE_GOOGLE_CLIENT_ID exists")
+    except Exception:
+        # Make sure logging never breaks the route
+        print("[GOOGLE AUTH URL ENV] failed to read env snapshot", traceback.format_exc())
+
+    # Explicitly validate required env/config before attempting to generate URL
+    missing = []
+    if not settings.google_client_id:
+        missing.append("GOOGLE_CLIENT_ID")
+    if not settings.google_client_secret:
+        missing.append("GOOGLE_CLIENT_SECRET")
+    elif settings.google_client_secret == "GOCSPX-YOUR_GOOGLE_CLIENT_SECRET_HERE":
+        missing.append("GOOGLE_CLIENT_SECRET (still using placeholder)")
+    if not settings.google_redirect_uri:
+        missing.append("GOOGLE_REDIRECT_URI")
+
+    if missing:
+        logger.error("[GET /api/v1/auth/google/url MISSING CONFIG] %s", missing)
+        print("[GET /api/v1/auth/google/url MISSING CONFIG]", missing)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Google OAuth configuration is missing or incomplete",
+                "missing": missing,
+            },
+        )
+
+    try:
+        url = auth_service.get_google_oauth_url()
+        logger.info("[GET /api/v1/auth/google/url] generated oauth url")
+        print("[GET /api/v1/auth/google/url] generated oauth url successfully")
+        return JSONResponse(status_code=200, content={"success": True, "url": url})
+    except HTTPException as exc:
+        logger.error("[GET /api/v1/auth/google/url ERROR] %s", exc.detail)
+        print("[GET /api/v1/auth/google/url ERROR]", exc)
+        print("[GET /api/v1/auth/google/url ERROR DETAIL]", exc.detail)
+        return JSONResponse(status_code=exc.status_code or 500, content={"success": False, "message": str(exc.detail)})
+    except Exception as exc:
+        logger.exception("[GET /api/v1/auth/google/url ERROR] unexpected: %s", exc)
+        print("[GET /api/v1/auth/google/url ERROR]", exc)
+        print("[GET /api/v1/auth/google/url ERROR MESSAGE]", str(exc))
+        print("[GET /api/v1/auth/google/url ERROR TRACEBACK]")
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"success": False, "message": str(exc) or "Google OAuth URL generation failed"})
 
 
 @router.get("/auth/google/callback", tags=["auth"])
@@ -306,12 +408,23 @@ def reset_password(payload: ResetPasswordInput, db: Session = Depends(get_db)) -
     return MessageResponse(**auth_service.reset_password(payload, db))
 
 
-@router.get("/users/me", response_model=CurrentUserView, tags=["users"])
+@router.get("/users/me", tags=["users"])
 def get_me(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> CurrentUserView:
-    return user_service.get_me(db, current_user)
+    current_user: User | None = Depends(get_optional_current_user),
+) -> object:
+    """Return current user info, or 401/unauthenticated without crashing when session missing."""
+    try:
+        if current_user is None:
+            # Not authenticated — return a clear 401 response
+            logger.info("[GET /api/v1/users/me] unauthenticated request")
+            return JSONResponse(status_code=401, content={"success": False, "message": "Unauthenticated"})
+        return user_service.get_me(db, current_user)
+    except Exception as exc:
+        # Log the full error and return a 500 with detail for debugging
+        logger.exception("[GET /api/v1/users/me ERROR] %s", exc)
+        print("[GET /api/v1/users/me ERROR]", exc)
+        return JSONResponse(status_code=500, content={"success": False, "message": "Server error retrieving user"})
 
 
 @router.put("/users/me", response_model=CurrentUserView, tags=["users"])
@@ -411,6 +524,46 @@ def list_foods(
     return FoodListResponse(**food_service.list_foods(db, q, category, limit, offset))
 
 
+@router.post("/ingredients/candidates", tags=["foods"])
+def ingredient_candidates(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """Return candidate foods for given ingredient names (for frontend validation/debug)."""
+    try:
+        ingredients = payload.get("ingredients") if isinstance(payload, dict) else None
+        limit = int(payload.get("limit", 10)) if isinstance(payload, dict) else 10
+        if not ingredients or not isinstance(ingredients, (list, tuple)):
+            return {"candidatesByIngredient": {}, "candidateCounts": {}}
+        # Use the recommender utility functions to inspect raw DB matches
+        from app.services.recommender_service import debug_raw_ingredient_matches
+
+        recommender = None
+        try:
+            # Build a recommender to get access to raw_df via helper
+            from app.services.recommender_service import RecommenderService
+            recommender = RecommenderService._build_recommender_from_sql(db)
+            all_foods = recommender.raw_df if getattr(recommender, "raw_df", None) is not None else None
+        except Exception:
+            all_foods = None
+
+        results: dict[str, list[dict]] = {}
+        counts: dict[str, int] = {}
+        for ing in ingredients:
+            try:
+                rows = debug_raw_ingredient_matches(all_foods or [], ing)
+                counts[str(ing)] = int(len(rows))
+                results[str(ing)] = rows[: int(limit)]
+            except Exception:
+                counts[str(ing)] = 0
+                results[str(ing)] = []
+
+        return {"candidatesByIngredient": results, "candidateCounts": counts}
+    except Exception as exc:
+        logger.warning("[INGREDIENT CANDIDATES API] failed: %s", exc)
+        return {"candidatesByIngredient": {}, "candidateCounts": {}}
+
 @router.get("/foods/{food_id}", response_model=FoodView, tags=["foods"])
 def get_food(
     food_id: str,
@@ -462,7 +615,7 @@ def create_recommendation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecommendationOutput:
-    return controller.create_recommendation(payload, db, current_user)
+    return _require_recommendation_controller().create_recommendation(payload, db, current_user)
 
 
 @router.post("/meal-plans/regenerate", response_model=RecommendationOutput, tags=["meal-plans"])
@@ -474,7 +627,7 @@ def regenerate_meal_plan(
     start = time.perf_counter()
     if os.getenv("DEBUG_RECOMMENDER", "false").strip().lower() in {"1", "true", "yes", "on"}:
         logger.info("[REGENERATE AVAILABLE INGREDIENTS RAW] %s", payload.available_ingredients)
-    result = controller.regenerate_meal_plan(payload, db, current_user)
+    result = _require_recommendation_controller().regenerate_meal_plan(payload, db, current_user)
     logger.info(
         "[REGENERATE ROUTE TIMING] %s",
         {"total_ms": round((time.perf_counter() - start) * 1000.0, 2)},
@@ -674,7 +827,7 @@ def toggle_meal_consumption(
     # 1. Update FoodLogItem check-in first
     if payload.meal_plan_item_id is not None:
         try:
-            controller.check_in_meal_plan_item(
+            _require_recommendation_controller().check_in_meal_plan_item(
                 db,
                 current_user,
                 meal_plan_item_id=payload.meal_plan_item_id,
@@ -969,7 +1122,7 @@ def get_today_meal_plan(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TodayMealPlanResponse:
-    return TodayMealPlanResponse(**controller.today_meal_plan(db, current_user))
+    return TodayMealPlanResponse(**_require_recommendation_controller().today_meal_plan(db, current_user))
 
 
 
@@ -1011,7 +1164,7 @@ def check_in_meal_plan_item(
     current_user: User = Depends(get_current_user),
 ) -> TodayMealPlanResponse:
     return TodayMealPlanResponse(
-        **controller.check_in_meal_plan_item(
+        **_require_recommendation_controller().check_in_meal_plan_item(
             db,
             current_user,
             meal_plan_item_id=meal_plan_item_id,
@@ -1032,7 +1185,7 @@ def list_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecommendationHistoryResponse:
-    return controller.list_history(db=db, user=current_user, limit=limit, period=period)
+    return _require_recommendation_controller().list_history(db=db, user=current_user, limit=limit, period=period)
 
 
 @router.get(
@@ -1045,7 +1198,7 @@ def history_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RecommendationHistoryDetail:
-    return controller.history_detail(db=db, user=current_user, request_id=request_id)
+    return _require_recommendation_controller().history_detail(db=db, user=current_user, request_id=request_id)
 
 
 @router.post("/admin/foods", response_model=FoodView, tags=["admin"])
@@ -1130,7 +1283,7 @@ def admin_list_users(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminUserListResponse:
-    return AdminUserListResponse(**admin_service.list_users(db, q, status, bmi_category, limit, offset))
+    return AdminUserListResponse(**_require_admin_service().list_users(db, q, status, bmi_category, limit, offset))
 
 
 @router.get("/admin/overview", response_model=AdminOverviewResponse, tags=["admin"])
@@ -1138,7 +1291,7 @@ def admin_overview(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminOverviewResponse:
-    return AdminOverviewResponse(**admin_service.overview(db))
+    return AdminOverviewResponse(**_require_admin_service().overview(db))
 
 
 @router.get("/admin/users/{user_id}", tags=["admin"])
@@ -1147,7 +1300,7 @@ def admin_user_detail(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.user_detail(db, user_id)
+    return _require_admin_service().user_detail(db, user_id)
 
 
 @router.patch("/admin/users/{user_id}/status", response_model=UserView, tags=["admin"])
@@ -1158,7 +1311,7 @@ def admin_update_user_status(
     _: User = Depends(require_admin),
 ) -> UserView:
     values = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
-    return UserView(**admin_service.update_user_status(db, user_id, values))
+    return UserView(**_require_admin_service().update_user_status(db, user_id, values))
 
 
 @router.get("/admin/foods", response_model=AdminFoodListResponse, tags=["admin"])
@@ -1175,7 +1328,7 @@ def admin_list_foods(
     _: User = Depends(require_admin),
 ) -> AdminFoodListResponse:
     return AdminFoodListResponse(
-        **admin_service.list_foods(db, q, category, menu_eligible, missing_image, has_quality_flags, image_status, limit, offset)
+        **_require_admin_service().list_foods(db, q, category, menu_eligible, missing_image, has_quality_flags, image_status, limit, offset)
     )
 
 
@@ -1185,7 +1338,7 @@ def admin_get_food(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.get_food(db, food_id)
+    return _require_admin_service().get_food(db, food_id)
 
 
 @router.patch("/admin/foods/{food_id}", tags=["admin"])
@@ -1195,7 +1348,7 @@ def admin_patch_food(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.update_food(db, food_id, payload)
+    return _require_admin_service().update_food(db, food_id, payload)
 
 
 @router.post("/admin/foods/{food_id}/exclude-from-recommendations", tags=["admin"])
@@ -1206,7 +1359,7 @@ def admin_exclude_food_from_recommendations(
     _: User = Depends(require_admin),
 ) -> dict:
     reason = payload.get("reason") if isinstance(payload, dict) else None
-    return admin_service.exclude_food_from_recommendations(db, food_id, reason)
+    return _require_admin_service().exclude_food_from_recommendations(db, food_id, reason)
 
 
 @router.post("/admin/foods/{food_id}/restore-to-recommendations", tags=["admin"])
@@ -1215,7 +1368,7 @@ def admin_restore_food_to_recommendations(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.restore_food_to_recommendations(db, food_id)
+    return _require_admin_service().restore_food_to_recommendations(db, food_id)
 
 
 @router.post("/admin/food-images/{food_id}/refetch", tags=["admin"])
@@ -1224,7 +1377,7 @@ def admin_refetch_food_image(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.refetch_food_image(db, food_id)
+    return _require_admin_service().refetch_food_image(db, food_id)
 
 
 @router.get("/admin/food-categories/summary", response_model=AdminCategorySummaryResponse, tags=["admin"])
@@ -1232,7 +1385,7 @@ def admin_food_category_summary(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminCategorySummaryResponse:
-    return AdminCategorySummaryResponse(**admin_service.category_summary(db))
+    return AdminCategorySummaryResponse(**_require_admin_service().category_summary(db))
 
 
 @router.post("/admin/recommendation-test", response_model=RecommendationOutput, tags=["admin"])
@@ -1241,7 +1394,7 @@ def admin_recommendation_test(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> RecommendationOutput:
-    return RecommendationOutput(**admin_service.recommendation_test(db, current_user, payload))
+    return RecommendationOutput(**_require_admin_service().recommendation_test(db, current_user, payload))
 
 
 @router.get("/admin/meal-plans", response_model=AdminMealPlanListResponse, tags=["admin"])
@@ -1254,7 +1407,7 @@ def admin_list_meal_plans(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminMealPlanListResponse:
-    return AdminMealPlanListResponse(**admin_service.list_meal_plans(db, q, status, only_errors, limit, offset))
+    return AdminMealPlanListResponse(**_require_admin_service().list_meal_plans(db, q, status, only_errors, limit, offset))
 
 
 @router.get("/admin/meal-plans/{meal_plan_id}", tags=["admin"])
@@ -1263,7 +1416,7 @@ def admin_meal_plan_detail(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.meal_plan_detail(db, meal_plan_id)
+    return _require_admin_service().meal_plan_detail(db, meal_plan_id)
 
 
 @router.get("/admin/system-errors", response_model=AdminSystemErrorListResponse, tags=["admin"])
@@ -1273,7 +1426,7 @@ def admin_list_system_errors(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AdminSystemErrorListResponse:
-    return AdminSystemErrorListResponse(**admin_service.list_system_errors(db, limit, offset))
+    return AdminSystemErrorListResponse(**_require_admin_service().list_system_errors(db, limit, offset))
 
 
 @router.patch("/admin/system-errors/{error_id}/resolve", tags=["admin"])
@@ -1282,4 +1435,4 @@ def admin_resolve_system_error(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> dict:
-    return admin_service.resolve_error(db, error_id)
+    return _require_admin_service().resolve_error(db, error_id)

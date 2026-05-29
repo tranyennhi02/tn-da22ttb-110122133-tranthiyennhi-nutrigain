@@ -43,6 +43,37 @@ def get_current_user(
     return user
 
 
+def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Return current user or None without raising on missing/invalid token or DB errors."""
+    try:
+        if credentials is None or credentials.scheme.lower() != "bearer":
+            return None
+
+        try:
+            payload = decode_access_token(credentials.credentials)
+            user_id = int(payload["sub"])
+        except Exception:
+            return None
+
+        try:
+            user = UserRepository(db).get_by_id(user_id)
+        except Exception:
+            # DB error — treat as unauthenticated to avoid 500 in routes
+            return None
+
+        if user is None:
+            return None
+        user_status = str(getattr(user, "status", "") or "").upper()
+        if not user.is_active or user_status == "LOCKED":
+            return None
+        return user
+    except Exception:
+        return None
+
+
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if str(current_user.role or "").upper() not in {"ADMIN", "SUPER_ADMIN"}:
         raise HTTPException(

@@ -45,7 +45,6 @@ export default function GentleMotivationPanel({ onAction, refreshKey = 0 }) {
 
   const streakDays = summary?.streak?.current ?? 0;
   const weeklyGoalDays = 7;
-  const weeklyProgress = Math.min(100, Math.max(0, (streakDays / weeklyGoalDays) * 100));
   const recentAchievements = summary?.achievements?.length
     ? summary.achievements.slice(0, 3)
     : [
@@ -55,148 +54,224 @@ export default function GentleMotivationPanel({ onAction, refreshKey = 0 }) {
       ];
   const challengeDone = String(summary?.today_challenge?.status || "").toLowerCase() === "completed";
   const pendingEatingStreak = summary?.today_challenge?.key === "first_complete_day" && !challengeDone;
-  const encouragement = summary?.encouragement || "Ăn đều hơn một chút cũng là tiến bộ.";
-
+  const safeStreakDays = Number(streakDays) || 0;
+  const weeklyCycleDay = safeStreakDays > 0 ? ((safeStreakDays - 1) % weeklyGoalDays) + 1 : 0;
+  const weeklyRemainingDays = Math.max(0, weeklyGoalDays - weeklyCycleDay);
+  const isWeeklyComplete = safeStreakDays > 0 && weeklyCycleDay === weeklyGoalDays;
+  const weeklyProgress = weeklyCycleDay > 0 ? (weeklyCycleDay / weeklyGoalDays) * 100 : 0;
+  const monthCareDays = summary?.month?.days ?? summary?.monthly?.days ?? summary?.month?.care_days ?? null;
+  const monthDuyTriRate = summary?.month?.rate ?? summary?.monthly?.rate ?? summary?.month?.retention_rate ?? null;
+  const supportMessages = [
+    summary?.encouragement,
+    "Ăn đều hơn một chút cũng là tiến bộ.",
+    "Bạn không cần hoàn hảo, chỉ cần quay lại nhẹ nhàng.",
+    "Một ngày chưa tốt không xoá đi cả hành trình.",
+    "Tăng cân lành mạnh cần thời gian, bạn đang đi đúng hướng.",
+    "Bạn đang chăm sóc bản thân tốt hơn từng chút một.",
+  ].filter(Boolean);
+  const encouragement = supportMessages.length ? supportMessages[(new Date().getDate() + safeStreakDays + (recentAchievements?.length || 0)) % supportMessages.length] : "";
+  const streakStatusPill =
+    safeStreakDays === 0
+      ? "Nghỉ nhẹ"
+      : weeklyCycleDay === weeklyGoalDays
+        ? "Tuần mới bắt đầu"
+        : "Ngày linh hoạt";
+  const streakSupportCopy =
+    safeStreakDays === 0
+      ? "Không sao, hôm nay mình bắt đầu lại nhẹ nhàng."
+      : weeklyCycleDay === weeklyGoalDays
+        ? "Bạn đã hoàn thành một vòng 7 ngày. Giữ nhịp nhẹ nhàng cho tuần mới nhé."
+        : "Mỗi ngày quay lại đều tính. Tiến bộ nhỏ vẫn là tiến bộ.";
+  const monthProgressText =
+    monthCareDays != null
+      ? `${monthCareDays} ngày chăm sóc bản thân`
+      : "Đang ghi nhận thêm để hiển thị tiến trình tháng";
+  const monthRateText =
+    monthDuyTriRate != null
+      ? `${Math.round(Number(monthDuyTriRate) * 100)}% nhịp duy trì`
+      : "Tỷ lệ duy trì tháng sẽ hiện khi có dữ liệu";
   return (
-    <section className="mt-8 rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-white p-6 shadow-sm sm:p-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-            <Sparkles size={24} strokeWidth={2.4} />
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-slate-900">Động lực nhẹ nhàng</h2>
-            <p className="text-sm font-semibold text-slate-500">Những ghi nhận nhỏ để bạn duy trì thói quen, không áp lực.</p>
-          </div>
+    <section className="relative mt-8 rounded-2xl border border-emerald-50/60 bg-gradient-to-b from-white to-emerald-50/60 p-6 shadow-lg sm:p-8">
+      <div className="flex items-start gap-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-emerald-600 shadow-sm">
+          <Sparkles size={20} strokeWidth={2} />
+        </div>
+        <div>
+          <h2 className="text-2xl font-extrabold leading-tight text-slate-900">Động lực nhẹ nhàng</h2>
+          <p className="mt-1 text-sm text-slate-600">Những ghi nhận nhỏ để bạn duy trì thói quen, không áp lực.</p>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="mt-8 grid gap-6 md:grid-cols-3">
-        {/* Streak Card */}
-        <article className="flex flex-col justify-between rounded-2xl border border-orange-100 bg-orange-50/50 p-5">
-          <div>
-            <div className="flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-orange-500">
-                <Flame size={24} fill="currentColor" />
-              </div>
-              <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-700">
-                {streakDays > 0 ? "Tuyệt vời!" : "Bắt đầu nhé"}
-              </span>
+      <div className="mt-6 grid gap-6 md:grid-cols-3">
+        {/* Hero streak card - left (spans 2 cols) */}
+        <article className="md:col-span-2 rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm">
+          <div className="flex items-start gap-6">
+            <div className="flex-shrink-0 flex items-center justify-center h-20 w-20 rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600 shadow-md">
+              <Flame size={32} />
             </div>
-            <div className="mt-4">
-              <h3 className="text-sm font-bold text-slate-700">Chuỗi ăn đều</h3>
-              <div className="mt-1 flex items-baseline gap-1">
-                <strong className="text-3xl font-black text-slate-900">{streakDays}</strong>
-                <span className="text-sm font-semibold text-slate-500">ngày</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-6">
-            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2">
-              <span>{Math.min(streakDays, weeklyGoalDays)} / {weeklyGoalDays} ngày</span>
-              <span>mục tiêu tuần</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-orange-100">
-              <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${weeklyProgress}%` }} />
-            </div>
-            <div className="mt-3 flex justify-between">
-              {Array.from({ length: weeklyGoalDays }).map((_, index) => {
-                const done = index < Math.min(streakDays, weeklyGoalDays);
-                return (
-                  <div key={index} className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-orange-500 text-white" : "bg-orange-100 text-orange-300"}`}>
-                    {done ? <Check size={14} strokeWidth={3} /> : index + 1}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </article>
-
-        {/* Achievements Card */}
-        <article className="rounded-2xl border border-sky-100 bg-sky-50/50 p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-4">Ghi nhận gần đây</h3>
-          <div className="space-y-3">
-            {loading ? (
-              <div className="space-y-3 animate-pulse">
-                <div className="h-10 rounded-xl bg-sky-100/50" />
-                <div className="h-10 rounded-xl bg-sky-100/50" />
-                <div className="h-10 rounded-xl bg-sky-100/50" />
-              </div>
-            ) : (
-              recentAchievements.map((achievement, index) => (
-                <div key={achievement.key || achievement.title} className="flex items-center gap-3 rounded-xl bg-white p-2.5 shadow-sm">
-                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${index === 0 ? "bg-emerald-100 text-emerald-600" : index === 1 ? "bg-amber-100 text-amber-600" : "bg-sky-100 text-sky-600"}`}>
-                    {index === 0 ? <Leaf size={16} /> : index === 1 ? <Sparkles size={16} /> : <Target size={16} />}
-                  </div>
-                  <span className="flex-1 text-sm font-bold text-slate-700">{achievement.title}</span>
-                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
-                    <Check size={12} strokeWidth={3} />
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-500">Chuỗi hiện tại</div>
+                  <div className="mt-2 flex items-end gap-4">
+                    <strong className="text-6xl font-extrabold text-slate-900 leading-none">{streakDays}</strong>
+                    <div className="text-sm text-slate-600">ngày duy trì liên tiếp</div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </article>
+                <div className="ml-4">
+                  {isWeeklyComplete ? (
+                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                      <Check size={14} />
+                      Đã hoàn thành mục tiêu tuần
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 ring-1 ring-amber-100">
+                      <Star size={14} />
+                      {streakStatusPill}
+                    </div>
+                  )}
+                </div>
+              </div>
 
-        {/* Challenge Card */}
-        <article className="flex flex-col justify-between rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 relative overflow-hidden">
-          <div className="absolute -right-4 -top-4 text-indigo-100/50">
-            <Trophy size={120} />
-          </div>
-          <div className="relative z-10">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700">
-              <Star size={14} fill="currentColor" />
-              Thử thách hôm nay
-            </span>
-            <div className="mt-4">
-              <h3 className="text-lg font-black text-slate-900">
-                {summary?.today_challenge?.title || "Một bước nhỏ hôm nay"}
-              </h3>
-              <p className="mt-1 text-sm font-semibold text-slate-600 line-clamp-2">
-                {summary?.today_challenge?.description || "Chọn một việc nhỏ bạn muốn làm để chăm sóc bản thân."}
-              </p>
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-sm text-slate-600">Tuần này: <span className="font-semibold text-slate-900">{weeklyCycleDay}/{weeklyGoalDays} ngày</span></div>
+                <div className="text-sm text-slate-500">{weeklyCycleDay === weeklyGoalDays ? "Ngày mai sẽ bắt đầu vòng tuần mới" : "Tiếp tục duy trì đều đặn"}</div>
+              </div>
+
+              <div className="mt-4">
+                <div className="h-3 rounded-full bg-amber-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all"
+                    style={{ width: `${weeklyProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-emerald-50 bg-white p-3">
+                  <div className="text-xs text-slate-500">Chuỗi hiện tại</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900">{streakDays} ngày</div>
+                  <div className="mt-1 text-xs text-slate-500">Mỗi lần quay lại đều được ghi nhận</div>
+                </div>
+                <div className="rounded-lg border border-emerald-50 bg-white p-3">
+                  <div className="text-xs text-slate-500">Tuần này</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900">{weeklyCycleDay}/{weeklyGoalDays} ngày</div>
+                  <div className="mt-1 text-xs text-slate-500">{isWeeklyComplete ? "Bạn đã hoàn thành mục tiêu tuần" : `Còn ${weeklyRemainingDays} ngày để hoàn thành`}</div>
+                </div>
+                <div className="rounded-lg border border-emerald-50 bg-white p-3">
+                  <div className="text-xs text-slate-500">Tiến trình tháng</div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900">{monthCareDays != null ? `${monthCareDays} ngày` : monthProgressText}</div>
+                  <div className="mt-1 text-xs text-slate-500">{monthDuyTriRate != null ? monthRateText : "Sẽ hiển thị khi có đủ dữ liệu"}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 px-4 py-3 rounded-lg bg-emerald-50 text-sm text-slate-700">{streakSupportCopy}</div>
             </div>
           </div>
-          <div className="relative z-10 mt-6">
-            {challengeDone ? (
-              <button className="w-full rounded-xl bg-indigo-100 py-3 text-sm font-bold text-indigo-400 cursor-not-allowed" type="button" disabled>
-                Đã hoàn thành
-              </button>
-            ) : pendingEatingStreak ? (
-              <button
-                onClick={onAction}
-                className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-black text-white shadow-md transition hover:bg-indigo-700"
-                type="button"
-              >
-                Mở Nhật ký
-              </button>
-            ) : (
+        </article>
+
+        {/* Right column: two stacked cards */}
+        <div className="flex flex-col gap-6">
+          <article className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">Ghi nhận gần đây</h3>
+              <span className="text-sm font-medium text-slate-500">Đã ghi nhận</span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {loading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-14 rounded-lg bg-slate-100" />
+                  <div className="h-14 rounded-lg bg-slate-100" />
+                </div>
+              ) : (
+                recentAchievements.map((achievement, index) => {
+                  const accentClass = index === 0 ? "text-emerald-600" : index === 1 ? "text-amber-600" : "text-sky-600";
+                  const Icon = index === 0 ? Leaf : index === 1 ? Sparkles : Target;
+                  const description = achievement?.description || (
+                    achievement?.title === "Bạn đồng hành 3 ngày"
+                      ? "Bạn đã quay lại chăm sóc bản thân"
+                      : achievement?.title === "Duy trì nhẹ nhàng"
+                        ? "Mỗi ngày đều có giá trị"
+                        : achievement?.title === "Ăn đều hôm nay"
+                          ? "Một bước nhỏ nhưng rất đáng quý"
+                          : "Bạn đang xây dựng nhịp sinh hoạt tốt hơn"
+                  );
+                  return (
+                    <div key={achievement.key || achievement.title} className="flex items-center gap-3 rounded-lg p-2">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 ${accentClass}`}>
+                        <Icon size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-slate-900">{achievement.title}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{description}</div>
+                      </div>
+                      <div className="flex-shrink-0 text-sm font-medium text-emerald-700">Đã ghi nhận</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium text-slate-600">Thử thách hôm nay</div>
+                <div className="text-xs text-slate-400">Hôm nay</div>
+              </div>
+                  {/* minimal safe fallbacks for challenge title/description to avoid ReferenceError */}
+                  {(() => {
+                    const safeChallengeTitle = typeof challengeTitle !== "undefined"
+                      ? challengeTitle
+                      : summary?.today_challenge?.title || summary?.today_challenge?.name || "Thử thách hôm nay";
+                    const safeChallengeDescription = typeof challengeDescription !== "undefined"
+                      ? challengeDescription
+                      : summary?.today_challenge?.description || "";
+                    return (
+                      <>
+                        <div className="mt-2 text-lg font-semibold text-slate-900">{safeChallengeTitle}</div>
+                        <div className="mt-1 text-sm text-slate-600">{safeChallengeDescription}</div>
+                      </>
+                    );
+                  })()}
+              <div className="mt-3 text-xs text-slate-500">Không cần hoàn hảo. Làm được một chút cũng tính.</div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm text-slate-500">{pendingEatingStreak ? "Bắt đầu lần đầu" : challengeDone ? "Đã hoàn thành" : "Chưa hoàn thành"}</div>
               <button
                 onClick={handleCompleteChallenge}
-                disabled={completing || loading}
-                className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-black text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-60"
-                type="button"
+                disabled={completing || challengeDone}
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${
+                  challengeDone ? "bg-emerald-50 text-emerald-700" : "bg-emerald-600 text-white"
+                }`}
               >
-                {completing ? "Đang xử lý..." : "Thử ngay"}
+                {challengeDone ? (
+                  <>
+                    <Check size={16} />Đã hoàn thành
+                  </>
+                ) : (
+                  <>{completing ? "Đang xử lý..." : "Hoàn thành"}</>
+                )}
               </button>
-            )}
-          </div>
-        </article>
+            </div>
+          </article>
+        </div>
       </div>
 
-      {/* Banner */}
-      <div className="mt-6 flex items-center justify-between rounded-2xl bg-emerald-600 p-5 text-white shadow-md">
-        <div className="flex items-center gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20">
-            <Heart size={20} fill="currentColor" />
+      {/* Encouragement banner */}
+      <div className="mt-6 rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-50 p-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-emerald-600 shadow-sm">
+            <Trophy size={18} />
           </div>
           <div>
-            <div className="text-base font-black">{encouragement}</div>
-            <div className="text-sm font-semibold opacity-90">Bạn đang làm rất tốt. Tiếp tục nhé!</div>
+            <div className="text-sm font-semibold text-slate-900">Bạn đang làm rất tốt</div>
+            <div className="mt-0.5 text-xs text-slate-600">Một chút tiến bộ mỗi ngày sẽ tạo nên thay đổi lớn trong dài hạn.</div>
           </div>
         </div>
+        <div className="text-sm text-slate-500">Tiếp tục duy trì nhịp nhẹ nhàng</div>
       </div>
     </section>
   );

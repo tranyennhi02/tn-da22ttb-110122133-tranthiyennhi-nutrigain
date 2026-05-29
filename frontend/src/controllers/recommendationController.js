@@ -110,6 +110,7 @@ export async function regenerateMealPlan(formState, options = {}) {
     excludePreviousItems: options.excludePreviousItems !== false,
     available_ingredients: selectedIngredients,
     ingredients: selectedIngredients,
+    required_ingredients: options.required_ingredients || undefined,
     generation_seed: options.generation_seed || options.randomSeed || Date.now(),
     randomSeed: options.randomSeed || Date.now(),
     force_regenerate: true,

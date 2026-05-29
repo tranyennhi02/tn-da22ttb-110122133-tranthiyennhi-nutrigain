@@ -191,6 +191,19 @@ export async function postRegenerateMealPlan(payload) {
   return data;
 }
 
+export async function postIngredientCandidates(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/ingredients/candidates`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response, "Cannot fetch ingredient candidates");
+}
+
 export async function fetchHistory(limit = 10, period = "week") {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/recommendations/history?limit=${limit}&period=${period}`,

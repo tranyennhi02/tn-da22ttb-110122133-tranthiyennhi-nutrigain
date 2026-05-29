@@ -1,5 +1,24 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+# Load .env file before importing settings
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from backend directory
+    backend_dir = Path(__file__).parent.parent
+    env_file = backend_dir / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"[DOTENV] Loaded {env_file}")
+    else:
+        print(f"[DOTENV] File not found: {env_file}")
+except ImportError:
+    print("[DOTENV] python-dotenv not installed, skipping .env load")
+except Exception as e:
+    print(f"[DOTENV] Error loading .env: {e}")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

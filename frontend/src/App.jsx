@@ -630,7 +630,7 @@ export default function App() {
       onLogout={handleLogout}
       initialFormState={profileFormState}
       initialResult={initialMealResult}
-      initialSection={locationPath === "/health-education" ? "health-education" : initialSection}
+      initialSection={locationPath === "/health-education" ? "health-education" : locationPath === "/thanh-tich" ? "thanh-tich" : initialSection}
       onRequireProfile={handleRequireProfile}
       onEditProfile={() => setAppView("onboarding")}
       onProfileUpdate={handleProfileUpdate}

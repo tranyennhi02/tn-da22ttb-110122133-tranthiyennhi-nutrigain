@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import logging
 import os
 import random
@@ -452,6 +453,13 @@ REAL_BEEF_FAVORITE_TERMS = (
     "bo nuong",
     "bo xao",
     "bo luoc",
+    "bo bap",
+    "bap bo",
+    "bit tet",
+    "suon bo",
+    "uc bo",
+    "bo xay",
+    "bo bam",
     "lean beef",
     "beef lean",
     "grilled beef",
@@ -838,6 +846,21 @@ def normalize_text_vi(value: object) -> str:
     return HealthyWeightGainRecommender._strip_accents(str(value or "").strip().lower()).replace("đ", "d")
 
 
+def normalize_ingredient_name(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        raw_value = " ".join(str(item or "") for item in value if str(item or "").strip())
+    else:
+        raw_value = str(value or "")
+    text = normalize_text_vi(raw_value)
+    text = re.sub(r"[\(\)\[\]\{\}]", " ", text)
+    text = re.sub(r"[,;:/\\|+*_`'\"~!@#$%^&?.]", " ", text)
+    text = re.sub(r"\s*-\s*", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def safe_get(obj: object, key: str, default: object = None) -> object:
     try:
         if isinstance(obj, pd.Series):
@@ -900,61 +923,154 @@ def safe_score(item: object) -> float:
         return 0.0
 
 
-# ── Ingredient alias map for safe ingredient preference matching ──────────────
-# Maps normalized input terms → list of aliases to check against food haystack
-INGREDIENT_ALIASES: dict[str, list[str]] = {
-    "thit heo": ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon", "nac vai", "gio"],
-    "heo":      ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon", "nac vai", "gio"],
-    "lon":      ["thit heo", "heo", "thit lon", "lon", "pork", "suon"],
-    "pork":     ["thit heo", "heo", "thit lon", "lon", "pork", "ba chi", "suon"],
-    "cua":      ["cua", "crab", "thit cua", "cua bien", "cua dong"],
-    "crab":     ["cua", "crab", "thit cua", "cua bien", "cua dong"],
-    "thit cua": ["cua", "crab", "thit cua", "cua bien", "cua dong"],
-    "cua bien": ["cua", "crab", "thit cua", "cua bien", "cua dong"],
-    "cua dong": ["cua", "crab", "thit cua", "cua bien", "cua dong"],
-    "ca rot":   ["ca rot", "carrot"],
-    "carrot":   ["ca rot", "carrot"],
-    "trung":    ["trung", "egg", "trung ga", "trung vit"],
-    "egg":      ["trung", "egg", "trung ga", "trung vit"],
-    "trung ga": ["trung", "egg", "trung ga"],
-    "thit ga":  ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay", "ga nuong", "ga luoc"],
-    "ga":       ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
-    "chicken":  ["thit ga", "ga", "chicken", "uc ga", "dui ga", "canh ga", "ga tay"],
-    "thit bo":  ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac", "bo xao", "bo nuong"],
-    "bo":       ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac"],
-    "beef":     ["thit bo", "bo", "beef", "bit tet", "suon bo", "bo bap", "thit bo xay", "bo nac"],
-    "trung":    ["trung", "egg", "long do trung", "long trang trung"],
-    "egg":      ["trung", "egg", "long do trung", "long trang trung"],
-    "dau hu":   ["dau hu", "dau phu", "tofu"],
-    "dau phu":  ["dau hu", "dau phu", "tofu"],
-    "tofu":     ["dau hu", "dau phu", "tofu"],
-    "rau cai":  ["rau cai", "cai xanh", "cai thia", "cai mu tat", "bok choy", "rau"],
-    "nam":      ["nam", "mushroom", "nam huong", "nam rom"],
-    "mushroom": ["nam", "mushroom", "nam huong"],
-    "ca chua":  ["ca chua", "tomato"],
-    "tomato":   ["ca chua", "tomato"],
-    "ca hoi":   ["ca hoi", "salmon"],
-    "salmon":   ["ca hoi", "salmon"],
-    "tom":      ["tom", "shrimp", "prawn"],
-    "shrimp":   ["tom", "shrimp", "prawn"],
-    "cua":      ["cua", "crab", "cua bien", "cua dong"],
-    "crab":     ["cua", "crab", "cua bien", "cua dong"],
-    "khoai lang":["khoai lang", "sweet potato", "khoai"],
-    "khoai tay":["khoai tay", "potato", "khoai"],
-    "bong cai": ["bong cai", "broccoli", "bong cai xanh"],
-    "broccoli": ["bong cai", "broccoli"],
-    "chuoi":    ["chuoi", "banana"],
-    "banana":   ["chuoi", "banana"],
-    "sua":      ["sua", "milk", "sua tuoi", "sua bo"],
-    "milk":     ["sua", "milk", "sua tuoi", "sua bo"],
-    "sua chua": ["sua chua", "yogurt", "yoghurt"],
-    "yogurt":   ["sua chua", "yogurt", "yoghurt"],
+INGREDIENT_ALIAS_GROUPS: dict[str, list[str]] = {
+    "fish": ["ca", "ca hoi", "ca ngu", "ca thu", "ca trang", "ca song", "fish", "salmon", "tuna"],
+    "protein": ["thit", "protein"],
+    "vegetables": ["rau", "rau cai", "rau cu", "vegetable", "vegetables"],
+    "fruit": ["trai cay", "fruit"],
+    "lamb": ["thit cuu", "cuu", "lamb", "thit cuu chin", "thit cuu nac", "thit cuu xay"],
 }
+
+INGREDIENT_GROUP_ORDER = [
+    "lamb",
+    "fish",
+    "protein",
+    "vegetables",
+    "fruit",
+]
+
+INGREDIENT_GROUP_TO_MACRO: dict[str, str] = {
+    "fish": "protein",
+    "protein": "protein",
+    "vegetables": "vegetable",
+    "fruit": "fruit",
+    "lamb": "protein",
+}
+
+INGREDIENT_GROUP_TO_PRIMARY_CATEGORY: dict[str, str] = {
+    "fish": "protein_seafood",
+    "protein": "protein_meat",
+    "vegetables": "vegetable",
+    "fruit": "fruit",
+    "lamb": "protein_meat",
+}
+
+
+def _ingredient_alias_lookup() -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for group_key in INGREDIENT_GROUP_ORDER:
+        for alias in INGREDIENT_ALIAS_GROUPS.get(group_key, []):
+            normalized_alias = normalize_ingredient_name(alias)
+            if normalized_alias and normalized_alias not in lookup:
+                lookup[normalized_alias] = group_key
+    return lookup
+
+
+INGREDIENT_ALIAS_LOOKUP = _ingredient_alias_lookup()
+GENERIC_INGREDIENT_TERMS = {
+    normalize_ingredient_name(alias)
+    for aliases in INGREDIENT_ALIAS_GROUPS.values()
+    for alias in aliases
+}
+GENERIC_INGREDIENT_TERMS.update(normalize_ingredient_name(group_key) for group_key in INGREDIENT_ALIAS_GROUPS.keys())
 
 
 def _get_ingredient_aliases(normalized_key: str) -> list[str]:
     """Return expanded alias list for an ingredient normalized key."""
-    return INGREDIENT_ALIASES.get(normalized_key, [normalized_key])
+    group_key = get_ingredient_group(normalized_key)
+    if group_key in INGREDIENT_ALIAS_GROUPS:
+        return INGREDIENT_ALIAS_GROUPS[group_key]
+    return [normalized_key]
+
+
+def get_ingredient_group(raw_ingredient: object) -> str:
+    normalized = normalize_ingredient_name(raw_ingredient)
+    if not normalized:
+        return ""
+
+    direct_group = INGREDIENT_ALIAS_LOOKUP.get(normalized)
+    if direct_group:
+        return direct_group
+
+    return normalized
+
+
+def is_specific_ingredient(raw_ingredient: object) -> bool:
+    normalized = normalize_ingredient_name(raw_ingredient)
+    if not normalized:
+        return False
+    return normalized not in GENERIC_INGREDIENT_TERMS
+
+
+def _ingredient_candidate_terms(raw_ingredient: object) -> list[str]:
+    normalized = normalize_ingredient_name(raw_ingredient)
+    if not normalized:
+        return []
+    extra_terms = {
+        "thit cuu": ["thit cuu", "cuu", "lamb"],
+        "cuu": ["thit cuu", "cuu", "lamb"],
+        "lamb": ["thit cuu", "cuu", "lamb"],
+        "xuc xich": ["xuc xich", "sausage", "frankfurter", "hot dog", "kielbasa", "bratwurst"],
+        "sausage": ["xuc xich", "sausage", "frankfurter", "hot dog", "kielbasa", "bratwurst"],
+        "tao": ["nuoc tao", "banh tao", "banh strudel tao", "banh sung bo tao"],
+        "ca": ["ca hoi", "ca ngu", "ca thu", "ca trang", "ca bong", "ca loc"],
+        "tom": ["shrimp", "prawn"],
+    }
+    terms = extra_terms.get(normalized, [normalized])
+    seen: set[str] = set()
+    result: list[str] = []
+    for term in terms:
+        normalized_term = normalize_ingredient_name(term)
+        if normalized_term and normalized_term not in seen:
+            seen.add(normalized_term)
+            result.append(normalized_term)
+    return result
+
+
+def build_food_searchable_text(food: object) -> str:
+    def _text(value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return str(value)
+
+    def _join_list(value: object) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (list, tuple, set)):
+            return " ".join(_text(item) for item in value if _text(item).strip())
+        return _text(value)
+
+    recipe = safe_get(food, "recipe", {}) or {}
+    recipe_ingredients = ""
+    if isinstance(recipe, dict):
+        recipe_ingredients = _join_list(recipe.get("ingredients", []))
+    elif isinstance(recipe, list):
+        recipe_ingredients = _join_list(recipe)
+
+    parts = [
+        _text(safe_get(food, "name", "")),
+        _text(safe_get(food, "vi_name", "")),
+        _text(safe_get(food, "title", "")),
+        _text(safe_get(food, "displayName", "")),
+        _text(safe_get(food, "food_name", "")),
+        _text(safe_get(food, "ingredient_name", "")),
+        _text(safe_get(food, "dish_name_vi", "")),
+        _text(safe_get(food, "display_name", "")),
+        _text(safe_get(food, "display_name_en", "")),
+        _text(safe_get(food, "original_name", "")),
+        _text(safe_get(food, "description", "")),
+        _text(safe_get(food, "search_keywords", "")),
+        _text(safe_get(food, "category", "")),
+        _text(safe_get(food, "clean_category", "")),
+        _text(safe_get(food, "food_group", "")),
+        _join_list(safe_get(food, "tags", "")),
+        _join_list(safe_get(food, "ingredients", "")),
+        recipe_ingredients,
+        _text(safe_get(food, "recipe_title", "")),
+    ]
+    return normalize_ingredient_name(" ".join(part for part in parts if str(part).strip()))
 
 
 def normalize_ingredient_list(values: object) -> list[str]:
@@ -962,7 +1078,7 @@ def normalize_ingredient_list(values: object) -> list[str]:
     seen: set[str] = set()
     for item in values or []:
         raw = str(item or "").strip()
-        key = normalize_text_vi(raw)
+        key = normalize_ingredient_name(raw)
         if not key or key in seen:
             continue
         seen.add(key)
@@ -970,55 +1086,29 @@ def normalize_ingredient_list(values: object) -> list[str]:
     return result
 
 
+def get_required_ingredient_list(payload: object) -> list[str]:
+    required = getattr(payload, "required_ingredients", None)
+    available = getattr(payload, "available_ingredients", None)
+    return normalize_ingredient_list(required or available or [])
+
+
 def ingredient_match_list(food: object, available_ingredients: object) -> list[str]:
     """Return list of available_ingredients that match this food (with alias expansion)."""
     if not available_ingredients:
         return []
-
-    def get_value(obj: object, key: str, default: object = "") -> object:
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return getattr(obj, key, default)
-
-    haystack_parts = [
-        get_value(food, "name", ""),
-        get_value(food, "original_name", ""),
-        get_value(food, "category", ""),
-        get_value(food, "clean_category", ""),
-        get_value(food, "food_group", ""),
-        get_value(food, "description", ""),
-        get_value(food, "search_keywords", ""),
-    ]
-
-    ingredients = get_value(food, "ingredients", []) or []
-    tags = get_value(food, "tags", []) or []
-
-    if isinstance(ingredients, str):
-        haystack_parts.append(ingredients)
-    else:
-        haystack_parts.append(" ".join(map(str, ingredients)))
-
-    if isinstance(tags, str):
-        haystack_parts.append(tags)
-    else:
-        haystack_parts.append(" ".join(map(str, tags)))
-
-    haystack = normalize_text_vi(" ".join(str(x) for x in haystack_parts if x))
-    padded_haystack = f" {haystack} "
-
     matched: list[str] = []
+    haystack = build_food_searchable_text(food)
+    padded_haystack = f" {haystack} "
     for ing in available_ingredients or []:
-        norm_key = normalize_text_vi(ing)
+        norm_key = normalize_ingredient_name(ing)
         if not norm_key:
             continue
-        # Try direct match first
         aliases = _get_ingredient_aliases(norm_key)
         found = False
         for alias in aliases:
-            alias_norm = normalize_text_vi(alias)
+            alias_norm = normalize_ingredient_name(alias)
             if not alias_norm:
                 continue
-            # Use word-boundary-aware matching for short tokens
             if len(alias_norm) <= 3:
                 if f" {alias_norm} " in padded_haystack:
                     found = True
@@ -1026,7 +1116,7 @@ def ingredient_match_list(food: object, available_ingredients: object) -> list[s
             elif alias_norm in haystack:
                 found = True
                 break
-        if found:
+        if found and ingredient_match_quality(food, ing) >= 2.0:
             matched.append(ing)
     return matched
 
@@ -1056,7 +1146,10 @@ def _ingredient_is_meat(ingredient: object) -> bool:
     key = normalize_text_vi(ingredient)
     if not key:
         return False
-    return any(token in key for token in ("thit heo", "heo", "thit lon", "lon", "pork", "thit ga", "ga", "chicken", "thit bo", "bo", "beef"))
+    # Exclude egg-related terms
+    if any(token in key for token in ("trung", "egg", "long trang", "long do")):
+        return False
+    return any(token in key for token in ("thit heo", "heo", "thit lon", "lon", "pork", "thit ga", "ga", "chicken", "thit bo", "bo", "beef", "bit tet", "suon", "thit cuu", "cuu", "lamb"))
 
 
 def _is_cua_ingredient(ingredient: object) -> bool:
@@ -1079,13 +1172,22 @@ def is_primary_meat_name(food: object, ingredient: object) -> bool:
         return False
 
     if any(token in ingredient_key for token in ("thit heo", "heo", "thit lon", "lon", "pork")):
-        return any(token in text for token in ("thit heo", "thit lon", "dui heo", "suon heo", "ba chi", "nac heo", "pork", "heo ", " lon "))
+        return any(token in text for token in ("thit heo", "thit lon", "dui heo", "suon heo", "ba chi", "nac heo", "pork", "heo", "lon"))
 
     if any(token in ingredient_key for token in ("thit ga", "ga", "chicken")):
-        return any(token in text for token in ("thit ga", "uc ga", "dui ga", "canh ga", "lung ga", "chicken", "ga "))
+        # Exclude egg dishes - "trung ga" is not chicken meat
+        if any(negative in text for negative in ("trung ga", "trung", "egg", "long trang", "long do")):
+            return False
+        return any(token in text for token in ("thit ga", "uc ga", "dui ga", "canh ga", "lung ga", "chicken", "ga"))
 
     if any(token in ingredient_key for token in ("thit bo", "bo", "beef")):
-        return any(token in text for token in ("thit bo", "bo bap", "bit tet", "beef", "bo "))
+        # Check for beef-related terms, but exclude "ca bo" (avocado) and "bo" (butter)
+        if any(negative in text for negative in ("ca bo", "avocado", "butter")):
+            return False
+        return any(token in text for token in ("thit bo", "bo bap", "bap bo", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam", "bo nuong", "bo xao", "beef"))
+
+    if any(token in ingredient_key for token in ("thit cuu", "cuu", "lamb")):
+        return "cuu" in text or "lamb" in text
 
     if _is_cua_ingredient(ingredient_key):
         return any(token in text for token in ("cua", "crab", "thit cua", "cua bien", "cua dong", "hai san"))
@@ -1107,12 +1209,68 @@ def debug_raw_ingredient_matches(all_foods: object, ingredient: object) -> list[
     except Exception:
         iterable = []
 
+    # Debug: Check beef dataset sample - ALWAYS LOG for beef
+    if "thit bo" in key or "bo" in key or "beef" in key:
+        beef_sample = []
+        for food in iterable[:100]:  # Check first 100 items
+            try:
+                name_key = normalize_text_vi(safe_name(food))
+                if any(token in name_key for token in ("thit bo", "bo bap", "bap bo", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam")):
+                    beef_sample.append(safe_name(food))
+                    if len(beef_sample) >= 10:
+                        break
+            except Exception:
+                continue
+        print("[BEEF DATASET SAMPLE]", {
+            "ingredient": ingredient,
+            "normalizedKey": key,
+            "totalFoods": len(iterable),
+            "beefSample": beef_sample,
+        }, flush=True)
+
+    # Debug: Check lamb dataset sample - ALWAYS LOG for lamb
+    if "thit cuu" in key or "cuu" in key or "lamb" in key:
+        lamb_sample = []
+        for food in iterable[:len(iterable)]:
+            try:
+                name_key = normalize_text_vi(safe_name(food))
+                if "cuu" in name_key or "lamb" in name_key:
+                    lamb_sample.append(safe_name(food))
+                    if len(lamb_sample) >= 20:
+                        break
+            except Exception:
+                continue
+        print("[LAMB DATASET DEBUG]", {
+            "ingredient": ingredient,
+            "normalizedKey": key,
+            "totalFoods": len(iterable),
+            "lambSample": lamb_sample,
+        }, flush=True)
+
     for food in iterable:
         try:
             name_key = normalize_text_vi(safe_name(food))
             original_key = normalize_text_vi(safe_get(food, "original_name", ""))
             category = safe_category(food)
             food_group = safe_food_group(food)
+            
+            # Check for beef matches - exclude "ca bo" (avocado)
+            is_beef_match = False
+            if "thit bo" in key or "bo" in key or "beef" in key:
+                if not any(negative in name_key for negative in ("ca bo", "avocado")):
+                    is_beef_match = any(token in name_key for token in ("thit bo", "bo bap", "bap bo", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam", "bo nuong", "bo xao")) or "beef" in original_key
+            
+            # Check for lamb matches
+            is_lamb_match = False
+            if "thit cuu" in key or "cuu" in key or "lamb" in key:
+                is_lamb_match = "cuu" in name_key or "lamb" in name_key or "lamb" in original_key
+            
+            # Check for chicken matches - exclude egg dishes
+            is_chicken_match = False
+            if "thit ga" in key or "ga" in key or "chicken" in key:
+                if not any(negative in name_key for negative in ("trung ga", "trung", "egg")):
+                    is_chicken_match = ("ga" in name_key or "chicken" in original_key)
+            
             if (
                 "thit heo" in name_key
                 or "thit lon" in name_key
@@ -1121,8 +1279,9 @@ def debug_raw_ingredient_matches(all_foods: object, ingredient: object) -> list[
                 or "nac heo" in name_key
                 or "pork" in original_key
                 or (key == "thit heo" and "heo" in name_key)
-                or (key == "thit ga" and ("ga" in name_key or "chicken" in original_key))
-                or (key == "thit bo" and ("bo" in name_key or "beef" in original_key))
+                or is_chicken_match
+                or is_beef_match
+                or is_lamb_match
                 or (_is_cua_ingredient(key) and ("cua" in name_key or "crab" in name_key or "cua" in original_key or "crab" in original_key))
             ):
                 quality = ingredient_match_quality(food, ingredient)
@@ -1143,12 +1302,30 @@ def debug_raw_ingredient_matches(all_foods: object, ingredient: object) -> list[
 
     quality_key = "quality_for_cua" if _is_cua_ingredient(key) else "quality_for_ingredient"
     rows.sort(key=lambda item: (float(item.get(quality_key, item.get("quality_for_ingredient", 0.0))), str(item.get("name", ""))), reverse=True)
-    if _debug_recommender_enabled():
+    
+    # ALWAYS LOG for beef
+    if "thit bo" in key or "bo" in key or "beef" in key:
+        print("[RAW DB MATCHES FOR INGREDIENT]", {
+            "ingredient": ingredient,
+            "normalizedKey": key,
+            "count": len(rows),
+            "top": [r.get("name") for r in rows[:20]],
+        }, flush=True)
+    # ALWAYS LOG for lamb
+    elif "thit cuu" in key or "cuu" in key or "lamb" in key:
+        print("[RAW DB MATCHES FOR INGREDIENT]", {
+            "ingredient": ingredient,
+            "normalizedKey": key,
+            "count": len(rows),
+            "top": [r.get("name") for r in rows[:20]],
+        }, flush=True)
+    elif _debug_recommender_enabled():
         _debug_print("[RAW DB MATCHES FOR INGREDIENT]", {
             "ingredient": ingredient,
             "count": len(rows),
             "top": rows[:20],
         })
+    
     return rows
 
 
@@ -1157,68 +1334,24 @@ def debug_raw_ingredient_matches_for_cua(all_foods: object) -> list[dict[str, ob
 
 
 def ingredient_expected_macro_group(ingredient: object) -> str | None:
-    key = normalize_text_vi(ingredient)
-    if not key:
+    group_key = get_ingredient_group(ingredient)
+    if not group_key:
         return None
-
-    if _is_cua_ingredient(key):
+    if group_key in INGREDIENT_GROUP_TO_MACRO:
+        return INGREDIENT_GROUP_TO_MACRO[group_key]
+    if _is_cua_ingredient(group_key):
         return "protein"
-
-    meat_keys = [
-        "thit heo", "heo", "thit lon", "lon", "pork",
-        "suon", "ba chi", "nac heo",
-        "thit bo", "bo", "beef",
-        "thit ga", "ga", "chicken",
-        "ca", "fish", "tom", "shrimp", "cua", "crab", "hai san", "seafood",
-    ]
-    egg_keys = ["trung", "trung ga", "egg"]
-    vegetable_keys = [
-        "ca rot", "nam", "rau cai", "bong cai", "cai mu tat",
-        "rau", "vegetable", "mushroom", "carrot",
-    ]
-    starch_keys = ["gao", "com", "khoai", "banh mi", "yen mach", "pasta", "mi", "oat"]
-    dairy_keys = ["sua", "sua chua", "yogurt", "cheese", "pho mai", "milk", "dairy"]
-    fruit_keys = ["trai cay", "fruit", "apple", "banana", "orange", "tao", "chuoi"]
-
-    if any(token in key for token in meat_keys):
-        return "protein"
-    if any(token in key for token in egg_keys):
-        return "protein"
-    if any(token in key for token in vegetable_keys):
-        return "vegetable"
-    if any(token in key for token in starch_keys):
-        return "starch"
-    if any(token in key for token in dairy_keys):
-        return "dairy"
-    if any(token in key for token in fruit_keys):
-        return "fruit"
     return None
 
 
 def _ingredient_expected_primary_category(ingredient: object) -> str | None:
-    key = normalize_text_vi(ingredient)
-    if not key:
+    group_key = get_ingredient_group(ingredient)
+    if not group_key:
         return None
-
-    if _is_cua_ingredient(key):
+    if _is_cua_ingredient(group_key):
         return "protein_seafood"
-
-    if any(token in key for token in ("thit heo", "heo", "thit lon", "lon", "pork", "thit bo", "bo", "beef", "thit ga", "ga", "chicken")):
-        return "protein_meat"
-    if any(token in key for token in ("ca", "fish", "tom", "shrimp")):
-        return "protein_seafood"
-    if any(token in key for token in ("tofu", "dau hu", "dau phu", "bean", "soy")):
-        return "plant_protein"
-    if any(token in key for token in ("trung", "egg")):
-        return "egg"
-    if any(token in key for token in ("ca rot", "nam", "rau cai", "bong cai", "cai mu tat", "rau", "vegetable", "mushroom", "carrot")):
-        return "vegetable"
-    if any(token in key for token in ("gao", "com", "khoai", "banh mi", "yen mach", "pasta", "mi")):
-        return "starch_grain"
-    if any(token in key for token in ("sua", "sua chua", "yogurt", "cheese", "pho mai", "milk", "dairy")):
-        return "dairy"
-    if any(token in key for token in ("trai cay", "fruit", "apple", "banana", "orange", "tao", "chuoi")):
-        return "fruit"
+    if group_key in INGREDIENT_GROUP_TO_PRIMARY_CATEGORY:
+        return INGREDIENT_GROUP_TO_PRIMARY_CATEGORY[group_key]
     return None
 
 
@@ -1231,17 +1364,14 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
     0.0 = no match
     """
     try:
-        ingredient_key = normalize_text_vi(ingredient)
+        ingredient_key = normalize_ingredient_name(ingredient)
         if not ingredient_key:
             return 0.0
 
-        meat_ingredient_keys = (
-            "thit heo", "heo", "thit lon", "lon", "pork",
-            "thit ga", "ga", "chicken",
-            "thit bo", "bo", "beef",
-        )
+        ingredient_group = get_ingredient_group(ingredient_key)
+        specific_ingredient = is_specific_ingredient(ingredient_key)
 
-        aliases = _get_ingredient_aliases(ingredient_key)
+        aliases = _ingredient_candidate_terms(ingredient_key)
         if not aliases:
             aliases = [ingredient_key]
 
@@ -1255,9 +1385,9 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
         food_group = _safe_food_group(food)
         ingredients = _safe_get(food, "ingredients", []) or []
         tags = _safe_get(food, "tags", []) or []
-        food_name_key = normalize_text_vi(name)
-        food_category_key = normalize_text_vi(category)
-        food_group_key = normalize_text_vi(food_group)
+        food_name_key = normalize_ingredient_name(name)
+        food_category_key = normalize_ingredient_name(category)
+        food_group_key = normalize_ingredient_name(food_group)
         is_egg_dish = bool(
             "trung" in food_name_key
             or "egg" in food_name_key
@@ -1266,38 +1396,17 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
             or "trung" in food_group_key
             or "egg" in food_group_key
         )
-        is_meat_ingredient = any(token in ingredient_key for token in meat_ingredient_keys)
-        is_egg_ingredient = any(token in ingredient_key for token in ("trung", "egg"))
+        is_meat_ingredient = ingredient_group in {"pork", "chicken", "turkey", "beef", "lamb"}
+        is_egg_ingredient = ingredient_group == "egg"
 
-        if isinstance(ingredients, str):
-            ingredients_text = ingredients
-        else:
-            ingredients_text = " ".join(map(str, ingredients))
-
-        if isinstance(tags, str):
-            tags_text = tags
-        else:
-            tags_text = " ".join(map(str, tags))
-
-        haystack_parts = [
-            name,
-            original_name,
-            display_name_en,
-            description,
-            search_keywords,
-            category,
-            clean_category,
-            food_group,
-            ingredients_text,
-            tags_text,
-        ]
-        haystack = normalize_text_vi(" ".join(part for part in haystack_parts if part))
+        haystack = build_food_searchable_text(food)
         padded_haystack = f" {haystack} "
 
         alias_hit = False
         core_match = False
+        matched_alias = None
         for alias in aliases:
-            alias_norm = normalize_text_vi(alias)
+            alias_norm = normalize_ingredient_name(alias)
             if not alias_norm:
                 continue
             if len(alias_norm) <= 3:
@@ -1306,13 +1415,43 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                 found = alias_norm in haystack
             if found:
                 alias_hit = True
+                matched_alias = alias
                 if any(
-                    alias_norm in normalize_text_vi(part)
-                    for part in (name, original_name, display_name_en, ingredients_text, search_keywords, tags_text, category, clean_category, food_group)
+                    alias_norm in normalize_ingredient_name(part)
+                    for part in (name, original_name, display_name_en, description, search_keywords, tags, ingredients, category, clean_category, food_group)
                     if part
                 ):
                     core_match = True
                 break
+
+        if specific_ingredient and not alias_hit:
+            return 0.0
+
+        # Debug log for beef
+        if ingredient_group == "beef":
+            print("[INGREDIENT MATCH QUALITY DEBUG - BEEF]", {
+                "ingredient": ingredient_key,
+                "ingredientGroup": ingredient_group,
+                "food": name,
+                "aliases": aliases,
+                "matchedAlias": matched_alias,
+                "aliasHit": alias_hit,
+                "coreMatch": core_match,
+                "haystack": haystack[:200],
+            }, flush=True)
+
+        # Debug log for lamb
+        if ingredient_group == "lamb":
+            print("[INGREDIENT MATCH QUALITY DEBUG - LAMB]", {
+                "ingredient": ingredient_key,
+                "ingredientGroup": ingredient_group,
+                "food": name,
+                "aliases": aliases,
+                "matchedAlias": matched_alias,
+                "aliasHit": alias_hit,
+                "coreMatch": core_match,
+                "haystack": haystack[:200],
+            }, flush=True)
 
         if not alias_hit:
             return 0.0
@@ -1322,7 +1461,13 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
         expected_primary_category = _ingredient_expected_primary_category(ingredient_key)
         expected_group = ingredient_expected_macro_group(ingredient_key)
 
-        if _is_cua_ingredient(ingredient_key):
+        if not specific_ingredient and expected_group in {"protein", "vegetable", "fruit"}:
+            if candidate_group == expected_group:
+                if expected_group == "protein" and candidate_category in {"egg", "protein_egg", "starch", "extra", "mixed"}:
+                    return 1.0
+                return 3.0 if core_match else 2.0
+
+        if _is_cua_ingredient(ingredient_group):
             if core_match and candidate_category in {"protein_seafood", "seafood", "protein_meat", "animal_protein", "protein"}:
                 return 3.0
             if core_match:
@@ -1335,10 +1480,10 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                     "ingredient": ingredient_key,
                     "food": name,
                     "category": candidate_category,
-                    "quality": 1.0,
-                    "reason": "egg_dish_not_primary_meat",
+                    "quality": 0.0,
+                    "reason": "egg_dish_not_meat",
                 })
-            return 1.0
+            return 0.0
 
         if is_egg_dish and is_egg_ingredient:
             if _debug_recommender_enabled():
@@ -1358,7 +1503,18 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
             return 3.0
 
         if is_meat_ingredient and is_primary_meat_name(food, ingredient_key):
-            if candidate_category in {"protein_meat", "protein_seafood", "animal_protein", "meat", "pork", "chicken", "beef"}:
+            # Special pork priority logic
+            if any(t in ingredient_key for t in ("thit heo", "heo", "thit lon", "lon", "pork")):
+                norm_name = normalize_text_vi(name)
+                if any(ind in norm_name for ind in ("banh mi thit heo", "banh mi kep thit heo", "pho mai thit heo")):
+                    return 2.0
+                if any(prod in norm_name for prod in ("xuc xich thit lon", "xuc xich heo", "giam bong heo", "mortadella", "vun thit heo", "vuon thit heo")):
+                    return 2.5
+                if norm_name.startswith("thit heo") or norm_name.startswith("thit lon") or "thit heo" in norm_name or "thit lon" in norm_name or "pork" in norm_name.lower():
+                    return 3.0
+                return 1.5
+
+            if candidate_category in {"protein_meat", "protein_seafood", "animal_protein", "meat", "pork", "chicken", "beef", "lamb"}:
                 return 3.0
             return 1.0
 
@@ -1391,6 +1547,37 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
         return 2.0 if core_match else 1.0
     except Exception:
         return 0.0
+
+
+def _ingredient_candidate_rank(food: object, ingredient: object) -> tuple[int, int, int, int]:
+    ingredient_terms = [term for term in _ingredient_candidate_terms(ingredient) if term]
+    haystack = build_food_searchable_text(food)
+    padded_haystack = f" {haystack} "
+    name = normalize_ingredient_name(safe_name(food))
+    title = normalize_ingredient_name(safe_get(food, "title", ""))
+    display_name = normalize_ingredient_name(safe_get(food, "displayName", ""))
+    food_name = normalize_ingredient_name(safe_get(food, "food_name", ""))
+    ingredient_name = normalize_ingredient_name(safe_get(food, "ingredient_name", ""))
+    primary_fields = (name, title, display_name, food_name, ingredient_name)
+
+    exact_phrase = 0
+    secondary_phrase = 0
+    for term in ingredient_terms:
+        if not term:
+            continue
+        if any(term in field for field in primary_fields if field):
+            exact_phrase = 1
+            break
+        if len(term) <= 3:
+            term_found = f" {term} " in padded_haystack
+        else:
+            term_found = term in haystack
+        if term_found:
+            secondary_phrase = 1
+
+    has_primary_name = 1 if any(term in name for term in ingredient_terms if term) else 0
+    shortest_name_len = len(name or title or display_name or food_name or ingredient_name or "")
+    return (exact_phrase, secondary_phrase, has_primary_name, -shortest_name_len)
 
 
 def _safe_text(value: object) -> str:
@@ -1460,6 +1647,7 @@ def _row_match_text(row: pd.Series | dict) -> str:
             for column in (
                 "food_id",
                 "name",
+                "dish_name_vi",
                 "name_en",
                 "display_name_en",
                 "original_name",
@@ -1539,6 +1727,20 @@ def _limit_ranked_candidate_pool(
         try:
             normalized_ingredients = normalize_ingredient_list(available_ingredients)
             preserved_required_count = 0
+
+            # LAMB SOURCE DEBUG in candidate pool building
+            _lamb_terms_pool = ("thit cuu", "cuu", "lamb")
+            _ranked_lamb = ranked_sorted[
+                ranked_sorted["name"].astype(str).apply(
+                    lambda v: any(t in normalize_ingredient_name(v) for t in _lamb_terms_pool)
+                )
+            ] if "name" in ranked_sorted.columns else pd.DataFrame()
+            print("[LAMB SOURCE DEBUG - RANKED_SORTED]", {
+                "total_ranked": len(ranked_sorted),
+                "lamb_in_ranked": len(_ranked_lamb),
+                "lamb_names": _ranked_lamb["name"].tolist()[:20] if not _ranked_lamb.empty else [],
+                "normalized_ingredients": normalized_ingredients,
+            }, flush=True)
             if _debug_recommender_enabled():
                 for ingredient in normalized_ingredients:
                     raw_matches = ranked_sorted[
@@ -1569,6 +1771,24 @@ def _limit_ranked_candidate_pool(
                     axis=1,
                 )
             ]
+            # Fallback: for specific ingredients (like lamb) that may have quality < 2.0,
+            # also include rows that have a direct term match in name
+            for _ing in normalized_ingredients:
+                _ing_norm = normalize_ingredient_name(_ing)
+                _ing_terms = _ingredient_candidate_terms(_ing_norm)
+                if not _ing_terms:
+                    continue
+                # Only apply fallback for specific ingredients not in generic groups
+                if not is_specific_ingredient(_ing_norm):
+                    continue
+                _fallback_mask = ranked_sorted["name"].astype(str).apply(
+                    lambda v: any(t in normalize_ingredient_name(v) for t in _ing_terms)
+                ) if "name" in ranked_sorted.columns else pd.Series(False, index=ranked_sorted.index)
+                _fallback_rows = ranked_sorted[_fallback_mask]
+                if not _fallback_rows.empty:
+                    ingredient_matched_candidates = pd.concat(
+                        [ingredient_matched_candidates, _fallback_rows], ignore_index=False
+                    ).drop_duplicates(subset=["food_id"] if "food_id" in ranked_sorted.columns else None, keep="first")
             preserved_required_count = int(len(ingredient_matched_candidates))
             if not ingredient_matched_candidates.empty:
                 if _debug_recommender_enabled():
@@ -1660,13 +1880,18 @@ def item_covers_any_required_ingredient(
     return False
 
 
-def get_covered_ingredients(plan_items: object, available_ingredients: object) -> set[str]:
+def get_covered_ingredients(plan_items: object, available_ingredients: object, required_quality_map: dict[str, float] = None) -> set[str]:
     covered: set[str] = set()
     flattened = list(plan_items or [])
     for ingredient in normalize_ingredient_list(available_ingredients):
+        req_q = 2.0
+        if required_quality_map:
+            ing_key = normalize_text_vi(ingredient)
+            req_q = required_quality_map.get(ing_key, 2.0)
+            
         for item in flattened:
             candidate = item[2] if isinstance(item, tuple) and len(item) >= 3 else item
-            if ingredient_match_quality(candidate, ingredient) >= 2.0:
+            if ingredient_match_quality(candidate, ingredient) >= req_q:
                 covered.add(ingredient)
                 break
     return covered
@@ -1709,10 +1934,21 @@ def find_best_candidate_for_required_ingredient(
             candidate_macro = macro_group(safe_category(candidate) or safe_food_group(candidate))
             macro_ok = 1 if expected_macro is None or candidate_macro == expected_macro else 0
             primary_meat_boost = 1 if is_primary_meat_name(candidate, ingredient_key) else 0
+            
+            category_priority = 0
+            candidate_cat = safe_category(candidate) or safe_food_group(candidate)
+            if _ingredient_is_meat(ingredient_key):
+                if candidate_cat in {"protein_meat", "meat", "pork", "beef", "chicken", "lamb", "animal_protein"}:
+                    category_priority = 3
+                elif candidate_cat in {"protein_seafood", "seafood"}:
+                    category_priority = 2
+            
+            candidate_rank = _ingredient_candidate_rank(candidate, ingredient_key)
             score_value = safe_score(candidate)
             kcal_value = safe_calories(candidate)
             kcal_fit = -abs(float(kcal_value) - float(target_item_kcal)) if target_item_kcal not in (None, 0) else 0.0
-            bucket = (q, primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, score_value, kcal_fit, candidate)
+            
+            bucket = (q, category_priority, candidate_rank[0], candidate_rank[1], candidate_rank[2], primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, score_value, kcal_fit, candidate)
             if q >= 2.0:
                 matched.append(bucket)
             else:
@@ -1728,8 +1964,8 @@ def find_best_candidate_for_required_ingredient(
     if not pool:
         return None
 
-    pool.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3], entry[4], entry[5]), reverse=True)
-    return pool[0][6]
+    pool.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3], entry[4], entry[5], entry[6], entry[7], entry[8], entry[9]), reverse=True)
+    return pool[0][10]
 
 
 def find_best_replacement_slot(
@@ -1884,6 +2120,8 @@ def apply_required_ingredient_slots(
         total_slots = sum(len(meal_df) for meal_df in plan.values() if isinstance(meal_df, pd.DataFrame))
         _debug_print("[REQUIRED INGREDIENT SLOT START]", {
             "available_ingredients": normalized_ingredients,
+            "normalizedSelectedIngredients": [normalize_ingredient_name(item) for item in normalized_ingredients],
+            "requiredIngredientGroups": [get_ingredient_group(item) for item in normalized_ingredients],
             "total_slots": total_slots,
             "user_id": getattr(user_profile, "id", None),
         })
@@ -2020,6 +2258,46 @@ def apply_required_ingredient_slots(
 
         final_covered = sorted(get_covered_ingredients(flatten_plan_items(current_plan), normalized_ingredients))
         final_missing = [ingredient for ingredient in normalized_ingredients if ingredient not in final_covered]
+        if _debug_recommender_enabled() and final_missing:
+            generated_meals = [
+                {
+                    "meal_type": str(meal_type),
+                    "items": [
+                        safe_name(row) or safe_text(safe_get(row, "food_id", "")) or "item"
+                        for _, row in meal_df.iterrows()
+                    ],
+                }
+                for meal_type, meal_df in current_plan.items()
+                if isinstance(meal_df, pd.DataFrame)
+            ]
+            normalized_generated_meal_text = normalize_ingredient_name(
+                " ".join(
+                    str(item_name)
+                    for meal in generated_meals
+                    for item_name in meal.get("items", [])
+                )
+            )
+            _debug_print("[REQUIRED INGREDIENT COVERAGE DEBUG]", {
+                "selectedIngredients": normalized_ingredients,
+                "normalizedSelectedIngredients": [normalize_ingredient_name(item) for item in normalized_ingredients],
+                "requiredIngredientGroups": [get_ingredient_group(item) for item in normalized_ingredients],
+                "datasetSampleCount": len(_iter_candidate_items(candidate_pool)),
+                "candidatesByIngredient": {
+                    ingredient: [
+                        {
+                            "name": safe_name(candidate),
+                            "category": safe_category(candidate) or safe_food_group(candidate),
+                            "quality": ingredient_match_quality(candidate, ingredient),
+                        }
+                        for candidate in _iter_candidate_items(candidate_pool)
+                        if ingredient_match_quality(candidate, ingredient) > 0
+                    ][:10]
+                    for ingredient in normalized_ingredients
+                },
+                "generatedMeals": generated_meals,
+                "normalizedGeneratedMealText": normalized_generated_meal_text,
+                "missingRequiredIngredients": final_missing,
+            })
         _debug_print("[REQUIRED INGREDIENT SLOT FINAL]", {
             "covered": final_covered,
             "missing": final_missing,
@@ -2032,28 +2310,11 @@ def apply_required_ingredient_slots(
 
 
 def _row_search_text(row: pd.Series | dict) -> str:
-    return _normalize_search_text(
-        " ".join(
-            _safe_text(row.get(column, ""))
-            for column in (
-                "food_id",
-                "name",
-                "name_en",
-                "display_name_en",
-                "original_name",
-                "search_keywords",
-                "image_query",
-                "quality_flags",
-                "clean_category",
-                "food_group",
-                "category",
-            )
-        )
-    )
+    return build_food_searchable_text(row)
 
 
 def _text_has_term(text: str, term: str) -> bool:
-    normalized_term = " ".join(_normalize_search_text(term).strip().split())
+    normalized_term = normalize_ingredient_name(term)
     if not normalized_term:
         return False
     if " " not in normalized_term and len(normalized_term) <= 3:
@@ -2085,10 +2346,12 @@ def _animal_main_protein_source(row: pd.Series | dict) -> str:
     if category == "protein_seafood" or _text_has_any(text, FISH_TERMS + SHELLFISH_TERMS + ("seafood", "hai san")):
         return "seafood"
     if category == "protein_meat" or _text_has_any(text, MEAT_TERMS):
-        if _text_has_any(text, ("beef", "thit bo")):
+        if _text_has_any(text, ("beef", "thit bo", "bo bap", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam")):
             return "beef"
-        if _text_has_any(text, ("chicken", "turkey", "thit ga", "ga")):
-            return "chicken"
+        # Exclude egg dishes from chicken
+        if not _text_has_any(text, ("trung", "egg", "long trang", "long do")):
+            if _text_has_any(text, ("chicken", "turkey", "thit ga", "ga")):
+                return "chicken"
         return "meat"
     return ""
 
@@ -2303,7 +2566,10 @@ def _is_dessert_or_sweet_row(row: pd.Series | dict) -> bool:
 
 def _favorite_foods_include_beef(favorite_foods: object) -> bool:
     normalized = " ".join(_normalize_search_text(term) for term in _coerce_profile_terms(favorite_foods))
-    return _text_has_any(normalized, ("bo", "beef", "thit bo"))
+    # Check for beef terms but exclude butter/avocado
+    if any(negative in normalized for negative in ("ca bo", "avocado", "butter", "bo dau phong")):
+        return False
+    return _text_has_any(normalized, ("thit bo", "beef", "bo bap", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam"))
 
 
 def _is_real_beef_preference_row(row: pd.Series | dict) -> bool:
@@ -2430,8 +2696,8 @@ def _expand_food_terms(terms: list[str]) -> list[str]:
         if not normalized:
             continue
 
-        if "bò" in raw_lower or normalized in {"beef", "thit bo"}:
-            candidates = ["bo", "thit bo", "beef"]
+        if "bò" in raw_lower or normalized in {"beef", "thit bo", "bo bap", "bit tet", "suon bo"}:
+            candidates = ["thit bo", "beef", "bo bap", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam"]
         elif normalized in {"heo", "lon", "pork", "thit heo", "thit lon"} or "lợn" in raw_lower:
             candidates = ["heo", "lon", "thit heo", "thit lon", "pork"]
         elif normalized in {"meat", "thit"} or "thịt" in raw_lower:
@@ -2713,7 +2979,7 @@ class RecommenderService:
                 "menuEligibleCount": int(len(raw_df)),
                 "sampleNames": sample_names,
                 "hasPork": bool(lower_names.str.contains(r"(thit|thịt).*(lon|heo)|\blon\b|\bheo\b|pork", regex=True).any()),
-                "hasBeef": bool(lower_names.str.contains(r"(thit|thịt).*(bo)|\bbo\b|beef|bit tet|suon bo|bo bap|thit bo xay", regex=True).any()),
+                "hasBeef": bool(lower_names.str.contains(r"(thit|thịt).*(bo)|\bbo\b|beef|bit tet|suon bo|bo bap|bap bo|uc bo|bo xay|bo bam|thit bo xay|thit bo bam", regex=True).any()),
                 "hasChicken": bool(lower_names.str.contains(r"(thit|thịt).*(ga)|\bga\b|chicken|uc ga|dui ga|canh ga|ga tay", regex=True).any()),
                 "hasCrab": bool(lower_names.str.contains(r"\bcua\b|crab|cua bien|cua dong", regex=True).any()),
             }
@@ -3707,7 +3973,7 @@ class RecommenderService:
             fav_list = getattr(payload, "favorite_foods", [])
             fav_text = " ".join(_normalize_search_text(t) for t in _coerce_profile_terms(fav_list))
             
-            if "bo " in fav_text or "beef" in fav_text or "thit bo" in fav_text:
+            if any(term in fav_text for term in ("thit bo", "beef", "bo bap", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam")):
                 real_beef_mask = next_df.apply(_is_real_beef_preference_row, axis=1).astype(bool)
                 next_df["score"] = next_df["score"] + 0.35 * real_beef_mask.astype(float)
                 
@@ -4086,7 +4352,7 @@ class RecommenderService:
             name_text = _row_name_text(row)
             return _row_clean_category(row) == "protein_meat" or any(
                 term in name_text
-                for term in ("beef", "pork", "lamb", "rib", "steak", "thit bo", "thit heo", "suon", "bo ")
+                for term in ("beef", "pork", "lamb", "rib", "steak", "thit bo", "bo bap", "bit tet", "suon bo", "thit heo", "suon")
             )
 
         def _row_is_dessert(row: pd.Series | dict) -> bool:
@@ -5591,8 +5857,13 @@ class RecommenderService:
         diet_type = (getattr(saved_profile, "diet_type", None) if saved_profile else None) or getattr(payload, "diet_type", None) or getattr(payload, "diet_style", None)
         diet_style = diet_type or getattr(payload, "diet_style", None) or getattr(payload, "diet_type", None) or "balanced"
         budget_level = (getattr(saved_profile, "budget_level", None) if saved_profile else None) or payload.budget_level or "standard"
-        normalized_available_ingredients = normalize_ingredient_list(getattr(payload, "available_ingredients", []))
-        _debug_print("[REGENERATE AVAILABLE INGREDIENTS NORMALIZED]", normalized_available_ingredients)
+        normalized_available_ingredients = get_required_ingredient_list(payload)
+        _debug_print("[REGENERATE AVAILABLE INGREDIENTS NORMALIZED]", {
+            "raw_required_ingredients": getattr(payload, "required_ingredients", None),
+            "raw_available_ingredients": getattr(payload, "available_ingredients", None),
+            "normalized": normalized_available_ingredients,
+            "groups": [get_ingredient_group(item) for item in normalized_available_ingredients],
+        })
         items_per_meal_val = (
             (getattr(saved_profile, "items_per_meal", None) if saved_profile else None)
             or getattr(payload, "items_per_meal", None)
@@ -5746,11 +6017,13 @@ class RecommenderService:
         saved_profile = getattr(user, "profile", None)
         self._hydrate_payload_from_saved_profile(payload, saved_profile)
         profile_goal, profile_surplus = self._profile_goal_and_surplus(payload)
-        available_ingredients = normalize_ingredient_list(getattr(payload, "available_ingredients", []))
+        available_ingredients = get_required_ingredient_list(payload)
         print("[RECOMMENDER INGREDIENT PREFERENCES]", available_ingredients, flush=True)
         print("[REQUIRED INGREDIENT INPUT NORMALIZED]", {
+            "raw_required_ingredients": getattr(payload, "required_ingredients", None),
             "raw_available_ingredients": getattr(payload, "available_ingredients", None),
             "normalized": available_ingredients,
+            "groups": [get_ingredient_group(item) for item in available_ingredients],
         }, flush=True)
         if _debug_recommender_enabled() and available_ingredients:
             try:
@@ -6368,6 +6641,7 @@ class RecommenderService:
                 "items": meal_list
             })
 
+        ingredient_warning_data: dict[str, object] | None = None
         if available_ingredients:
             try:
                 selected_food_names = [
@@ -6404,6 +6678,161 @@ class RecommenderService:
                 }, flush=True)
             except Exception as exc:
                 logger.warning("[INGREDIENT PREFERENCE SUMMARY FAILED] %s", repr(exc))
+
+            # Repair final generated meals before response construction.
+            try:
+                selected_ingredients = normalize_ingredient_list(available_ingredients)
+                if selected_ingredients:
+                    candidate_source = candidate_pool if 'candidate_pool' in locals() and candidate_pool is not None else ranked
+                    current_plan_items = [
+                        (meal.get("meal_type"), idx, item)
+                        for meal in meal_plan_payload
+                        for idx, item in enumerate(meal.get("items", []))
+                    ]
+                    candidates_by_ingredient: dict[str, list[dict[str, object]]] = {}
+                    candidate_objects_by_ingredient: dict[str, list[object]] = {}
+                    required_quality_map: dict[str, float] = {}
+
+                    for ingredient in selected_ingredients:
+                        ranked_candidates: list[object] = []
+                        ranked_candidate_debug: list[dict[str, object]] = []
+                        candidate_terms = _ingredient_candidate_terms(ingredient)
+                        for candidate in _iter_candidate_items(candidate_source):
+                            try:
+                                quality = ingredient_match_quality(candidate, ingredient)
+                                if quality <= 0:
+                                    candidate_text = _row_match_text(candidate)
+                                    if not candidate_terms or not any(term in candidate_text for term in candidate_terms):
+                                        continue
+                                    quality = 1.0
+                                if quality <= 0:
+                                    continue
+                                ranked_candidates.append(candidate)
+                            except Exception:
+                                continue
+                        
+                        def _get_cat_prio(row, ing):
+                            if not _ingredient_is_meat(ing):
+                                return 0
+                            cat = safe_category(row) or safe_food_group(row)
+                            if cat in {"protein_meat", "meat", "pork", "beef", "chicken", "lamb", "animal_protein"}:
+                                return 3
+                            if cat in {"protein_seafood", "seafood"}:
+                                return 2
+                            return 0
+
+                        ranked_candidates.sort(
+                            key=lambda row: (
+                                float(ingredient_match_quality(row, ingredient)),
+                                float(_get_cat_prio(row, ingredient)),
+                                *_ingredient_candidate_rank(row, ingredient),
+                                float(safe_score(row)),
+                                float(safe_calories(row)),
+                            ),
+                            reverse=True,
+                        )
+                        candidate_objects_by_ingredient[str(ingredient)] = ranked_candidates
+                        ranked_candidate_debug = [
+                            {
+                                "name": safe_name(candidate),
+                                "category": safe_category(candidate) or safe_food_group(candidate),
+                                "quality": ingredient_match_quality(candidate, ingredient),
+                                "score": safe_score(candidate),
+                            }
+                            for candidate in ranked_candidates[:10]
+                        ]
+                        candidates_by_ingredient[str(ingredient)] = ranked_candidate_debug
+                        
+                        max_q = 2.0
+                        for c in ranked_candidates:
+                            q = ingredient_match_quality(c, ingredient)
+                            if q > max_q: max_q = q
+                        required_quality_map[normalize_text_vi(ingredient)] = max_q if max_q >= 2.0 else 2.0
+
+                    final_covered_before = sorted(get_covered_ingredients(current_plan_items, selected_ingredients, required_quality_map))
+                    missing_before_injection = [ingredient for ingredient in selected_ingredients if ingredient not in final_covered_before]
+
+
+                    injected_items: list[str] = []
+                    for ingredient in missing_before_injection:
+                        best_candidate = find_best_candidate_for_required_ingredient(
+                            ingredient,
+                            candidate_source,
+                            current_plan_items=current_plan_items,
+                            target_item_kcal=target_kcal / max(1, len(meal_plan_payload)) if target_kcal else None,
+                        )
+                        if best_candidate is None:
+                            candidate_list = candidate_objects_by_ingredient.get(str(ingredient), [])
+                            best_candidate = candidate_list[0] if candidate_list else None
+                        if best_candidate is None:
+                            continue
+
+                        injected_item = self._to_food_item_payload(best_candidate)
+                        target_meal = min(
+                            (meal for meal in meal_plan_payload if isinstance(meal, dict)),
+                            key=lambda meal: len(meal.get("items", []) or []),
+                            default=None,
+                        )
+                        if target_meal is None:
+                            target_meal = {"meal_type": "dinner", "actual_kcal": 0, "items": []}
+                            meal_plan_payload.append(target_meal)
+                        target_items = target_meal.setdefault("items", [])
+                        if not isinstance(target_items, list):
+                            target_items = []
+                            target_meal["items"] = target_items
+                        target_items.append(injected_item)
+                        injected_items.append(str(injected_item.get("name") or injected_item.get("food_name") or injected_item.get("food_id") or ingredient))
+
+                        current_plan_items = [
+                            (meal.get("meal_type"), idx, item)
+                            for meal in meal_plan_payload
+                            for idx, item in enumerate(meal.get("items", []))
+                        ]
+
+                    final_covered_after = sorted(get_covered_ingredients(current_plan_items, selected_ingredients, required_quality_map))
+                    missing_after_injection = [ingredient for ingredient in selected_ingredients if ingredient not in final_covered_after]
+                    final_meal_items = [
+                        str(item.get("name") or item.get("vi_name") or item.get("title") or item.get("displayName") or item.get("food_name") or item.get("ingredient_name") or item.get("food_id") or "")
+                        for meal in meal_plan_payload
+                        for item in meal.get("items", [])
+                        if item
+                    ]
+
+                    unavailable_ingredients = []
+                    if isinstance(missing_after_injection, list) and len(missing_after_injection) > 0:
+                        unavailable_ingredients = [
+                            ingredient
+                            for ingredient in missing_after_injection
+                            if not candidates_by_ingredient.get(str(ingredient))
+                        ]
+                        ingredient_warning_data = {
+                            "missingIngredients": list(missing_after_injection),
+                            "unavailableIngredients": unavailable_ingredients,
+                            "message": "Chưa tìm thấy món phù hợp cho một số nguyên liệu đã chọn.",
+                        }
+                    else:
+                        ingredient_warning_data = {
+                            "missingIngredients": [],
+                            "unavailableIngredients": [],
+                            "message": "",
+                        }
+                    print(
+                        "[REQUIRED INGREDIENT DIRECT MATCH DEBUG]",
+                        {
+                            "selectedIngredients": selected_ingredients,
+                            "normalizedSelectedIngredients": [normalize_ingredient_name(item) for item in selected_ingredients],
+                            "candidatesByIngredient": candidates_by_ingredient,
+                            "selectedInjectedItems": injected_items,
+                            "unavailableIngredients": unavailable_ingredients,
+                            "finalMealItems": final_meal_items,
+                            "missingAfterInjection": missing_after_injection,
+                        },
+                        flush=True,
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                logger.exception("[RECOMMENDER FINAL INGREDIENT FIX FAILED]")
 
         target_kcal = float(nutrition_target["calorie_target"])
         min_kcal = target_kcal * 0.95 if target_kcal > 0 else 0.0
@@ -7689,7 +8118,7 @@ class RecommenderService:
 
             def _forced_candidate_score(ingredient: str, candidate_item: dict, replaced_item: dict | None, meal_type: str) -> tuple:
                 candidate_name = normalize_text_vi(str(candidate_item.get("name") or candidate_item.get("food_name") or candidate_item.get("display_name") or ""))
-                is_clear_meat_name = any(token in candidate_name for token in ("thit bo", "bo bap", "bit tet", "suon bo", "thit lon", "thit heo", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo", "thit ga", "uc ga", "dui ga", "canh ga", "cua", "crab", "trung", "long do trung", "long trang trung", "ca chua", "tomato"))
+                is_clear_meat_name = any(token in candidate_name for token in ("thit bo", "bo bap", "bap bo", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam", "thit lon", "thit heo", "dui heo", "giam bong heo", "xuc xich lon", "xuc xich heo", "thit ga", "uc ga", "dui ga", "canh ga", "cua", "crab", "trung", "long do trung", "long trang trung", "ca chua", "tomato"))
                 match_bonus = 10000.0 if ingredient_match_quality(candidate_item, ingredient) >= 2.0 else 0.0
                 protein_bonus = 20.0 if _ingredient_is_meat(ingredient) and _row_is_animal_protein(candidate_item) else 0.0
                 breakfast_penalty = 30.0 if meal_type == "breakfast" and _ingredient_is_meat(ingredient) else 0.0
@@ -8661,7 +9090,8 @@ class RecommenderService:
             "validation": validation_result,
             "recommendation_explanations": recommendation_explanations,
             "meal_item_count_summary": meal_item_count_summary,
-            "target": target
+            "target": target,
+            "ingredientWarnings": ingredient_warning_data,
         }
 
         if persist and meal_items_for_db:
