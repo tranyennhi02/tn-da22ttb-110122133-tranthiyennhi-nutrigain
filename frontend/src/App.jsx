@@ -435,6 +435,13 @@ export default function App() {
   }
 
   async function handleAuthSubmit(loginState) {
+    // If this is from email verification, skip submitLogin and go directly to handleUserAuthSuccess
+    if (loginState?.mode === "email_verification" || loginState?.skipLoginCall) {
+      console.log("[AUTH SUCCESS] Email verification - skipping submitLogin");
+      await handleUserAuthSuccess(loginState);
+      return;
+    }
+    
     const authResult = await submitLogin(loginState);
     if (authResult?.requires_email_verification) {
       return authResult;
@@ -684,10 +691,10 @@ export function mapUserProfileToFormState(profile) {
     unfavorite_foods: foodListToInput(normalizedProfile.disliked_foods),
     disliked_foods: normalizedProfile.disliked_foods,
     disliked_food_groups: normalizedProfile.disliked_food_groups,
-    meal_reminder_enabled: Boolean(profile.meal_reminder_enabled),
-    breakfast_time: profile.breakfast_time || "07:00",
-    lunch_time: profile.lunch_time || "12:00",
-    dinner_time: profile.dinner_time || "18:30",
+    meal_reminder_enabled: profile?.meal_reminder_enabled ?? profile?.reminder_enabled ?? true,
+    breakfast_time: profile?.breakfast_time || "07:00",
+    lunch_time: profile?.lunch_time || "12:00",
+    dinner_time: profile?.dinner_time || "18:30",
     save_user_data: true,
   };
 }

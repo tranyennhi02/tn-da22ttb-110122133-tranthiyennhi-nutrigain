@@ -1,5 +1,5 @@
 import { normalizePayload } from "../models/recommendationModel";
-import { favoriteFood, fetchHistory, fetchTodayMealPlan, postRecommendation, postRegenerateMealPlan, rateFood, unfavoriteFood, updateUserProfile } from "../services/apiService";
+import { favoriteFood, fetchHistory, fetchTodayMealPlan, postRecommendation, postRegenerateMealPlan, postRestoreMealPlan, rateFood, unfavoriteFood, updateUserProfile } from "../services/apiService";
 import { normalizeProfilePayload } from "../utils/profileFormUtils.js";
 
 function getMealPlanItems(mealPlan) {
@@ -42,6 +42,10 @@ export async function submitRecommendation(formState) {
 
 export async function loadTodayMealPlan() {
   return fetchTodayMealPlan();
+}
+
+export async function restoreMealPlan(payload) {
+  return postRestoreMealPlan(payload);
 }
 
 function getVietnamDateString() {

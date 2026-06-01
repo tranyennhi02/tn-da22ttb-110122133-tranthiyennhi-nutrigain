@@ -134,19 +134,13 @@ export default function AuthCard({
 
   async function handleSubmit(event) {
     event.preventDefault();
-    const nextErrors = isVerificationStep ? validateVerification() : isRegister ? validateRegister() : validateLogin();
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
-
-    if (isVerificationStep) {
-      await onVerifyEmail?.({
-        email: verificationEmail || form.email,
-        code: form.verificationCode.trim(),
-      });
-      return;
-    }
-
+    
+    // Register mode: validate registration fields
     if (isRegister) {
+      const nextErrors = validateRegister();
+      setErrors(nextErrors);
+      if (Object.keys(nextErrors).length > 0) return;
+
       await onRegisterSubmit?.({
         fullName: form.fullName.trim(),
         email: form.email.trim(),
@@ -156,9 +150,31 @@ export default function AuthCard({
       return;
     }
 
+    // Login mode: validate login fields
+    const nextErrors = validateLogin();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     await onLoginSubmit?.({
       email: form.email.trim(),
       password: form.password,
+    });
+  }
+
+  async function handleVerifySubmit(event) {
+    event.preventDefault();
+    
+    // Clear all previous errors
+    setErrors({});
+    
+    // Verify mode: only validate verification code
+    const nextErrors = validateVerification();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    await onVerifyEmail?.({
+      email: verificationEmail || form.email,
+      code: form.verificationCode.trim(),
     });
   }
 
@@ -296,7 +312,7 @@ export default function AuthCard({
         )}
 
         {isVerificationStep && (
-          <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+          <form className="space-y-4" onSubmit={handleVerifySubmit} noValidate>
             <TextField
               label="Mã xác thực"
               name="verificationCode"

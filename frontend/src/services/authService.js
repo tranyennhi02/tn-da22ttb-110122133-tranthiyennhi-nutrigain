@@ -97,7 +97,10 @@ async function requestAuth(path, payload) {
       }
     }
 
-    throw new Error(errorMsg || "Authentication failed");
+    const error = new Error(errorMsg || "Authentication failed");
+    error.statusCode = response.status;
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
@@ -171,9 +174,15 @@ export async function verifyEmail({ email, code }) {
   if (!email || !code) {
     throw new Error("Vui lòng nhập mã xác thực.");
   }
+  console.log("[VERIFY EMAIL API CALL]", { email: email.substring(0, 3) + "***" });
   const data = await requestAuth("/api/v1/auth/verify-email", {
     email: String(email).trim().toLowerCase(),
     code: String(code).trim(),
+  });
+  console.log("[VERIFY EMAIL API SUCCESS]", {
+    hasAccessToken: Boolean(data?.access_token),
+    hasUser: Boolean(data?.user),
+    emailVerified: data?.user?.email_verified,
   });
   return persistSession(data);
 }

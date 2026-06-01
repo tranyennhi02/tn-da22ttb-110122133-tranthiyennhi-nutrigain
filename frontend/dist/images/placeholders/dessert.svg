@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Dessert placeholder">
-  <rect width="320" height="200" fill="#fdf2f8"/>
-  <ellipse cx="160" cy="138" rx="92" ry="28" fill="#fbcfe8"/>
-  <path d="M98 122h124l-15 41h-94z" fill="#f9a8d4"/>
-  <path d="M106 95h108l8 27H98z" fill="#ffffff"/>
-  <path d="M116 95c8-24 78-24 88 0z" fill="#f472b6"/>
-  <circle cx="160" cy="78" r="9" fill="#ef4444"/>
-  <path d="M100 172h120" stroke="#ec4899" stroke-width="6" stroke-linecap="round"/>
-</svg>

@@ -54,8 +54,9 @@ function buildWeightGoalPreview(data) {
 // Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
 // Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
 //          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
+// Backend sử dụng giới hạn an toàn: 1.0 kg/tháng
 const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
-const SAFE_GAIN_MAX_KG_PER_MONTH = 3.6;
+const SAFE_GAIN_MAX_KG_PER_MONTH = 1.0;
 const WEEKS_PER_MONTH = 4;
 
 const validateWeightGoalTimeline = ({
@@ -108,7 +109,7 @@ const validateWeightGoalTimeline = ({
   const maxMonths = Math.ceil(weightToGain / SAFE_GAIN_MIN_KG_PER_MONTH); // thời gian tối đa
   const minWeeks = minMonths * WEEKS_PER_MONTH;
 
-  // Tốc độ quá nhanh (> 3.6 kg/tháng)
+  // Tốc độ quá nhanh (> 1.0 kg/tháng)
   if (gainPerMonth > SAFE_GAIN_MAX_KG_PER_MONTH) {
     return {
       ok: false,
@@ -119,7 +120,7 @@ const validateWeightGoalTimeline = ({
       minMonths,
       maxMonths,
       minWeeks,
-      error: `Bạn muốn tăng ${gainPerMonth.toFixed(1)}kg/tháng. Mốc tham khảo quy đổi từ Intermountain Health là khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Tốc độ bạn nhập đang cao hơn mốc này. Gợi ý: với mục tiêu tăng ${weightToGain.toFixed(1)}kg, bạn nên chọn khoảng ${minMonths}–${maxMonths} tháng.`,
+      error: `Mục tiêu này tăng quá nhanh để NutriGain gợi ý thực đơn an toàn. Vui lòng tăng thời gian mục tiêu hoặc giảm cân nặng mục tiêu. Với mục tiêu tăng ${weightToGain.toFixed(1)}kg, bạn nên chọn ít nhất ${minMonths} tháng.`,
     };
   }
 
@@ -134,11 +135,11 @@ const validateWeightGoalTimeline = ({
       minMonths,
       maxMonths,
       minWeeks,
-      message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này chậm hơn mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`,
+      message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này chậm hơn mốc tham khảo an toàn 1kg/tháng. Nếu bạn muốn tiến độ rõ hơn, có thể rút ngắn thời gian mục tiêu. Nếu bạn muốn đi chậm và dễ duy trì, lựa chọn này vẫn có thể phù hợp.`,
     };
   }
 
-  // Tốc độ nằm trong mốc (1–3.6 kg/tháng)
+  // Tốc độ nằm trong mốc (1.0 kg/tháng)
   return {
     ok: true,
     severity: "success",
@@ -148,7 +149,7 @@ const validateWeightGoalTimeline = ({
     minMonths,
     maxMonths,
     minWeeks,
-    message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này nằm trong mốc tham khảo quy đổi từ Intermountain Health: khoảng 0.5–2.0 lb/tuần, tương đương khoảng 1–3.6 kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`,
+    message: `Bạn muốn tăng ${weightToGain.toFixed(1)}kg trong ${duration} ${durationUnit === "weeks" ? "tuần" : "tháng"}, tương đương khoảng ${gainPerMonth.toFixed(1)}kg/tháng. Tốc độ này phù hợp với mốc an toàn 1kg/tháng. Hãy duy trì bữa ăn đều, thêm bữa phụ và theo dõi cơ thể trong quá trình tăng cân.`,
   };
 };
 
@@ -251,7 +252,7 @@ const INIT = {
   target_duration_months: "", target_gain_rate_kg_per_month: "",
   diet_style: "balanced", budget_level: "standard",
   favorite_foods: "", unfavorite_foods: "",
-  meal_reminder_enabled: false,
+  meal_reminder_enabled: true,
   breakfast_time: "07:00",
   lunch_time: "12:00",
   dinner_time: "18:30",
@@ -420,13 +421,13 @@ function StepGoal({ data, update, errors, validation }) {
   const targetIsInvalid = goalPreview.hasWeights && isValidNumber(goalPreview.currentWeight) && isValidNumber(goalPreview.targetWeight) && goalPreview.targetWeight <= goalPreview.currentWeight;
   const hasFullTimeline = hasValidGoal && goalPreview.hasDuration && isValidNumber(goalPreview.monthlyGain);
   
-  // Tính gợi ý thời gian dựa trên mốc Intermountain Health
+  // Tính gợi ý thời gian dựa trên mốc an toàn
   const recommendedMinMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MAX_KG_PER_MONTH) : null;
   const recommendedMaxMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MIN_KG_PER_MONTH) : null;
   
   const speedNote = hasFullTimeline
-    ? `Con số này được tính từ cân nặng hiện tại, cân nặng mục tiêu và thời gian bạn chọn. Mức này nằm trong khoảng tăng cân tham khảo an toàn khoảng 0.2–0.9kg mỗi tuần theo Intermountain Health, nên NutriGain sẽ dùng để ước tính lượng calo cần bổ sung và gợi ý thực đơn phù hợp.`
-    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo từ Intermountain Health: khoảng 0.2–0.9kg mỗi tuần.`;
+    ? `Con số này được tính từ cân nặng hiện tại, cân nặng mục tiêu và thời gian bạn chọn. Mức này phù hợp với mốc tăng cân an toàn 1kg/tháng, nên NutriGain sẽ dùng để ước tính lượng calo cần bổ sung và gợi ý thực đơn phù hợp.`
+    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo an toàn: 1kg/tháng.`;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -452,13 +453,17 @@ function StepGoal({ data, update, errors, validation }) {
             <p className="text-rose-700">Mục tiêu cân nặng cần lớn hơn cân nặng hiện tại để NutriGain ước tính lộ trình tăng cân.</p>
             <p className="mt-2 text-rose-700">Vui lòng chọn cân nặng mục tiêu cao hơn cân nặng hiện tại.</p>
           </>
+        ) : isBlocked && weightGoalValidation.error ? (
+          <>
+            <p className="text-rose-700 font-bold">{weightGoalValidation.error}</p>
+            {weightGoalValidation.minMonths && (
+              <p className="mt-2 text-rose-700">Với mục tiêu tăng {targetDiffLabel}kg, bạn nên chọn ít nhất {weightGoalValidation.minMonths} tháng.</p>
+            )}
+          </>
         ) : hasFullTimeline ? (
           <>
             <p className={isBlocked ? "text-rose-700" : ""}>Bạn muốn tăng {targetDiffLabel}kg trong {durationLabel}, tương đương khoảng {monthlyGainLabel}kg mỗi tháng.</p>
             <p className="mt-2">{speedNote}</p>
-            {isBlocked && weightGoalValidation.minMonths && weightGoalValidation.maxMonths && (
-              <p className="mt-2 text-rose-700">Gợi ý: với mục tiêu tăng {targetDiffLabel}kg, bạn nên chọn khoảng {weightGoalValidation.minMonths}–{weightGoalValidation.maxMonths} tháng.</p>
-            )}
           </>
         ) : hasValidGoal ? (
           <>
@@ -712,8 +717,8 @@ function StepSummary({ data, onFinish, onBack, isSaving, finishError, step, isEx
             </button>
           )}
           <button onClick={onFinish} disabled={isSaving}
-            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60">
-            {isSaving ? "Đang cập nhật..." : isExistingUser ? "Cập nhật và tạo thực đơn" : "Hoàn tất và tạo thực đơn"}
+            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] text-sm font-bold text-white shadow-md shadow-[#10B981]/25 transition hover:bg-[#047857] disabled:opacity-60 disabled:cursor-not-allowed">
+            {isSaving ? "Đang tạo thực đơn..." : isExistingUser ? "Cập nhật và tạo thực đơn" : "Hoàn tất và tạo thực đơn"}
           </button>
         </div>
       </div>
@@ -1231,8 +1236,8 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
             {/* 2. Middle "Cập nhật và tạo thực đơn" if existing user */}
             {isExistingUser && (
               <button onClick={handleFinish} disabled={isSaving}
-                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-[#10B981] text-[#10B981] bg-emerald-50/30 hover:bg-emerald-50 text-sm font-bold transition disabled:opacity-60">
-                {isSaving ? "Đang lưu..." : "Cập nhật và tạo thực đơn"}
+                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-2 border-[#10B981] text-[#10B981] bg-emerald-50/30 hover:bg-emerald-50 text-sm font-bold transition disabled:opacity-60 disabled:cursor-not-allowed">
+                {isSaving ? "Đang tạo thực đơn..." : "Cập nhật và tạo thực đơn"}
               </button>
             )}
 
@@ -1248,16 +1253,51 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
         {regenerateFailed && (
           <div className="mt-6 flex gap-3">
             <button onClick={retryRegenerate} disabled={isSaving}
-              className="flex-1 h-12 rounded-2xl bg-[#059669] text-sm font-bold text-white shadow-md transition hover:bg-[#047857] disabled:opacity-60">
-              {isSaving ? "Đang thử tạo lại..." : "Thử tạo lại thực đơn"}
+              className="flex-1 h-12 rounded-2xl bg-[#059669] text-sm font-bold text-white shadow-md transition hover:bg-[#047857] disabled:opacity-60 disabled:cursor-not-allowed">
+              {isSaving ? "Đang tạo thực đơn..." : "Thử tạo lại thực đơn"}
             </button>
             <button onClick={gotoDashboard} disabled={isSaving}
-              className="h-12 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] disabled:opacity-60">
+              className="h-12 rounded-2xl border-2 border-[#E2E8F0] px-6 text-sm font-bold text-[#64748B] transition hover:border-[#10B981] hover:text-[#10B981] disabled:opacity-60 disabled:cursor-not-allowed">
               Vào Dashboard
             </button>
           </div>
         )}
       </div>
+
+      {/* Loading Overlay */}
+      {isSaving && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[28px] border border-emerald-100 bg-white p-8 text-center shadow-2xl shadow-emerald-950/20">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-950">Đang tạo thực đơn cho bạn...</h3>
+            <p className="mt-3 text-base font-semibold leading-7 text-slate-500">
+              NutriGain đang cân bằng năng lượng, protein và nguyên liệu bạn đã chọn.
+            </p>
+            <div className="mt-8 space-y-4 text-left">
+              <div className="flex items-center gap-3 text-sm font-bold text-slate-700">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                Lưu hồ sơ dinh dưỡng
+              </div>
+              <div className="flex items-center gap-3 text-sm font-bold text-slate-500">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-200" />
+                Tính toán mục tiêu năng lượng
+              </div>
+              <div className="flex items-center gap-3 text-sm font-bold text-slate-400">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-100" />
+                Tạo thực đơn hôm nay
+              </div>
+            </div>
+            <div className="mt-8 h-1.5 overflow-hidden rounded-full bg-emerald-50">
+              <div className="h-full w-2/3 animate-pulse rounded-full bg-emerald-400" />
+            </div>
+            <p className="mt-5 text-sm font-bold text-emerald-700">
+              Việc này có thể mất vài giây. Vui lòng không tắt trang.
+            </p>
+          </div>
+        </div>
+      )}
 
     </div>
   );

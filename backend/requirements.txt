@@ -10,6 +10,17 @@ bcrypt==4.2.1
 python-dotenv==1.0.1
 python-multipart
 pillow
+transformers
+
+# PyTorch for CLIP ingredient recognition
+# For CPU-only (lighter, faster install for local dev):
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# For GPU (CUDA 11.8):
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# Or just use default (auto-detect):
+torch
+torchvision
+
 google-auth
 google-auth-oauthlib
 google-auth-httplib2

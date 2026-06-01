@@ -32,8 +32,9 @@ export function foodListToInput(value) {
 // Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
 // Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
 //          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
+// Backend sử dụng giới hạn an toàn: 1.0 kg/tháng
 const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
-const SAFE_GAIN_MAX_KG_PER_MONTH = 3.6;
+const SAFE_GAIN_MAX_KG_PER_MONTH = 1.0;
 const WEEKS_PER_MONTH = 4;
 
 export const buildWeightGainPlan = ({
@@ -69,9 +70,9 @@ export const buildWeightGainPlan = ({
   const gainPerMonth = weightToGain / durationMonths;
 
   let weightGainSpeed = "slow";
-  if (gainPerMonth >= 1.0 && gainPerMonth <= 2.0) {
+  if (gainPerMonth >= 0.8 && gainPerMonth <= 1.0) {
     weightGainSpeed = "moderate";
-  } else if (gainPerMonth > 2.0 && gainPerMonth <= 3.6) {
+  } else if (gainPerMonth > 1.0) {
     weightGainSpeed = "fast";
   }
 

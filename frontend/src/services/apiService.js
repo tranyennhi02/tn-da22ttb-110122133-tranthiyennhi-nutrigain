@@ -191,6 +191,19 @@ export async function postRegenerateMealPlan(payload) {
   return data;
 }
 
+export async function postRestoreMealPlan(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/meal-plans/restore`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response, "Cannot restore meal plan");
+}
+
 export async function postIngredientCandidates(payload) {
   const response = await fetch(`${API_BASE_URL}/api/v1/ingredients/candidates`, {
     method: "POST",

@@ -6,14 +6,19 @@ from pathlib import Path
 # Load .env file before importing settings
 try:
     from dotenv import load_dotenv
-    # Try to load .env from backend directory
+    # Try to load .env.local first (for local development), then fallback to .env
     backend_dir = Path(__file__).parent.parent
+    env_local_file = backend_dir / ".env.local"
     env_file = backend_dir / ".env"
-    if env_file.exists():
+    
+    if env_local_file.exists():
+        load_dotenv(env_local_file)
+        print(f"[DOTENV] Loaded {env_local_file}")
+    elif env_file.exists():
         load_dotenv(env_file)
         print(f"[DOTENV] Loaded {env_file}")
     else:
-        print(f"[DOTENV] File not found: {env_file}")
+        print(f"[DOTENV] No .env or .env.local file found in {backend_dir}")
 except ImportError:
     print("[DOTENV] python-dotenv not installed, skipping .env load")
 except Exception as e:
@@ -117,6 +122,17 @@ def startup() -> None:
     ensure_database_schema(engine)
     run_db_repairs()
     start_meal_reminder_scheduler()
+    
+    # Warm up CLIP model in background to avoid timeout on first image recognition
+    import threading
+    def warmup_clip():
+        try:
+            from app.services.clip_ingredient_service import warmup_clip_model
+            warmup_clip_model()
+        except Exception as e:
+            print(f"[CLIP WARMUP] Error: {e}")
+    
+    threading.Thread(target=warmup_clip, daemon=True).start()
 
 
 app.include_router(router)

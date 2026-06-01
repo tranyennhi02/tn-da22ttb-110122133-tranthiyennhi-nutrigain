@@ -21,3 +21,44 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local caches / ML models
+pip-cache/
+pip-temp/
+hf-cache/
+backend/.venv/
+.venv/
+.venv-1/
+
+# Local cache files
+pip-cache/
+pip-temp/
+hf-cache/
+.venv/
+.venv-1/
+backend/.venv/
+
+# Local cache files
+pip-cache/
+pip-temp/
+hf-cache/
+.venv/
+.venv-1/
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Frontend build
+frontend/dist/
+
+# Local cache/model files
+pip-cache/
+pip-temp/
+hf-cache/
+.venv/
+.venv-1/
+backend/.venv/

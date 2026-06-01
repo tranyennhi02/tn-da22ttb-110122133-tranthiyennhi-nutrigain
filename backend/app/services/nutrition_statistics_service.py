@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta, timezone
@@ -8,7 +10,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.entities import Food, FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlanItem
+from app.models.entities import Food, FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlan, MealPlanItem
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class NutritionStatisticsService:
@@ -94,6 +98,36 @@ class NutritionStatisticsService:
             or None
         )
 
+    def _parse_meal_plan_note(self, meal_plan: MealPlan | None) -> dict:
+        note = getattr(meal_plan, "note", None)
+        if not note:
+            return {}
+        if isinstance(note, dict):
+            return note
+        if not isinstance(note, str):
+            return {}
+        stripped = note.strip()
+        if not stripped.startswith("{"):
+            return {}
+        try:
+            parsed = json.loads(stripped)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    def _meal_plan_source(self, meal_plan: MealPlan | None) -> str:
+        note_data = self._parse_meal_plan_note(meal_plan)
+        source = str(note_data.get("meal_plan_source") or note_data.get("source") or "").strip().lower()
+        if source in {"generated", "regenerated", "restored", "unknown"}:
+            return source
+
+        note_text = str(getattr(meal_plan, "note", "") or "").strip().lower()
+        if note_text.startswith("restored from"):
+            return "restored"
+        if getattr(meal_plan, "recommendation_request_id", None):
+            return "generated"
+        return "unknown"
+
     def get_eating_history(
         self,
         db: Session,
@@ -104,11 +138,16 @@ class NutritionStatisticsService:
         year_value: str | None = None,
     ) -> dict:
         normalized_mode = mode if mode in {"day", "month", "year"} else "day"
+        
+        # Query meal plans để lấy thông tin chi tiết
+        meal_plan_info_map = {}
+        
         query = (
-            db.query(FoodLogItem, FoodLog, MealPlanItem, Meal, Food)
+            db.query(FoodLogItem, FoodLog, MealPlanItem, Meal, Food, MealPlan)
             .join(FoodLog, FoodLogItem.food_log_id == FoodLog.id)
             .outerjoin(MealPlanItem, FoodLogItem.meal_plan_item_id == MealPlanItem.id)
             .outerjoin(Meal, MealPlanItem.meal_id == Meal.id)
+            .outerjoin(MealPlan, Meal.meal_plan_id == MealPlan.id)
             .outerjoin(Food, Food.food_id == FoodLogItem.food_id)
             .filter(FoodLog.user_id == user.id)
             .filter(FoodLogItem.status == "eaten")
@@ -128,12 +167,49 @@ class NutritionStatisticsService:
         items: list[dict] = []
         seen_keys: set[tuple] = set()
         rows = query.order_by(FoodLog.log_date.asc(), FoodLogItem.created_at.asc(), FoodLogItem.id.asc()).all()
-        for log_item, food_log, meal_item, meal, food in rows:
+        for log_item, food_log, meal_item, meal, food, meal_plan in rows:
             meal_type = self._normalize_meal_type(log_item.meal_type or getattr(meal, "meal_type", None))
             if meal_type not in self.MEAL_ORDER:
                 continue
             eaten_at = log_item.updated_at or log_item.created_at or datetime.combine(food_log.log_date, time.min)
             meal_plan_id = getattr(meal, "meal_plan_id", None)
+            
+            # Lưu thông tin meal plan
+            if meal_plan_id and meal_plan and meal_plan_id not in meal_plan_info_map:
+                # Lấy available_ingredients từ recommendation_request nếu có
+                available_ingredients = []
+                try:
+                    if meal_plan.recommendation_request:
+                        req = meal_plan.recommendation_request
+                        # Safe access to available_ingredients attribute
+                        available_ingredients_raw = getattr(req, "available_ingredients", None) or getattr(req, "ingredients", None)
+                        if available_ingredients_raw:
+                            if isinstance(available_ingredients_raw, str):
+                                available_ingredients = [ing.strip() for ing in available_ingredients_raw.split(",") if ing.strip()]
+                            elif isinstance(available_ingredients_raw, list):
+                                available_ingredients = [str(ing).strip() for ing in available_ingredients_raw if str(ing).strip()]
+                except Exception:
+                    logger.warning("[EATING HISTORY PLAN METADATA PARSE FAILED]", exc_info=True)
+                    available_ingredients = []
+                
+                # Xác định source từ meal_plan - sử dụng _meal_plan_source helper
+                source = self._meal_plan_source(meal_plan)
+                
+                # Đếm tổng số món trong meal plan
+                total_items = db.query(func.count(MealPlanItem.id)).join(
+                    Meal, MealPlanItem.meal_id == Meal.id
+                ).filter(Meal.meal_plan_id == meal_plan_id).scalar() or 0
+                
+                meal_plan_info_map[meal_plan_id] = {
+                    "id": meal_plan_id,
+                    "created_at": meal_plan.created_at.isoformat() if meal_plan.created_at else None,
+                    "updated_at": meal_plan.updated_at.isoformat() if meal_plan.updated_at else None,
+                    "status": meal_plan.status or "active",
+                    "available_ingredients": available_ingredients,
+                    "source": source,
+                    "total_items": total_items,
+                }
+            
             key = (food_log.log_date.isoformat(), meal_plan_id, meal_type, log_item.meal_plan_item_id, str(log_item.food_id or ""))
             seen_keys.add(key)
             items.append({
@@ -155,8 +231,9 @@ class NutritionStatisticsService:
             })
 
         log_query = (
-            db.query(MealConsumptionLog, MealPlanItem, Meal, Food)
+            db.query(MealConsumptionLog, MealPlanItem, Meal, Food, MealPlan)
             .outerjoin(Meal, (MealConsumptionLog.meal_plan_id == Meal.meal_plan_id) & (func.lower(Meal.meal_type) == func.lower(MealConsumptionLog.meal_type)))
+            .outerjoin(MealPlan, Meal.meal_plan_id == MealPlan.id)
             .outerjoin(MealPlanItem, (MealPlanItem.meal_id == Meal.id) & (MealPlanItem.food_id == MealConsumptionLog.food_id))
             .outerjoin(Food, Food.food_id == MealConsumptionLog.food_id)
             .filter(MealConsumptionLog.user_id == user.id)
@@ -174,12 +251,49 @@ class NutritionStatisticsService:
             target_year = self._parse_year(year_value)
             log_query = log_query.filter(func.extract("year", MealConsumptionLog.consumed_at) == target_year)
 
-        for log, meal_item, meal, food in log_query.order_by(MealConsumptionLog.consumed_at.asc(), MealConsumptionLog.id.asc()).all():
+        for log, meal_item, meal, food, meal_plan in log_query.order_by(MealConsumptionLog.consumed_at.asc(), MealConsumptionLog.id.asc()).all():
             meal_type = self._normalize_meal_type(log.meal_type or getattr(meal, "meal_type", None))
             if meal_type not in self.MEAL_ORDER:
                 continue
             eaten_at = log.consumed_at or log.created_at
             eaten_date = eaten_at.date() if eaten_at else self._local_now().date()
+            meal_plan_id = log.meal_plan_id
+            
+            # Lưu thông tin meal plan
+            if meal_plan_id and meal_plan and meal_plan_id not in meal_plan_info_map:
+                available_ingredients = []
+                try:
+                    if meal_plan.recommendation_request:
+                        req = meal_plan.recommendation_request
+                        # Safe access to available_ingredients attribute
+                        available_ingredients_raw = getattr(req, "available_ingredients", None) or getattr(req, "ingredients", None)
+                        if available_ingredients_raw:
+                            if isinstance(available_ingredients_raw, str):
+                                available_ingredients = [ing.strip() for ing in available_ingredients_raw.split(",") if ing.strip()]
+                            elif isinstance(available_ingredients_raw, list):
+                                available_ingredients = [str(ing).strip() for ing in available_ingredients_raw if str(ing).strip()]
+                except Exception:
+                    logger.warning("[EATING HISTORY PLAN METADATA PARSE FAILED]", exc_info=True)
+                    available_ingredients = []
+                
+                # Xác định source từ meal_plan - sử dụng _meal_plan_source helper
+                source = self._meal_plan_source(meal_plan)
+                
+                # Đếm tổng số món trong meal plan
+                total_items = db.query(func.count(MealPlanItem.id)).join(
+                    Meal, MealPlanItem.meal_id == Meal.id
+                ).filter(Meal.meal_plan_id == meal_plan_id).scalar() or 0
+                
+                meal_plan_info_map[meal_plan_id] = {
+                    "id": meal_plan_id,
+                    "created_at": meal_plan.created_at.isoformat() if meal_plan.created_at else None,
+                    "updated_at": meal_plan.updated_at.isoformat() if meal_plan.updated_at else None,
+                    "status": meal_plan.status or "active",
+                    "available_ingredients": available_ingredients,
+                    "source": source,
+                    "total_items": total_items,
+                }
+            
             key = (eaten_date.isoformat(), log.meal_plan_id, meal_type, getattr(meal_item, "id", None), str(log.food_id or ""))
             if key in seen_keys:
                 continue
@@ -202,9 +316,18 @@ class NutritionStatisticsService:
             })
 
         items.sort(key=lambda item: (item.get("eaten_date") or "", item.get("eaten_at") or "", item.get("meal_type") or ""))
+        
+        logger.info("[EATING HISTORY QUERY RESULT]", {
+            "user_id": user.id,
+            "logs_count": len(items),
+            "meal_plan_ids": sorted(set(item.get("meal_plan_id") for item in items if item.get("meal_plan_id"))),
+            "meal_plans_info_count": len(meal_plan_info_map),
+        })
+        
         return {
             "items": items,
             "totals": self._history_totals(items),
+            "meal_plans": meal_plan_info_map,
         }
 
     def _local_now(self) -> datetime:

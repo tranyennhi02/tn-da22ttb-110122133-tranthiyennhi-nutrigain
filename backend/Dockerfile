@@ -5,16 +5,15 @@ ENV PYTHONUNBUFFERED=1
 ENV FOOD_DATASET_PATH=/app/food_dataset_fixed.csv
 ENV RAW_DATA_PATH=/app/food_dataset_fixed.csv
 ENV SCALED_DATA_PATH=/app/food_dataset_fixed.csv
+ENV HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 
 COPY backend/requirements.txt /tmp/requirements.txt
 COPY backend/requirements-ai.txt /tmp/requirements-ai.txt
 
-ARG INSTALL_AI=false
-
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
-RUN if [ "$INSTALL_AI" = "true" ]; then pip install --no-cache-dir -r /tmp/requirements-ai.txt; fi
 
 COPY backend /app/backend
 COPY nutrigain_recommender.py /app/nutrigain_recommender.py

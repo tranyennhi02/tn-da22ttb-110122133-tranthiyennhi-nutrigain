@@ -84,9 +84,17 @@ export default function LoginView({ onAuthSuccess, initialMode = null, onForgotP
     } catch (err) {
       console.error("Auth error:", err);
       const errMsg = err.message || "";
-      if (errMsg.includes("xác thực") || errMsg.includes("verification")) {
-        setServerError("Email chưa được xác thực. Vui lòng kiểm tra email hoặc gửi lại mã.");
-      } else if (errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError")) {
+      const statusCode = err.statusCode || err.status || 0;
+      
+      // Check if this is an unverified email error (403)
+      if (statusCode === 403 || errMsg.includes("xác thực") || errMsg.includes("verification")) {
+        // Switch to verification flow
+        syncVerificationFlow(formData.email);
+        setToast("Email chưa được xác thực. Vui lòng nhập mã xác thực.");
+        return;
+      }
+      
+      if (errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError")) {
         setServerError("Không thể kết nối đến máy chủ. Vui lòng thử lại sau.");
       } else if (errMsg) {
         setServerError(errMsg);
@@ -103,12 +111,27 @@ export default function LoginView({ onAuthSuccess, initialMode = null, onForgotP
     resetMessages();
     try {
       const response = await register(formData);
+      
+      // Check if response indicates verification is required
+      if (response.requires_email_verification) {
+        syncVerificationFlow(response.email || formData.email);
+        setToast(response.message || "Mã xác thực đã được gửi đến email của bạn.");
+        return;
+      }
+      
+      // Fallback for old response format
       syncVerificationFlow(response.email || formData.email);
       setToast(response.message || "Mã xác thực đã được gửi đến email của bạn.");
     } catch (err) {
       console.error("Register error:", err);
       const errMsg = err.message || "";
-      if (errMsg.includes("already exists") || errMsg.includes("registered") || errMsg.includes("Conflict")) {
+      
+      // Don't show "already exists" error if it's an unverified user case
+      // The backend should handle this and send verification code
+      if (errMsg.includes("đã có tài khoản") && errMsg.includes("đăng nhập")) {
+        // This is a verified user trying to register again
+        setServerError("Email này đã có tài khoản. Vui lòng đăng nhập.");
+      } else if (errMsg.includes("already exists") || errMsg.includes("registered") || errMsg.includes("Conflict")) {
         setServerError("Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
       } else if (errMsg.includes("Mã xác thực") || errMsg.includes("wait")) {
         setServerError(errMsg);
@@ -130,13 +153,31 @@ export default function LoginView({ onAuthSuccess, initialMode = null, onForgotP
 
   async function handleVerifyEmail(payload) {
     setIsSubmitting(true);
-    resetMessages();
+    // Clear all errors immediately when starting verification
+    setServerError("");
+    setToast("");
+    
     try {
+      console.log("[VERIFY EMAIL START]", { email: payload.email });
       const authResult = await verifyEmail(payload);
+      console.log("[VERIFY EMAIL SUCCESS]", {
+        hasToken: Boolean(authResult?.accessToken),
+        hasUser: Boolean(authResult?.user),
+      });
+      
+      // Clear all errors and show success
+      setServerError("");
       setToast("Email đã được xác thực.");
-      await onAuthSuccess(authResult);
+      
+      // IMPORTANT: Pass authResult with a flag to indicate this is from email verification
+      // This prevents handleAuthSubmit from calling submitLogin with empty email/password
+      await onAuthSuccess({
+        ...authResult,
+        mode: "email_verification",
+        skipLoginCall: true,
+      });
     } catch (err) {
-      console.error("Email verification error:", err);
+      console.error("[VERIFY EMAIL ERROR]", err);
       const errMsg = err.message || "";
       if (errMsg.includes("hết hạn")) {
         setServerError("Mã xác thực đã hết hạn.");

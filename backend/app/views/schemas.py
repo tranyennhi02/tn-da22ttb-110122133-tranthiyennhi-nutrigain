@@ -69,7 +69,9 @@ class MealConsumptionToggleInput(BaseModel):
     meal_plan_id: int | None = None
     meal_type: str | None = None
     meal_plan_item_id: int | None = None
+    item_id: int | None = None
     food_id: str | None = None
+    food_name: str | None = None
     is_eaten: bool = True
 
 
@@ -109,11 +111,19 @@ class UserProfileInput(BaseModel):
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
     target_weight_kg: float | None = Field(default=None, gt=0)
+    target_duration_value: float | None = Field(default=None, gt=0)
+    target_duration_unit: str | None = None
+    target_duration_months: float | None = Field(default=None, gt=0)
+    target_gain_rate_kg_per_month: float | None = Field(default=None, gt=0)
     weight_gain_speed: str | None = None
     diet_type: str | None = None
     diet_style: str | None = None
     budget_level: str | None = None
     items_per_meal: int | None = Field(default=None, ge=1, le=10)
+    meal_reminder_enabled: bool = False
+    breakfast_time: str | None = None
+    lunch_time: str | None = None
+    dinner_time: str | None = None
 
     @field_validator("favorite_foods", mode="before")
     @classmethod
@@ -150,10 +160,18 @@ class UserProfileView(BaseModel):
     disliked_foods: list[str] = Field(default_factory=list)
     disliked_food_groups: list[str] = Field(default_factory=list)
     target_weight_kg: float | None = None
+    target_duration_value: float | None = None
+    target_duration_unit: str | None = None
+    target_duration_months: float | None = None
+    target_gain_rate_kg_per_month: float | None = None
     weight_gain_speed: str | None = None
     diet_type: str | None = None
     budget_level: str | None = None
     items_per_meal: int | None = None
+    meal_reminder_enabled: bool = False
+    breakfast_time: str | None = None
+    lunch_time: str | None = None
+    dinner_time: str | None = None
     updated_at: str | None = None
 
 
@@ -569,12 +587,24 @@ class MealPlanItemCheckInInput(BaseModel):
     serving_grams: float | None = Field(default=None, gt=0)
 
 
+class MealPlanRestoreInput(BaseModel):
+    source_meal_plan_id: int | None = None
+    source_date: str | None = None
+    meals: list[dict] = Field(default_factory=list)
+    reset_consumption: bool = True
+
+
 class TodayMealPlanResponse(BaseModel):
     has_plan: bool
     generate_required: bool
     message: str = ""
     meal_plan: dict | None = None
     meals: list[dict] = Field(default_factory=list)
+    meal_logs: list[dict] = Field(default_factory=list)
+    consumption_logs: list[dict] = Field(default_factory=list)
+    eaten_items: list[dict] = Field(default_factory=list)
+    meal_consumptions: list[dict] = Field(default_factory=list)
+    logs: list[dict] = Field(default_factory=list)
     food_log: dict | None = None
     validation: dict | None = None
 
@@ -660,11 +690,13 @@ class MealPlanSchema(BaseModel):
     id: int | None = None
     date: str | None = None
     status: str | None = None
-    total_kcal: int | None = None
+    total_kcal: float | None = None
     total_protein_g: float | None = None
     total_fat_g: float | None = None
     total_carbs_g: float | None = None
     meal_item_count_summary: dict | None = None
+    available_ingredients: list[str] = Field(default_factory=list)
+    ingredient_coverage: dict | None = None
     meals: list[MealPlanMealSchema] = Field(default_factory=list)
 
 class ValidationSchema(BaseModel):
@@ -713,6 +745,7 @@ class RecommendationOutput(BaseModel):
     profile_snapshot: dict | None = None
     meal_item_count_summary: dict | None = None
     recommendation_explanations: list[dict] = Field(default_factory=list)
+    ingredientWarnings: dict | None = None  # Added for missing ingredient warnings
     
     # Old fields for compatibility
     eligibility_check: EligibilityCheckView | None = None

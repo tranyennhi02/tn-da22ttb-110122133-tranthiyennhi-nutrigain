@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Fruit placeholder">
-  <rect width="320" height="200" fill="#fff7ed"/>
-  <ellipse cx="160" cy="134" rx="92" ry="30" fill="#fed7aa"/>
-  <circle cx="128" cy="111" r="28" fill="#fb7185"/>
-  <circle cx="177" cy="104" r="31" fill="#f97316"/>
-  <circle cx="210" cy="125" r="22" fill="#facc15"/>
-  <path d="M178 69c13-13 28-13 42-4-11 15-27 17-42 4z" fill="#22c55e"/>
-  <path d="M96 164h128" stroke="#fb923c" stroke-width="6" stroke-linecap="round"/>
-</svg>

@@ -162,7 +162,15 @@ class AuthService:
         token.consumed_at = None
         db.commit()
         db.refresh(token)
-        send_verification_code_email(user.email, code)
+        
+        # Actually send the email and check if it succeeded
+        email_sent = send_verification_code_email(user.email, code)
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Không gửi được mã xác thực. Vui lòng thử lại sau hoặc kiểm tra cấu hình email.",
+            )
+        
         return code
 
     @staticmethod
@@ -278,32 +286,83 @@ class AuthService:
 
         repository = UserRepository(db)
         existing_user = repository.get_by_email(email)
-        if existing_user is not None and bool(getattr(existing_user, "email_verified", False)):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
-
-        try:
-            if existing_user is None:
-                user = repository.create_user(
-                    email=email,
-                    password_hash=hash_password(payload.password),
-                    full_name=full_name,
-                    role="USER",
-                    email_verified=False,
+        
+        if existing_user is not None:
+            email_verified = bool(getattr(existing_user, "email_verified", False))
+            password_hash = getattr(existing_user, "password_hash", None)
+            auth_provider = getattr(existing_user, "auth_provider", None)
+            
+            logger.info(
+                "[REGISTER EXISTING USER STATE] email=%s email_verified=%s has_password_hash=%s auth_provider=%s",
+                email[:3] + "***" if email else "<empty>",
+                email_verified,
+                bool(password_hash),
+                auth_provider,
+            )
+            
+            if email_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email này đã có tài khoản. Vui lòng đăng nhập.",
                 )
-            else:
-                existing_user.password_hash = hash_password(payload.password)
-                existing_user.full_name = full_name
-                existing_user.auth_provider = "email"
-                existing_user.email_verified = False
-                db.add(existing_user)
-                db.commit()
-                db.refresh(existing_user)
-                user = existing_user
+            
+            # User exists but not verified - update password and resend verification
+            existing_user.password_hash = hash_password(payload.password)
+            existing_user.full_name = full_name
+            existing_user.auth_provider = "email"
+            existing_user.email_verified = False
+            db.add(existing_user)
+            db.commit()
+            db.refresh(existing_user)
+            user = existing_user
+            
+            # Send verification code
+            try:
+                logger.info("[EMAIL VERIFICATION SEND START] email=%s", email[:3] + "***" if email else "<empty>")
+                self._issue_verification_code(db, user, enforce_rate_limit=False)
+                logger.info("[EMAIL VERIFICATION SEND SUCCESS] email=%s", email[:3] + "***" if email else "<empty>")
+            except HTTPException:
+                raise
+            except Exception:
+                logger.exception("[EMAIL VERIFICATION SEND FAILED] email=%s", email[:3] + "***" if email else "<empty>")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Không gửi được mã xác thực. Vui lòng thử lại sau.",
+                )
+            
+            return RegistrationVerificationResponse(
+                requires_email_verification=True,
+                email=user.email,
+                message="Email này đã được đăng ký nhưng chưa xác thực. Mã xác thực mới đã được gửi.",
+            )
+
+        # New user registration
+        try:
+            user = repository.create_user(
+                email=email,
+                password_hash=hash_password(payload.password),
+                full_name=full_name,
+                role="USER",
+                email_verified=False,
+            )
         except IntegrityError as exc:
             db.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists") from exc
 
-        self._issue_verification_code(db, user, enforce_rate_limit=False)
+        # Send verification code
+        try:
+            logger.info("[EMAIL VERIFICATION SEND START] email=%s", email[:3] + "***" if email else "<empty>")
+            self._issue_verification_code(db, user, enforce_rate_limit=False)
+            logger.info("[EMAIL VERIFICATION SEND SUCCESS] email=%s", email[:3] + "***" if email else "<empty>")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("[EMAIL VERIFICATION SEND FAILED] email=%s", email[:3] + "***" if email else "<empty>")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Không gửi được mã xác thực. Vui lòng thử lại sau.",
+            )
+        
         return RegistrationVerificationResponse(
             requires_email_verification=True,
             email=user.email,
@@ -313,18 +372,57 @@ class AuthService:
     def login(self, payload: UserLogin, db: Session) -> AuthTokenResponse:
         email = self._validate_email(payload.email)
         user = UserRepository(db).get_by_email(email)
-        if user is None or not verify_password(payload.password, user.password_hash):
+        
+        if user is None:
+            logger.info(
+                "[LOGIN AUTH STATE] email=%s user_found=False",
+                email[:3] + "***" if email else "<empty>",
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
+                detail="Email hoặc mật khẩu không đúng.",
             )
-        if not bool(getattr(user, "email_verified", False)):
+        
+        password_hash = getattr(user, "password_hash", None)
+        email_verified = bool(getattr(user, "email_verified", False))
+        auth_provider = getattr(user, "auth_provider", None)
+        
+        # Verify password first
+        password_verified = False
+        if password_hash:
+            password_verified = verify_password(payload.password, password_hash)
+        
+        logger.info(
+            "[LOGIN AUTH STATE] email=%s user_found=True has_password_hash=%s email_verified=%s auth_provider=%s password_verified=%s",
+            email[:3] + "***" if email else "<empty>",
+            bool(password_hash),
+            email_verified,
+            auth_provider,
+            password_verified,
+        )
+        
+        if not password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Tài khoản này chưa có mật khẩu. Vui lòng đăng nhập bằng Google hoặc đặt lại mật khẩu.",
+            )
+        
+        if not password_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email hoặc mật khẩu không đúng.",
+            )
+        
+        # Password is correct, now check email verification
+        if not email_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email chưa được xác thực. Vui lòng kiểm tra email hoặc gửi lại mã.",
+                detail="Email chưa được xác thực. Vui lòng nhập mã xác thực.",
             )
+        
         if not user.is_active or str(getattr(user, "status", "") or "").upper() == "LOCKED":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa.")
+        
         return self._token_payload(user)
 
     def verify_email(self, payload: EmailVerificationInput, db: Session) -> AuthTokenResponse:
@@ -355,18 +453,49 @@ class AuthService:
         db.add(token)
         db.commit()
         db.refresh(user)
+        
+        logger.info(
+            "[EMAIL VERIFY SUCCESS] user_id=%s email=%s email_verified=%s",
+            user.id,
+            email[:3] + "***" if email else "<empty>",
+            user.email_verified,
+        )
+        
         return self._token_payload(user)
 
     def resend_verification(self, payload: ResendVerificationInput, db: Session) -> MessageResponse:
         email = self._validate_email(payload.email)
+        logger.info("[RESEND VERIFICATION START] email=%s", email[:3] + "***" if email else "<empty>")
+        
         user = UserRepository(db).get_by_email(email)
         if user is None:
-            return MessageResponse(message="Mã xác thực đã được gửi nếu email hợp lệ.")
-        if bool(getattr(user, "email_verified", False)):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email đã được xác thực.")
+            logger.warning("[RESEND VERIFICATION] user_not_found email=%s", email[:3] + "***" if email else "<empty>")
+            # Return generic message for security (don't reveal if email exists)
+            return MessageResponse(message="Nếu email hợp lệ, mã xác thực đã được gửi.")
+        
+        email_verified = bool(getattr(user, "email_verified", False))
+        
+        if email_verified:
+            logger.warning("[RESEND VERIFICATION] email_already_verified user_id=%s", user.id)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email này đã được xác thực. Vui lòng đăng nhập.",
+            )
 
-        self._issue_verification_code(db, user, enforce_rate_limit=True)
-        return MessageResponse(message="Mã xác thực đã được gửi đến email của bạn.")
+        try:
+            logger.info("[EMAIL VERIFICATION SEND START] user_id=%s", user.id)
+            self._issue_verification_code(db, user, enforce_rate_limit=True)
+            logger.info("[EMAIL VERIFICATION SEND SUCCESS] user_id=%s", user.id)
+            return MessageResponse(message="Mã xác thực đã được gửi đến email của bạn.")
+        except HTTPException:
+            # Re-raise HTTP exceptions (rate limit, email send failure, etc.)
+            raise
+        except Exception:
+            logger.exception("[EMAIL VERIFICATION SEND FAILED] user_id=%s", user.id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Không thể gửi mã xác thực. Vui lòng thử lại sau.",
+            )
 
     @staticmethod
     def _google_state_ttl_seconds() -> int:

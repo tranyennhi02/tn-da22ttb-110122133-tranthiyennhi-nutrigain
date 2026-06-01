@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Seafood placeholder">
-  <rect width="320" height="200" fill="#eff6ff"/>
-  <ellipse cx="160" cy="132" rx="92" ry="30" fill="#bfdbfe"/>
-  <path d="M94 101c31-37 95-37 130 0-35 36-99 36-130 0z" fill="#38bdf8"/>
-  <path d="M224 101l36-24v48z" fill="#0ea5e9"/>
-  <circle cx="127" cy="94" r="5" fill="#0f172a"/>
-  <path d="M157 75c14 17 14 35 0 52" fill="none" stroke="#e0f2fe" stroke-width="8" stroke-linecap="round"/>
-  <path d="M96 164h128" stroke="#0284c7" stroke-width="6" stroke-linecap="round"/>
-</svg>

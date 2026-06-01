@@ -11,6 +11,7 @@ from app.models.entities import User
 from app.services.recommender_service import RecommenderService
 from app.views.schemas import (
     MealPlanRegenerateInput,
+    MealPlanRestoreInput,
     RecommendationHistoryDetail,
     RecommendationHistoryResponse,
     RecommendationInput,
@@ -102,6 +103,9 @@ class RecommendationController:
 
     def today_meal_plan(self, db: Session, user: User) -> dict:
         return self.service.get_today_meal_plan(db, user=user)
+
+    def restore_meal_plan(self, payload: MealPlanRestoreInput, db: Session, user: User) -> dict:
+        return self.service.restore_meal_plan(payload, db, user)
 
     def check_in_meal_plan_item(
         self,

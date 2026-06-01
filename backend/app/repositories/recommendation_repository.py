@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import bindparam, func, inspect, select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.entities import FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlan, MealPlanItem, RecommendationRequest
 
 
@@ -21,6 +24,14 @@ def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
 class RecommendationRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    @staticmethod
+    def _today_local_date() -> datetime.date:
+        try:
+            tz = ZoneInfo(settings.app_timezone or "Asia/Ho_Chi_Minh")
+        except Exception:
+            tz = ZoneInfo("Asia/Ho_Chi_Minh")
+        return datetime.now(tz).date()
 
     @staticmethod
     def filter_model_payload(model, payload: dict) -> dict:
@@ -154,28 +165,16 @@ class RecommendationRepository:
                 .limit(1)
             )
 
-            if has_logs is not None:
-                existing_plan.status = "superseded"
-                self.db.flush()
-            else:
-                # Get all meal_plan_items IDs for this plan
-                item_ids = self.db.scalars(
-                    select(MealPlanItem.id)
-                    .join(Meal, MealPlanItem.meal_id == Meal.id)
-                    .where(Meal.meal_plan_id == existing_plan.id)
-                ).all()
-
-                if item_ids:
-                    # Disconnect food_log_items to preserve logs
-                    from sqlalchemy import update
-                    self.db.execute(
-                        update(FoodLogItem)
-                        .where(FoodLogItem.meal_plan_item_id.in_(item_ids))
-                        .values(meal_plan_item_id=None)
-                    )
-                
-                self.db.delete(existing_plan)
-                self.db.flush()
+            # Always mark old plan as superseded instead of deleting
+            # This preserves meal history and consumption logs
+            existing_plan.status = "superseded"
+            self.db.flush()
+            print("[MEAL PLAN SUPERSEDED]", {
+                "user_id": user_id_int,
+                "old_plan_id": existing_plan.id,
+                "had_consumption_logs": has_logs is not None,
+                "old_plan_date": existing_plan.plan_date.isoformat() if existing_plan.plan_date else None,
+            })
 
         meal_plan = MealPlan(
             user_id=user_id_int,
@@ -190,9 +189,25 @@ class RecommendationRepository:
             total_fat=total_fat,
             total_carbs=total_carbs,
             status=meal_plan_status,
+            note=json.dumps(
+                {
+                    "available_ingredients": list(request_payload.get("available_ingredients") or request_payload.get("ingredients") or []),
+                    "ingredient_coverage": request_payload.get("ingredient_coverage") or request_payload.get("coverage_debug") or None,
+                },
+                ensure_ascii=False,
+            ),
         )
         self.db.add(meal_plan)
         self.db.flush()
+
+        print("[MEAL PLAN SAVED]", {
+            "user_id": user_id_int,
+            "meal_plan_id": meal_plan.id,
+            "created_at": meal_plan.created_at.isoformat() if meal_plan.created_at else None,
+            "updated_at": meal_plan.updated_at.isoformat() if meal_plan.updated_at else None,
+            "plan_date": meal_plan.plan_date.isoformat() if meal_plan.plan_date else None,
+            "status": meal_plan.status,
+        })
 
         logger.info(f"Created meal_plan_id: {meal_plan.id}")
 
@@ -382,20 +397,55 @@ class RecommendationRepository:
         ]
 
     def get_today_meal_plan(self, user_id: int, target_date=None) -> MealPlan | None:
-        target_date = target_date or datetime.utcnow().date()
+        target_date = target_date or self._today_local_date()
         valid_plan = self.db.scalar(
             select(MealPlan)
             .where(MealPlan.user_id == user_id)
             .where(MealPlan.plan_date == target_date)
             .where(MealPlan.status.in_(["valid", "needs_regeneration", "major_adjustment", "minor_adjustment"]))
-            .order_by(MealPlan.created_at.desc())
+            .order_by(MealPlan.updated_at.desc(), MealPlan.created_at.desc(), MealPlan.id.desc())
         )
         if valid_plan is not None:
+            try:
+                metadata = json.loads(valid_plan.note or "{}") if valid_plan.note else {}
+            except Exception:
+                metadata = {}
+            selected_available_ingredients = metadata.get("available_ingredients") if isinstance(metadata, dict) else []
+            selected_item_names = [
+                str(item.reason or item.food_id or "")
+                for meal in valid_plan.meals
+                for item in meal.items
+                if item is not None
+            ]
+            print("[TODAY MEAL PLAN SELECTED]", {
+                "user_id": user_id,
+                "selected_plan_id": valid_plan.id,
+                "selected_created_at": valid_plan.created_at.isoformat() if valid_plan.created_at else None,
+                "selected_updated_at": valid_plan.updated_at.isoformat() if valid_plan.updated_at else None,
+                "selected_generated_at": None,
+                "plan_date": valid_plan.plan_date.isoformat() if valid_plan.plan_date else None,
+                "status": valid_plan.status,
+                "today_plan_count": int(self.db.scalar(
+                    select(func.count(MealPlan.id))
+                    .where(MealPlan.user_id == user_id)
+                    .where(MealPlan.plan_date == target_date)
+                    .where(MealPlan.status.in_(["valid", "needs_regeneration", "major_adjustment", "minor_adjustment"]))
+                ) or 0),
+            })
+            print("[MEAL PLAN TODAY SELECT DEBUG]", {
+                "user_id": user_id,
+                "today": target_date.isoformat() if target_date else None,
+                "selected_plan_id": valid_plan.id,
+                "selected_created_at": valid_plan.created_at.isoformat() if valid_plan.created_at else None,
+                "selected_updated_at": valid_plan.updated_at.isoformat() if valid_plan.updated_at else None,
+                "selected_available_ingredients": selected_available_ingredients if isinstance(selected_available_ingredients, list) else [],
+                "selected_item_names": selected_item_names,
+            })
             return valid_plan
         return None
 
     def get_or_create_food_log(self, user_id: int, target_date=None) -> FoodLog:
-        target_date = target_date or datetime.utcnow().date()
+        target_date = target_date or self._today_local_date()
         row = self.db.scalar(
             select(FoodLog)
             .where(FoodLog.user_id == user_id)
@@ -496,10 +546,22 @@ class RecommendationRepository:
                 "message": "Chưa có thực đơn hôm nay. Hãy bấm Tạo thực đơn hôm nay.",
                 "meal_plan": None,
                 "meals": [],
+                "meal_logs": [],
+                "consumption_logs": [],
+                "eaten_items": [],
+                "meal_consumptions": [],
+                "logs": [],
                 "food_log": None,
             }
 
-        today = datetime.utcnow().date()
+        try:
+            meal_plan_metadata = json.loads(meal_plan.note or "{}") if meal_plan.note else {}
+        except Exception:
+            meal_plan_metadata = {}
+        available_ingredients = meal_plan_metadata.get("available_ingredients") if isinstance(meal_plan_metadata, dict) else []
+        ingredient_coverage = meal_plan_metadata.get("ingredient_coverage") if isinstance(meal_plan_metadata, dict) else None
+
+        today = self._today_local_date()
         food_log = self.db.scalar(
             select(FoodLog)
             .where(FoodLog.user_id == user_id)
@@ -525,17 +587,54 @@ class RecommendationRepository:
             select(MealConsumptionLog)
             .where(MealConsumptionLog.user_id == user_id)
             .where(MealConsumptionLog.meal_plan_id == meal_plan.id)
-            .where(MealConsumptionLog.status == "eaten")
+            .where(MealConsumptionLog.status.in_(["eaten", "EATEN", "consumed", "CONSUMED"]))
             .where(func.date(MealConsumptionLog.consumed_at) == today)
+            .order_by(MealConsumptionLog.consumed_at.desc(), MealConsumptionLog.created_at.desc(), MealConsumptionLog.id.desc())
         ).scalars().all()
+
+        meal_consumption_logs = []
         for log in consumption_logs:
             if log.food_id is None:
                 continue
             eaten_at = log.consumed_at or log.created_at
+            consumed_date = eaten_at.date().isoformat() if eaten_at else today.isoformat()
+            meal_consumption_logs.append(
+                {
+                    "id": log.id,
+                    "meal_plan_id": log.meal_plan_id,
+                    "meal_type": log.meal_type,
+                    "food_id": log.food_id,
+                    "item_id": None,
+                    "food_name": None,
+                    "item_name": None,
+                    "is_eaten": str(log.status or "").lower() == "eaten",
+                    "eaten": str(log.status or "").lower() == "eaten",
+                    "consumed": str(log.status or "").lower() == "eaten",
+                    "status": log.status,
+                    "consumed_at": eaten_at.isoformat() if eaten_at else None,
+                    "consumed_date": consumed_date,
+                }
+            )
             eaten_by_food_id[str(log.food_id)] = {
                 "eaten_at": eaten_at.isoformat() if eaten_at else None,
-                "eaten_date": eaten_at.date().isoformat() if eaten_at else today.isoformat(),
+                "eaten_date": consumed_date,
             }
+
+        print("[TODAY CONSUMPTION LOGS SELECTED]", {
+            "user_id": user_id,
+            "meal_plan_id": meal_plan.id if meal_plan else None,
+            "logs_count": len(meal_consumption_logs),
+            "logs_preview": [
+                {
+                    "meal_type": log["meal_type"],
+                    "food_id": log["food_id"],
+                    "item_id": log["item_id"],
+                    "is_eaten": log["is_eaten"],
+                    "status": log["status"],
+                }
+                for log in meal_consumption_logs[:10]
+            ],
+        })
 
         food_ids = [
             str(item.food_id)
@@ -558,6 +657,7 @@ class RecommendationRepository:
                 items.append(
                     {
                         "id": item.id,
+                        "meal_plan_item_id": item.id,
                         "food_id": item.food_id,
                         "name": metadata.get("dish_name_vi") or item.reason or "Món ăn",
                         "category": metadata.get("clean_category") or item.meal_role,
@@ -608,9 +708,16 @@ class RecommendationRepository:
                 "total_fat": meal_plan.total_fat,
                 "total_carbs_g": meal_plan.total_carbs,
                 "total_carbs": meal_plan.total_carbs,
+                "available_ingredients": available_ingredients if isinstance(available_ingredients, list) else [],
+                "ingredient_coverage": ingredient_coverage if isinstance(ingredient_coverage, dict) else None,
             },
             "validation": self._validate_today_meal_plan_payload(meal_plan),
             "meals": meals,
+            "meal_logs": meal_consumption_logs,
+            "consumption_logs": meal_consumption_logs,
+            "eaten_items": meal_consumption_logs,
+            "meal_consumptions": meal_consumption_logs,
+            "logs": meal_consumption_logs,
             "food_log": None
             if food_log is None
             else {
@@ -708,6 +815,168 @@ class RecommendationRepository:
             "errors": [] if is_valid else [reason],
             "warnings": warnings,
         }
+
+    def restore_meal_plan(
+        self,
+        user_id: int,
+        source_meal_plan_id: int | None,
+        source_date: str | None,
+        meals: list[dict],
+        reset_consumption: bool = True,
+    ) -> dict:
+        """Restore a meal plan from history as today's active plan."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        today = self._today_local_date()
+        
+        # Validate meals data
+        if not meals or not isinstance(meals, list):
+            raise ValueError("Meals data is required for restoration")
+        
+        # Calculate totals from meals
+        total_kcal = 0.0
+        total_protein = 0.0
+        total_fat = 0.0
+        total_carbs = 0.0
+        
+        for meal in meals:
+            items = meal.get("items", [])
+            for item in items:
+                total_kcal += float(item.get("calories", 0) or item.get("kcal", 0) or 0)
+                total_protein += float(item.get("protein", 0) or item.get("protein_g", 0) or 0)
+                total_fat += float(item.get("fat", 0) or item.get("fat_g", 0) or 0)
+                total_carbs += float(item.get("carbs", 0) or item.get("carbs_g", 0) or 0)
+        
+        # Get target from user's latest meal plan or use calculated totals
+        latest_plan = self.db.scalar(
+            select(MealPlan)
+            .where(MealPlan.user_id == user_id)
+            .order_by(MealPlan.created_at.desc())
+            .limit(1)
+        )
+        
+        target_kcal = latest_plan.target_kcal if latest_plan else total_kcal
+        target_protein = latest_plan.target_protein if latest_plan else total_protein
+        target_fat = latest_plan.target_fat if latest_plan else total_fat
+        target_carbs = latest_plan.target_carbs if latest_plan else total_carbs
+        
+        # Create new meal plan for today
+        new_meal_plan = MealPlan(
+            user_id=user_id,
+            recommendation_request_id=None,
+            plan_date=today,
+            target_kcal=target_kcal,
+            target_protein=target_protein,
+            target_fat=target_fat,
+            target_carbs=target_carbs,
+            total_kcal=total_kcal,
+            total_protein=total_protein,
+            total_fat=total_fat,
+            total_carbs=total_carbs,
+            status="valid",
+            note=f"Restored from {'meal plan ' + str(source_meal_plan_id) if source_meal_plan_id else 'history'} on {source_date or 'unknown date'}",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        
+        self.db.add(new_meal_plan)
+        self.db.flush()
+        
+        logger.info("[RESTORE MEAL PLAN] Created new plan id=%s for user=%s date=%s", new_meal_plan.id, user_id, today)
+        
+        # Create meals and items
+        meal_type_order = {"breakfast": 1, "morning_snack": 2, "lunch": 3, "afternoon_snack": 4, "dinner": 5, "evening_snack": 6}
+        
+        for meal_data in meals:
+            meal_type = meal_data.get("meal_type", "")
+            meal_order = meal_type_order.get(meal_type, 99)
+            
+            meal_kcal = 0.0
+            meal_protein = 0.0
+            meal_fat = 0.0
+            meal_carbs = 0.0
+            
+            items_data = meal_data.get("items", [])
+            for item in items_data:
+                meal_kcal += float(item.get("calories", 0) or item.get("kcal", 0) or 0)
+                meal_protein += float(item.get("protein", 0) or item.get("protein_g", 0) or 0)
+                meal_fat += float(item.get("fat", 0) or item.get("fat_g", 0) or 0)
+                meal_carbs += float(item.get("carbs", 0) or item.get("carbs_g", 0) or 0)
+            
+            new_meal = Meal(
+                meal_plan_id=new_meal_plan.id,
+                meal_type=meal_type,
+                meal_name_vi=meal_data.get("title") or meal_data.get("meal_name_vi"),
+                meal_order=meal_order,
+                total_kcal=meal_kcal,
+                total_protein=meal_protein,
+                total_fat=meal_fat,
+                total_carbs=meal_carbs,
+                created_at=datetime.utcnow(),
+            )
+            
+            self.db.add(new_meal)
+            self.db.flush()
+            
+            # Create meal items
+            for idx, item_data in enumerate(items_data):
+                food_id = item_data.get("food_id", "")
+                
+                new_item = MealPlanItem(
+                    meal_id=new_meal.id,
+                    food_id=str(food_id),
+                    meal_role=item_data.get("category") or item_data.get("meal_role"),
+                    quantity_g=item_data.get("serving_grams") or item_data.get("quantity_g"),
+                    kcal=float(item_data.get("calories", 0) or item_data.get("kcal", 0) or 0),
+                    protein=float(item_data.get("protein", 0) or item_data.get("protein_g", 0) or 0),
+                    fat=float(item_data.get("fat", 0) or item_data.get("fat_g", 0) or 0),
+                    carbs=float(item_data.get("carbs", 0) or item_data.get("carbs_g", 0) or 0),
+                    serving_display=item_data.get("serving_display"),
+                    reason=item_data.get("name") or item_data.get("food_name"),
+                    image_url=item_data.get("image_url") or item_data.get("imageUrl"),
+                    image_badge=None,
+                    item_order=idx,
+                    created_at=datetime.utcnow(),
+                )
+                
+                self.db.add(new_item)
+            
+        # Reset consumption logs if requested
+        if reset_consumption:
+            # Delete today's meal consumption logs for this user
+            self.db.execute(
+                text("""
+                    DELETE FROM meal_consumption_logs 
+                    WHERE user_id = :user_id 
+                    AND DATE(consumed_at) = :today
+                """),
+                {"user_id": user_id, "today": today}
+            )
+            
+            # Delete today's food log items
+            food_log = self.db.scalar(
+                select(FoodLog)
+                .where(FoodLog.user_id == user_id)
+                .where(FoodLog.log_date == today)
+            )
+            
+            if food_log:
+                self.db.execute(
+                    text("DELETE FROM food_log_items WHERE food_log_id = :food_log_id"),
+                    {"food_log_id": food_log.id}
+                )
+                food_log.consumed_kcal = 0.0
+                food_log.consumed_protein = 0.0
+                food_log.consumed_fat = 0.0
+                food_log.consumed_carbs = 0.0
+            
+            logger.info("[RESTORE MEAL PLAN] Reset consumption logs for user=%s date=%s", user_id, today)
+        
+        self.db.commit()
+        
+        # Return the same format as today_meal_plan_payload
+        return self.today_meal_plan_payload(user_id)
 
     def list_recent_requests(
         self,

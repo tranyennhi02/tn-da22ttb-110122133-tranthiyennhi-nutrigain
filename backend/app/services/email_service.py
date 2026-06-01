@@ -75,15 +75,29 @@ def send_email(
 
 
 def send_verification_code_email(to_email: str, code: str) -> bool:
+    logger.info("[EMAIL VERIFICATION SEND START] to_email=%s", _mask_email(to_email))
+    
+    # Log SMTP configuration status (safely, without passwords)
+    logger.info(
+        "[SMTP CONFIG CHECK] host_set=%s port=%s user_set=%s password_set=%s from_email=%s use_tls=%s",
+        bool(settings.smtp_host),
+        settings.smtp_port,
+        bool(settings.smtp_user),
+        bool(settings.smtp_password),
+        settings.smtp_from or settings.smtp_user,
+        settings.smtp_use_tls,
+    )
+    
     if not to_email or "@" not in str(to_email):
-        logger.warning("[AUTH VERIFICATION SKIPPED] reason=invalid_email to_email=%s", _mask_email(to_email))
+        logger.warning("[EMAIL VERIFICATION SEND FAILED] reason=invalid_email to_email=%s", _mask_email(to_email))
         return False
 
     if not is_smtp_configured():
         if _is_dev_mode():
             logger.warning("[EMAIL DEV MODE] Verification code for %s: %s", _mask_email(to_email), code)
+            logger.warning("[EMAIL VERIFICATION SEND FAILED] reason=smtp_not_configured_dev_mode")
         else:
-            logger.warning("[AUTH VERIFICATION SKIPPED] reason=smtp_not_configured to_email=%s", _mask_email(to_email))
+            logger.warning("[EMAIL VERIFICATION SEND FAILED] reason=smtp_not_configured to_email=%s", _mask_email(to_email))
         return False
 
     message = EmailMessage()
@@ -108,12 +122,23 @@ def send_verification_code_email(to_email: str, code: str) -> bool:
     )
 
     try:
+        logger.info("[SMTP SEND START] host=%s port=%s", settings.smtp_host, settings.smtp_port)
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port or 587, timeout=15) as smtp:
             if settings.smtp_use_tls:
+                logger.info("[SMTP TLS START]")
                 smtp.starttls()
+                logger.info("[SMTP TLS SUCCESS]")
+            
+            logger.info("[SMTP LOGIN START] user=%s", _mask_email(settings.smtp_user))
             smtp.login(settings.smtp_user, settings.smtp_password)
+            logger.info("[SMTP LOGIN SUCCESS]")
+            
+            logger.info("[SMTP SEND MESSAGE START]")
             smtp.send_message(message)
+            logger.info("[SMTP SEND MESSAGE SUCCESS]")
+        
+        logger.info("[EMAIL VERIFICATION SEND SUCCESS] to_email=%s", _mask_email(to_email))
         return True
     except Exception:
-        logger.exception("[AUTH VERIFICATION FAILED] error=send_verification_email_exception to_email=%s", _mask_email(to_email))
+        logger.exception("[EMAIL VERIFICATION SEND FAILED] error=send_verification_email_exception to_email=%s", _mask_email(to_email))
         return False
