@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, Component } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
 import NutriGainLogo from "../components/NutriGainLogo";
@@ -3155,6 +3155,17 @@ function MealPlanSetupModal({ formState, selectedIngredients, onIngredientAdd, o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6">
       <div className="relative flex w-full max-w-[1240px] max-h-[calc(100vh-40px)] flex-col overflow-hidden rounded-[30px] border border-slate-200/70 bg-[linear-gradient(180deg,#fcfcfb_0%,#f8faf9_100%)] shadow-2xl shadow-slate-950/20 animate-fade-in lg:max-h-none">
+        {/* Close Button */}
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isGeneratingMealPlan}
+          aria-label="Đóng thiết lập thực đơn"
+          className="absolute right-5 top-5 z-30 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
         {/* Loading Overlay */}
         {isGeneratingMealPlan && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/80 backdrop-blur-md">
