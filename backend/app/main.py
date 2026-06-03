@@ -24,6 +24,46 @@ except ImportError:
 except Exception as e:
     print(f"[DOTENV] Error loading .env: {e}")
 
+# Configure Hugging Face cache BEFORE importing any HF/transformers modules
+def _configure_hf_cache():
+    """Configure Hugging Face cache paths to use D drive instead of C drive"""
+    project_root = Path(__file__).parent.parent.parent
+    default_hf_home = str(project_root / "hf-cache")
+    default_hub_cache = str(project_root / "hf-cache" / "hub")
+    default_transformers_cache = str(project_root / "hf-cache" / "transformers")
+    default_torch_home = str(project_root / "torch-cache")
+    
+    # Set environment variables with defaults
+    os.environ.setdefault("HF_HOME", os.getenv("HF_HOME") or default_hf_home)
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", os.getenv("HUGGINGFACE_HUB_CACHE") or default_hub_cache)
+    os.environ.setdefault("HF_HUB_CACHE", os.getenv("HF_HUB_CACHE") or default_hub_cache)
+    os.environ.setdefault("TRANSFORMERS_CACHE", os.getenv("TRANSFORMERS_CACHE") or default_transformers_cache)
+    os.environ.setdefault("TORCH_HOME", os.getenv("TORCH_HOME") or default_torch_home)
+    
+    # Create directories if they don't exist
+    for env_var in ["HF_HOME", "HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "TORCH_HOME"]:
+        cache_path = os.environ.get(env_var)
+        if cache_path:
+            try:
+                Path(cache_path).mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                print(f"[HF CACHE] Warning: Failed to create {env_var} directory {cache_path}: {e}")
+    
+    # Log cache configuration
+    print("[CLIP CACHE CONFIG] Hugging Face cache paths:")
+    print(f"  HF_HOME: {os.environ.get('HF_HOME')}")
+    print(f"  HUGGINGFACE_HUB_CACHE: {os.environ.get('HUGGINGFACE_HUB_CACHE')}")
+    print(f"  HF_HUB_CACHE: {os.environ.get('HF_HUB_CACHE')}")
+    print(f"  TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE')}")
+    print(f"  TORCH_HOME: {os.environ.get('TORCH_HOME')}")
+    
+    # Check if cache is still pointing to C drive (Windows only)
+    hf_home = os.environ.get("HF_HOME", "")
+    if hf_home.upper().startswith("C:") or hf_home.upper().startswith("C\\"):
+        print(f"[CLIP CACHE WARNING] Hugging Face cache is still on C drive: {hf_home}")
+
+_configure_hf_cache()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

@@ -1,8 +1,25 @@
+/* ============================================================================
+   CHATBOT FLOATING BUTTON - FIXED POSITIONING
+   ============================================================================
+   
+   Z-INDEX HIERARCHY:
+   - Modals: z-50 to z-60 (highest - appears above everything)
+   - Chatbot: z-40 (middle - fixed at bottom-right, below modals)
+   - Sidebar/Drawer: z-40 (middle - fixed at left, doesn't overlap chatbot)
+   - Overlay: z-30 (lowest - backdrop for drawer)
+   
+   SAFE AREA STRATEGY:
+   - Chatbot is fixed at bottom-right corner
+   - Main content has pb-32 (128px) padding to prevent overlap
+   - Mobile: pb-24 (96px) + smaller button for better UX
+   
+   ============================================================================ */
+
 .ng-chatbot {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 90;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
   font-family: inherit;
   opacity: 1;
   isolation: isolate;
@@ -208,18 +225,18 @@
 
 @media (max-width: 640px) {
   .ng-chatbot {
-    right: 14px;
-    bottom: 14px;
+    right: 16px;
+    bottom: 16px;
     opacity: 1;
   }
 
   .ng-chatbot-panel {
-    width: calc(100vw - 28px);
-    height: min(640px, calc(100vh - 92px));
+    width: calc(100vw - 32px);
+    height: min(580px, calc(100vh - 100px));
   }
 
   .ng-chatbot-sticker {
-    width: 48px;
-    height: 48px;
+    width: 52px;
+    height: 52px;
   }
 }

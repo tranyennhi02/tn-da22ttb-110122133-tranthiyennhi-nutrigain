@@ -59,6 +59,7 @@ frontend/dist/
 pip-cache/
 pip-temp/
 hf-cache/
+torch-cache/
 .venv/
 .venv-1/
 backend/.venv/

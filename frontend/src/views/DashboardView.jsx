@@ -27,6 +27,7 @@ import { normalizeProfilePayload } from "../utils/profileFormUtils";
 import { loadTodayMealPlan, regenerateMealPlan, restoreMealPlan, saveUserProfile } from "../controllers/recommendationController";
 import { fetchCurrentUser, fetchHistory, fetchWeightLogs, fetchWeightLogSummary, getAuthHeaders, toggleMealConsumption, fetchEatingHistory, saveWeightLog } from "../services/apiService";
 import { mapUserProfileToFormState } from "../App";
+import { exportNutritionReportPdf } from "../utils/exportNutritionReportPdf";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -2349,7 +2350,6 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     });
     console.log("[MEAL SETUP SUBMIT PAYLOAD]", mergedSettings);
     setMealSetupError("");
-    setGenerationNotice("");
     // Clear stale ingredientWarnings from previous generation immediately
     setResult((current) => current ? { ...current, ingredientWarnings: null } : current);
     setIsGeneratingMealPlan(true);
@@ -2689,7 +2689,6 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
                 ratings={ratings}
                 mealLog={mealLog}
                 consumedNutrition={consumedNutrition}
-                generationNotice={generationNotice}
                 submitError={submitError}
                 onFavorite={toggleFavorite}
                 onRate={rateMeal}
@@ -3547,7 +3546,6 @@ function DashboardContent({
           weeklyCalories={weeklyCalories}
           meals={meals}
           consumedNutrition={consumedNutrition}
-          generationNotice={generationNotice}
           onRegenerate={onRegenerate}
           onOpenSetup={onOpenSetup}
           isSubmitting={isSubmitting}
@@ -3679,7 +3677,6 @@ function OverviewPage({
   weeklyCalories,
   meals,
   consumedNutrition,
-  generationNotice,
   onRegenerate,
   onOpenSetup,
   onEditProfile,
@@ -3734,9 +3731,18 @@ function OverviewPage({
   async function handleExportReport() {
     setIsExporting(true);
     try {
-      await exportNutritionReportPdf("nutrition-report-container", `nutrigain_report_${new Date().getTime()}.pdf`);
+      await exportNutritionReportPdf({
+        userEmail: currentUser?.email || "",
+        summary,
+        profileSettings,
+        meals,
+        consumedNutrition,
+        validation,
+        nutritionTarget,
+      });
     } catch (e) {
-      alert("Lỗi xuất PDF: " + e.message);
+      console.error("[EXPORT PDF ERROR]", e);
+      alert(`Lỗi xuất PDF: ${e?.message || "Không thể xuất báo cáo PDF"}`);
     } finally {
       setIsExporting(false);
     }
@@ -3791,7 +3797,6 @@ function OverviewPage({
         actionKind: "loading",
       }
     : baseUserStatus;
-  const scoreLabel = getMealPlanScoreLabel(validation, planTotals, nutritionTarget);
   const visiblePoints = dedupeMessages(userStatus.points).map(toFriendlyStatusPoint).filter(Boolean).slice(0, 3);
   const adjustmentMessages = isSubmitting
     ? []
@@ -3800,10 +3805,6 @@ function OverviewPage({
   const missingTotal = getMissingItemCount(validation, missingItems);
   const showAdjustmentBox = adjustmentMessages.length > 0
     && !(planScore >= 95 && missingTotal === 0 && userStatus.actionKind === "view");
-  const detailMessages = isSubmitting
-    ? []
-    : buildDashboardDetailMessages(validation, dataWarnings, { totals: planTotals, targets: nutritionTarget, meals });
-  const statusTone = statusToneClass(userStatus.tone);
 
   const consumed_kcal = consumedNutrition?.calories || 0;
   const target_kcal = nutritionTarget?.targetCalories || summary?.targetCalories || 0;
@@ -3895,13 +3896,7 @@ function OverviewPage({
               </div>
             )}
 
-            {/* Badge */}
-            {scoreLabel && (
-              <div className="mt-5 inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-100">
-                <span>⭐</span>
-                <span>Đánh giá: {scoreLabel}</span>
-              </div>
-            )}
+
 
             {/* CTA chính */}
             <div className="mt-6">
@@ -3956,18 +3951,6 @@ function OverviewPage({
                 );
               })()}
             </div>
-
-            {!showAdjustmentBox && planScore >= 85 ? (
-              <p className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                Thực đơn hôm nay đang khá cân bằng. Bạn đang làm rất tốt!
-              </p>
-            ) : null}
-
-            {generationNotice && !isSubmitting && (
-              <p className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                {generationNotice}
-              </p>
-            )}
           </section>
         </div>
 
@@ -4126,26 +4109,46 @@ function OverviewPage({
         </section>
       )}
 
-      {/* Chi tiết dinh dưỡng (collapsible) */}
+      {/* Chi tiết dinh dưỡng & báo cáo (collapsible) */}
       <section className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between p-6 text-left transition hover:bg-slate-50"
-          onClick={() => setShowDetails((v) => !v)}
-        >
-          <span className="text-sm font-bold text-slate-900">Chi tiết dinh dưỡng</span>
-          <svg 
-            viewBox="0 0 24 24" 
-            className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
+        <div className="flex w-full items-center justify-between gap-4 p-6">
+          <button
+            type="button"
+            className="flex flex-1 items-center gap-3 text-left transition"
+            onClick={() => setShowDetails((v) => !v)}
           >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
+            <div className="flex-1">
+              <span className="text-sm font-bold text-slate-900">Chi tiết dinh dưỡng & báo cáo</span>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Xem tổng quan dinh dưỡng hôm nay và tải báo cáo khi cần
+              </p>
+            </div>
+            <svg 
+              viewBox="0 0 24 24" 
+              className={`h-5 w-5 flex-shrink-0 text-slate-400 transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="2.5" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={handleExportReport}
+            disabled={isExporting || isSubmitting || !meals?.length}
+            className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+            title={!meals?.length ? "Báo cáo sẽ khả dụng sau khi bạn có nhật ký ăn uống hôm nay" : ""}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            {isExporting ? "Đang xuất..." : "Xuất PDF"}
+          </button>
+        </div>
         {showDetails && (
           <div className="animate-fade-in border-t border-slate-100 bg-slate-50/50 p-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -4154,24 +4157,13 @@ function OverviewPage({
               <MiniDetailCard label="Carb" val={consumedNutrition?.carbs || 0} total={nutritionTarget.carbTarget} unit="g" />
               <MiniDetailCard label="Chất béo" val={consumedNutrition?.fat || 0} total={nutritionTarget.fatTarget} unit="g" />
             </div>
+            {!meals?.length && (
+              <p className="mt-4 text-xs font-semibold text-slate-500 text-center">
+                Báo cáo sẽ khả dụng sau khi bạn có nhật ký ăn uống hôm nay.
+              </p>
+            )}
           </div>
         )}
-      </section>
-
-      <section className="rounded-[28px] border border-slate-100 bg-white p-6 shadow-sm">
-        <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">BÁO CÁO</p>
-        <h3 className="mt-3 text-xl font-black text-slate-900">Xuất báo cáo dinh dưỡng</h3>
-        <p className="mt-2 text-sm font-semibold text-slate-600">
-          Tải báo cáo hôm nay để lưu trữ hoặc chia sẻ.
-        </p>
-        <button
-          type="button"
-          onClick={handleExportReport}
-          disabled={isExporting || isSubmitting}
-          className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-slate-50 px-4 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100 disabled:opacity-60"
-        >
-          {isExporting ? "Đang xuất..." : "Xuất báo cáo PDF"}
-        </button>
       </section>
 
       {/* Hidden PDF template */}

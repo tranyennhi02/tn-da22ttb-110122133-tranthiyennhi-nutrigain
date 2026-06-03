@@ -69,6 +69,13 @@ class Settings:
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
     enable_ingredient_image_recognition: bool = _bool_env("ENABLE_INGREDIENT_IMAGE_RECOGNITION", True)
+    
+    # Hugging Face cache paths - Dùng ổ D để tránh hết dung lượng ổ C
+    hf_home: str | None = os.getenv("HF_HOME", None)
+    huggingface_hub_cache: str | None = os.getenv("HUGGINGFACE_HUB_CACHE", None)
+    hf_hub_cache: str | None = os.getenv("HF_HUB_CACHE", None)
+    transformers_cache: str | None = os.getenv("TRANSFORMERS_CACHE", None)
+    torch_home: str | None = os.getenv("TORCH_HOME", None)
 
 
 settings = Settings()

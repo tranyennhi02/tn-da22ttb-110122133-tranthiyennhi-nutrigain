@@ -5382,7 +5382,25 @@ class RecommenderService:
         EXTRA_CATEGORIES = {"dairy", "healthy_fat_nuts", "plant_protein", "egg"}
         DESSERT_CATEGORIES = {"dessert_sweets", "sweet_spread"}
 
-        logger.info(f"Picking meals. Total ranked rows: {len(ranked)}")
+        available_ingredients = target.get("available_ingredients", [])
+        has_priority_ingredients = bool(available_ingredients)
+        
+        # Create a random number generator for diverse selection
+        # Use seed from target if available, otherwise use a fixed value for consistency within same call
+        diversity_seed = target.get("generation_seed") or target.get("random_seed") or 42
+        diversity_rng = random.Random(diversity_seed)
+        
+        logger.info(f"[DEFAULT_MEAL_DIVERSITY_START] Picking meals. Has priority ingredients: {has_priority_ingredients}. Total ranked rows: {len(ranked)}")
+        if _debug_recommender_enabled():
+            _debug_print("[DEFAULT_MEAL_DIVERSITY_START]", {
+                "user_id": target.get("user_id"),
+                "prioritized_ingredients_count": len(available_ingredients),
+                "prioritized_ingredients": available_ingredients,
+                "ranked_candidate_count": len(ranked),
+                "use_diverse_selection": not has_priority_ingredients,
+                "diversity_seed": diversity_seed,
+            })
+        
         cat_counts = ranked["clean_category"].value_counts().to_dict()
         logger.info(f"Category counts before picking: {cat_counts}")
 
@@ -5418,6 +5436,30 @@ class RecommenderService:
         vegetarian_mode = _is_vegetarian_diet(target.get("diet_type", ""))
         budget_level = RecommenderService._normalize_budget_level(target.get("budget_level", "standard"))
         max_animal_protein_count = 0 if vegetarian_mode else (2 if target_protein <= 95 else 3)
+        
+        # ──────────────────────────────────────────────────────────────────────
+        # PRIORITY INGREDIENT DISTRIBUTION LOGIC
+        # ──────────────────────────────────────────────────────────────────────
+        available_ingredients = target.get("available_ingredients", [])
+        prioritized_ingredients_used_count: dict[str, int] = {}  # Track usage count per ingredient
+        meal_priority_ingredient_count: dict[str, int] = {}  # Track priority count per meal
+        MAX_PRIORITY_PER_MEAL = 2  # Limit to 2 priority ingredients per meal
+        
+        def _ingredient_already_used_enough(ingredient: str) -> bool:
+            """Check if this ingredient has been used enough times already."""
+            # Allow each priority ingredient to be used at most once per day
+            return prioritized_ingredients_used_count.get(normalize_ingredient_name(ingredient), 0) >= 1
+        
+        def _meal_has_room_for_priority(meal_name: str) -> bool:
+            """Check if this meal can still accept priority ingredients."""
+            return meal_priority_ingredient_count.get(meal_name, 0) < MAX_PRIORITY_PER_MEAL
+        
+        def _get_ingredient_match_list_for_row(row: pd.Series | dict) -> list[str]:
+            """Get list of matched priority ingredients for this food row."""
+            if not available_ingredients:
+                return []
+            return ingredient_match_list(row, available_ingredients)
+        # ──────────────────────────────────────────────────────────────────────
 
         def _row_clean_category(row: pd.Series | dict) -> str:
             return _canonical_food_category(
@@ -5621,6 +5663,42 @@ class RecommenderService:
                     & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                 ].copy()
                 pool = _prefer_semantic_distinct(pool)
+                
+                # ──────────────────────────────────────────────────────────────
+                # PRIORITY INGREDIENT FILTERING
+                # Penalize foods with priority ingredients that:
+                # 1. Have been used enough already, OR
+                # 2. Would exceed max priority per meal
+                # ──────────────────────────────────────────────────────────────
+                if available_ingredients and not pool.empty:
+                    def _should_penalize_priority_row(row: pd.Series | dict) -> bool:
+                        matched = _get_ingredient_match_list_for_row(row)
+                        if not matched:
+                            return False  # No priority match, no penalty
+                        
+                        # Check if meal already has max priority count
+                        if not _meal_has_room_for_priority(meal):
+                            return True  # Penalize: meal full
+                        
+                        # Check if any matched ingredient has been used enough
+                        for ing in matched:
+                            if _ingredient_already_used_enough(ing):
+                                return True  # Penalize: ingredient used enough
+                        
+                        return False  # Don't penalize
+                    
+                    # Apply penalty to priority items that should be avoided
+                    pool_copy = pool.copy()
+                    pool_copy["_priority_penalty"] = pool_copy.apply(_should_penalize_priority_row, axis=1)
+                    
+                    # Prefer non-penalized items
+                    non_penalized = pool_copy[~pool_copy["_priority_penalty"]]
+                    if not non_penalized.empty:
+                        pool = non_penalized.drop(columns=["_priority_penalty"])
+                    else:
+                        pool = pool_copy.drop(columns=["_priority_penalty"])
+                # ──────────────────────────────────────────────────────────────
+                
                 if family_counts:
                     family_pool = pool[
                         ~pool.apply(
@@ -5781,8 +5859,56 @@ class RecommenderService:
                     ),
                     axis=1,
                 )
-                best_row = scored_pool.sort_values("_slot_score", ascending=False).iloc[0].copy()
+                
+                # ──────────────────────────────────────────────────────────────
+                # WEIGHTED RANDOM SELECTION FROM TOP POOL FOR DIVERSITY
+                # When no priority ingredients, use weighted random from top candidates
+                # to avoid repetitive meal plans
+                # ──────────────────────────────────────────────────────────────
+                sorted_pool = scored_pool.sort_values("_slot_score", ascending=False)
+                
+                # Determine if we should use diverse selection
+                has_priority_ingredients = bool(available_ingredients)
+                use_diverse_selection = not has_priority_ingredients
+                
+                if use_diverse_selection and len(sorted_pool) > 1:
+                    # Take top 10 candidates (or fewer if pool is small)
+                    top_pool_size = min(10, len(sorted_pool))
+                    top_pool = sorted_pool.head(top_pool_size)
+                    
+                    # Generate weights: first item has highest weight, decreasing for others
+                    # Weight formula: 1 / (rank + 1), so rank 0 gets 1.0, rank 1 gets 0.5, etc.
+                    weights = np.array([1.0 / (i + 1) for i in range(top_pool_size)])
+                    weights = weights / weights.sum()  # Normalize to sum to 1
+                    
+                    # Random selection based on weights using the diversity RNG
+                    selected_idx = diversity_rng.choices(range(top_pool_size), weights=weights.tolist(), k=1)[0]
+                    best_row = top_pool.iloc[selected_idx].copy()
+                    
+                    if _debug_recommender_enabled():
+                        logger.debug(
+                            "[DIVERSE_MEAL_PICKED] meal=%s slot=%s rank=%d/%d food=%s score=%.3f",
+                            meal, slot_name, selected_idx, top_pool_size,
+                            best_row.get("name", ""), float(best_row.get("_slot_score", 0))
+                        )
+                else:
+                    # Priority ingredient mode or single candidate: use highest score
+                    best_row = sorted_pool.iloc[0].copy()
+                
                 best_row = best_row.drop(labels=["_slot_score"], errors="ignore")
+                # ──────────────────────────────────────────────────────────────
+                
+                # ──────────────────────────────────────────────────────────────
+                # UPDATE PRIORITY INGREDIENT TRACKING
+                # Track which priority ingredients this selected food covers
+                # ──────────────────────────────────────────────────────────────
+                matched_priority_ingredients = _get_ingredient_match_list_for_row(best_row)
+                if matched_priority_ingredients:
+                    for ing in matched_priority_ingredients:
+                        ing_key = normalize_ingredient_name(ing)
+                        prioritized_ingredients_used_count[ing_key] = prioritized_ingredients_used_count.get(ing_key, 0) + 1
+                    meal_priority_ingredient_count[meal] = meal_priority_ingredient_count.get(meal, 0) + 1
+                # ──────────────────────────────────────────────────────────────
                 
                 slot_target_kcal = meal_target_kcal / len(slots)
                 base_calories = max(float(best_row.get("calories_raw", 1.0) or 1.0), 1.0)
@@ -6173,6 +6299,30 @@ class RecommenderService:
                 plan[meal] = pd.DataFrame(selected_rows)
             else:
                 plan[meal] = ranked.iloc[0:0].copy()
+        
+        # ──────────────────────────────────────────────────────────────────────
+        # LOG DIVERSITY SUMMARY
+        # ──────────────────────────────────────────────────────────────────────
+        if _debug_recommender_enabled():
+            selected_names = []
+            category_counts: dict[str, int] = {}
+            for meal_type, meal_df in plan.items():
+                for _, row in meal_df.iterrows():
+                    food_name = str(row.get("name", ""))
+                    selected_names.append(food_name)
+                    cat = _canonical_food_category(
+                        row.get("clean_category", row.get("category", "")),
+                        food_name
+                    )
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+            
+            _debug_print("[DEFAULT_MEAL_DIVERSITY_SUMMARY]", {
+                "selected_food_names": selected_names,
+                "category_counts": category_counts,
+                "has_priority_ingredients": has_priority_ingredients,
+                "total_foods_selected": len(selected_names),
+            })
+        # ──────────────────────────────────────────────────────────────────────
                 
         return plan
 
@@ -7251,6 +7401,7 @@ class RecommenderService:
             "disliked_foods": disliked_foods,
             "available_ingredients": available_ingredients,
             "user_id": getattr(user, "id", None),
+            "generation_seed": payload.generation_seed or payload.random_seed or int(datetime.now(timezone.utc).timestamp()),
         }
 
         build_candidates_start = time.perf_counter()
@@ -7738,6 +7889,175 @@ class RecommenderService:
                 "items": meal_list
             })
 
+        # ═══════════════════════════════════════════════════════════════════════════
+        # CALORIE REBALANCING: Ensure meal plan total kcal is close to target
+        # ═══════════════════════════════════════════════════════════════════════════
+        logger.info("[MEAL_CALORIE_BALANCE_CHECK] %s", {
+            "targetKcal": target_kcal,
+            "planTotalKcal": round(total_kcal),
+            "lowerBound": round(target_kcal * 0.92),
+            "upperBound": round(target_kcal * 1.08),
+            "deficit": round(target_kcal - total_kcal),
+            "itemCount": len(meal_items_for_db),
+        })
+        
+        # Only rebalance if deficit is significant (> 8% or below 92% of target)
+        if target_kcal > 0 and total_kcal < target_kcal * 0.92:
+            deficit = target_kcal - total_kcal
+            logger.info("[MEAL_CALORIE_TOP_UP_START] %s", {
+                "deficit": round(deficit),
+                "strategy": "increase_portions_and_add_items",
+            })
+            
+            # Calorie booster food categories (starch, dairy, healthy fats)
+            energy_booster_categories = {
+                "starch_grain", "starch_tuber", "dairy", "healthy_fat_nuts", "fruit"
+            }
+            
+            # Try to increase portions of existing energy-dense items first
+            for meal in meal_plan_payload:
+                if deficit <= 0:
+                    break
+                    
+                for item in meal.get("items", []):
+                    if deficit <= 0:
+                        break
+                        
+                    item_category = _canonical_food_category(item.get("category"), item.get("name", ""))
+                    if item_category not in energy_booster_categories:
+                        continue
+                        
+                    # Increase portion by up to 30%
+                    old_kcal = float(item.get("calories", 0))
+                    old_serving = float(item.get("serving_grams", 100))
+                    
+                    # Calculate how much to increase
+                    increase_factor = min(1.3, 1 + (deficit / max(old_kcal, 1)) * 0.5)
+                    new_serving = old_serving * increase_factor
+                    
+                    # Apply serving limits
+                    min_q, max_q = _serving_limits(item.get("category", ""), item.get("name", ""))
+                    if min_q is not None and max_q is not None:
+                        new_serving = min(max(new_serving, min_q), max_q)
+                    
+                    actual_increase = new_serving / old_serving if old_serving > 0 else 1.0
+                    new_kcal = old_kcal * actual_increase
+                    added_kcal = new_kcal - old_kcal
+                    
+                    if added_kcal > 5:  # Only log meaningful increases
+                        # Update item
+                        item["serving_grams"] = new_serving
+                        item["quantity_g"] = new_serving
+                        item["calories"] = new_kcal
+                        item["kcal"] = new_kcal
+                        item["protein"] = float(item.get("protein", 0)) * actual_increase
+                        item["fat"] = float(item.get("fat", 0)) * actual_increase
+                        item["carbs"] = float(item.get("carbs", 0)) * actual_increase
+                        item["portion_display"] = self._portion_display(item, str(item.get("name", "")))
+                        item["serving_display"] = item["portion_display"]
+                        
+                        deficit -= added_kcal
+                        total_kcal += added_kcal
+                        total_protein += float(item.get("protein", 0)) * (actual_increase - 1)
+                        total_fat += float(item.get("fat", 0)) * (actual_increase - 1)
+                        total_carbs += float(item.get("carbs", 0)) * (actual_increase - 1)
+                        
+                        logger.info("[MEAL_CALORIE_TOP_UP_INCREASE_PORTION] %s", {
+                            "mealKey": meal.get("meal_type"),
+                            "foodId": item.get("food_id"),
+                            "foodName": item.get("name"),
+                            "oldServing": round(old_serving),
+                            "newServing": round(new_serving),
+                            "oldKcal": round(old_kcal),
+                            "newKcal": round(new_kcal),
+                            "addedKcal": round(added_kcal),
+                        })
+            
+            # If still deficit, try adding high-calorie items from ranked candidates
+            if deficit > target_kcal * 0.05 and not ranked.empty:  # More than 5% still needed
+                # Find meals with fewer items than expected
+                for meal in meal_plan_payload:
+                    if deficit <= 0:
+                        break
+                        
+                    meal_type = meal.get("meal_type", "dinner")
+                    expected_slots = _expected_slots_for_meal(meal_type)
+                    current_items = len(meal.get("items", []))
+                    
+                    if current_items < expected_slots:
+                        # Find a suitable high-calorie item to add
+                        existing_ids = {str(item.get("food_id")) for item in meal.get("items", [])}
+                        
+                        # Filter candidates: energy categories, not already in plan, reasonable kcal
+                        target_item_kcal = deficit / max(1, expected_slots - current_items)
+                        
+                        for _, candidate_row in ranked.iterrows():
+                            candidate_id = str(candidate_row.get("food_id", ""))
+                            if candidate_id in existing_ids:
+                                continue
+                                
+                            candidate_category = _canonical_food_category(
+                                candidate_row.get("clean_category", candidate_row.get("category", "")),
+                                candidate_row.get("name", "")
+                            )
+                            
+                            if candidate_category not in energy_booster_categories:
+                                continue
+                            
+                            candidate_kcal = float(
+                                candidate_row.get("calories_raw", candidate_row.get("kcal_per_serving_clean", 0)) or 0
+                            )
+                            
+                            # Prefer items with kcal close to what we need
+                            if candidate_kcal < 50 or candidate_kcal > target_item_kcal * 2:
+                                continue
+                            
+                            # Add this item
+                            new_item = self._to_food_item_payload(candidate_row)
+                            meal.get("items", []).append(new_item)
+                            
+                            added_kcal = float(new_item.get("calories", 0))
+                            deficit -= added_kcal
+                            total_kcal += added_kcal
+                            total_protein += float(new_item.get("protein", 0))
+                            total_fat += float(new_item.get("fat", 0))
+                            total_carbs += float(new_item.get("carbs", 0))
+                            
+                            # Also add to meal_items_for_db
+                            meal_items_for_db.append({
+                                "meal_type": meal_type,
+                                "food_id": new_item["food_id"],
+                                "name": new_item["name"],
+                                "category": new_item["category"],
+                                "serving_grams": new_item.get("serving_grams"),
+                                "serving_display": new_item.get("serving_display") or new_item.get("portion_display"),
+                                "calories": new_item["calories"],
+                                "protein": new_item["protein"],
+                                "fat": new_item["fat"],
+                                "carbs": new_item["carbs"],
+                                "reason": new_item.get("name"),
+                                "image_url": new_item.get("image_url"),
+                                "image_badge": new_item.get("image_badge"),
+                                "score": new_item["score"],
+                            })
+                            
+                            logger.info("[MEAL_CALORIE_TOP_UP_ADD_ITEM] %s", {
+                                "mealKey": meal_type,
+                                "foodId": new_item["food_id"],
+                                "foodName": new_item["name"],
+                                "kcal": round(added_kcal),
+                                "reason": "fill_deficit",
+                            })
+                            
+                            break  # Only add one item per meal per iteration
+            
+            logger.info("[MEAL_CALORIE_BALANCE_DONE] %s", {
+                "targetKcal": target_kcal,
+                "finalPlanTotalKcal": round(total_kcal),
+                "finalProgressIfAllEaten": round((total_kcal / target_kcal * 100) if target_kcal > 0 else 0),
+                "difference": round(target_kcal - total_kcal),
+            })
+        
         ingredient_warning_data: dict[str, object] | None = None
         selected_ingredients = normalize_ingredient_list(available_ingredients)
         meals_after_injection = copy.deepcopy(meal_plan_payload or [])
