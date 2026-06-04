@@ -18,8 +18,8 @@
 .ng-chatbot {
   position: fixed;
   right: 24px;
-  bottom: 24px;
-  z-index: 40;
+  bottom: 16px;
+  z-index: 50;
   font-family: inherit;
   opacity: 1;
   isolation: isolate;
@@ -226,7 +226,7 @@
 @media (max-width: 640px) {
   .ng-chatbot {
     right: 16px;
-    bottom: 16px;
+    bottom: 24px;
     opacity: 1;
   }
 

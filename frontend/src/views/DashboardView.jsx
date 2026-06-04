@@ -2621,8 +2621,17 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
 
       <div className="lg:pl-72">
         {isThanhTichPage ? (
-          <main className="px-4 pb-8 pt-4 sm:px-6 xl:px-8">
+          <main className="px-4 pb-32 pt-4 sm:px-6 xl:px-8 md:pb-24">
             <ThanhTuuView onNavigate={handleSidebarNavigate} gamificationRefreshKey={gamificationRefreshKey} />
+            <NutriGainChatbot
+              userId={userEmail}
+              summary={summary}
+              validation={mealPlanValidation}
+              consumedNutrition={consumedNutrition}
+              meals={meals}
+              nutritionTarget={nutritionTarget}
+              currentPlan={result}
+            />
           </main>
         ) : (
           <>
@@ -2647,7 +2656,7 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
             ) : null}
 
             {isInitialDashboardLoading ? (
-              <div className="px-4 pb-8 pt-4 sm:px-6 xl:px-8 min-h-[calc(100vh-80px)] opacity-50 pointer-events-none">
+              <div className="px-4 pb-32 pt-4 sm:px-6 xl:px-8 md:pb-24 min-h-[calc(100vh-80px)] opacity-50 pointer-events-none">
                 <div className="animate-pulse flex flex-col space-y-6 mt-8 max-w-4xl mx-auto">
                   <div className="h-40 bg-slate-200 rounded-3xl w-full" />
                   <div className="h-64 bg-slate-200 rounded-3xl w-full" />
@@ -3542,7 +3551,7 @@ function DashboardContent({
   onEatingHistoryChanged,
 }) {
   return (
-    <main className="px-4 pb-8 pt-4 sm:px-6 xl:px-8">
+    <main className="px-4 pb-32 pt-4 sm:px-6 xl:px-8 md:pb-24">
       {activeSection === "overview" ? (
         <OverviewPage
           currentUser={userEmail}
@@ -3750,6 +3759,7 @@ function OverviewPage({
         consumedNutrition,
         validation,
         nutritionTarget,
+        mealLog,
       });
     } catch (e) {
       console.error("[EXPORT PDF ERROR]", e);
@@ -4079,64 +4089,24 @@ function OverviewPage({
       </div>
 
 
-      {(!hasCompletedAllMeals && nextMeal) ? (
-        <section className="rounded-[28px] border border-slate-100 bg-white p-6 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">BỮA TIẾP THEO</p>
-          <h3 className="mt-3 text-xl font-black text-slate-900">{nextMeal.title}</h3>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
-            {nextMeal.items.length} món · {Math.round(sumItems(nextMeal.items).calories)} kcal
-          </p>
-          <p className="mt-2 text-sm font-semibold text-slate-600">
-            Bạn còn bữa này trong kế hoạch hôm nay.
-          </p>
+      {/* Chi tiết dinh dưỡng & báo cáo */}
+      <section className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
+        <div className="flex w-full items-center justify-between gap-4 p-5">
+          {/* Nutrition Details Toggle */}
           <button
             type="button"
-            onClick={() => onNavigate?.("meal-plan")}
-            disabled={isSubmitting}
-            className="mt-4 flex h-10 w-full items-center justify-center rounded-xl bg-slate-50 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100 disabled:opacity-60"
-          >
-            Xem thực đơn
-          </button>
-        </section>
-      ) : null}
-
-      {/* Gợi ý điều chỉnh */}
-      {showAdjustmentBox && (
-        <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-6">
-          <div className="flex items-center gap-2 text-amber-600">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-xs font-black uppercase tracking-wider">Gợi ý điều chỉnh</h3>
-          </div>
-          <ul className="mt-4 space-y-3">
-            {adjustmentMessages.map((message) => (
-              <li key={message} className="flex gap-2.5 text-sm font-semibold leading-relaxed text-amber-900">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-                {message}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Chi tiết dinh dưỡng & báo cáo (collapsible) */}
-      <section className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <div className="flex w-full items-center justify-between gap-4 p-6">
-          <button
-            type="button"
-            className="flex flex-1 items-center gap-3 text-left transition"
+            className="flex flex-1 items-center gap-3 text-left transition min-w-0"
             onClick={() => setShowDetails((v) => !v)}
           >
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <span className="text-sm font-bold text-slate-900">Chi tiết dinh dưỡng & báo cáo</span>
-              <p className="mt-1 text-xs font-semibold text-slate-500">
+              <p className="mt-0.5 text-xs font-semibold text-slate-500">
                 Xem tổng quan dinh dưỡng hôm nay và tải báo cáo khi cần
               </p>
             </div>
             <svg 
               viewBox="0 0 24 24" 
-              className={`h-5 w-5 flex-shrink-0 text-slate-400 transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} 
+              className={`h-5 w-5 flex-shrink-0 text-emerald-500 transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`} 
               fill="none" 
               stroke="currentColor" 
               strokeWidth="2.5" 
@@ -4146,11 +4116,13 @@ function OverviewPage({
               <path d="m6 9 6 6 6-6" />
             </svg>
           </button>
+
+          {/* Export PDF Button */}
           <button
             type="button"
             onClick={handleExportReport}
             disabled={isExporting || isSubmitting || !meals?.length}
-            className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+            className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
             title={!meals?.length ? "Báo cáo sẽ khả dụng sau khi bạn có nhật ký ăn uống hôm nay" : ""}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
@@ -4160,16 +4132,18 @@ function OverviewPage({
             {isExporting ? "Đang xuất..." : "Xuất PDF"}
           </button>
         </div>
+
+        {/* Collapsible Nutrition Details */}
         {showDetails && (
-          <div className="animate-fade-in border-t border-slate-100 bg-slate-50/50 p-6">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="animate-fade-in border-t border-emerald-50 bg-gradient-to-br from-emerald-50/30 to-teal-50/30 p-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <MiniDetailCard label="Năng lượng" val={consumed_kcal} total={target_kcal} unit="kcal" />
               <MiniDetailCard label="Protein" val={consumedNutrition?.protein || 0} total={nutritionTarget.proteinTarget} unit="g" />
               <MiniDetailCard label="Carb" val={consumedNutrition?.carbs || 0} total={nutritionTarget.carbTarget} unit="g" />
               <MiniDetailCard label="Chất béo" val={consumedNutrition?.fat || 0} total={nutritionTarget.fatTarget} unit="g" />
             </div>
             {!meals?.length && (
-              <p className="mt-4 text-xs font-semibold text-slate-500 text-center">
+              <p className="mt-3 text-xs font-semibold text-slate-500 text-center">
                 Báo cáo sẽ khả dụng sau khi bạn có nhật ký ăn uống hôm nay.
               </p>
             )}
