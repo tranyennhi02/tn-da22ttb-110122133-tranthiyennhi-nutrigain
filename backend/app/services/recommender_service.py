@@ -5635,13 +5635,20 @@ class RecommenderService:
                     for slot_name in slot_names
                 ]
             else:
-                slots = [
+                # For 5+ items, create exactly requested_slots slots, all required
+                base_slots = [
                     {"name": "starch", "cats": STARCH_CATEGORIES, "required": True},
                     {"name": "protein", "cats": PROTEIN_CATEGORIES, "required": True},
                     {"name": "vegetable", "cats": {"vegetable"}, "required": True},
-                    {"name": "fruit_or_extra", "cats": {"fruit"}.union(EXTRA_CATEGORIES), "required": False},
-                    {"name": "extra", "cats": EXTRA_CATEGORIES, "required": False},
                 ]
+                # Fill remaining slots with flexible categories
+                remaining = requested_slots - len(base_slots)
+                for i in range(remaining):
+                    if i == 0:
+                        base_slots.append({"name": "fruit_or_extra", "cats": {"fruit"}.union(EXTRA_CATEGORIES), "required": True})
+                    else:
+                        base_slots.append({"name": "extra", "cats": EXTRA_CATEGORIES, "required": True})
+                slots = base_slots
             
             selected_rows = []
             selected_semantic_keys: set[str] = set()
@@ -5845,7 +5852,22 @@ class RecommenderService:
                 if constrained_pool.empty:
                     if slot["required"]:
                         logger.error(f"Required slot {slot_name} failed completely in meal {meal}")
-                    continue
+                    # Don't continue - try to find ANY food to fill this slot
+                    # to ensure we meet requested_slots count
+                    relaxed_ultimate = ranked[
+                        ~ranked["food_id"].isin(seen_food_ids)
+                        & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
+                    ].copy()
+                    if not relaxed_ultimate.empty:
+                        constrained_pool = relaxed_ultimate
+                    else:
+                        # Absolute last resort: reuse foods but avoid same name
+                        constrained_pool = ranked[
+                            ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
+                        ].copy()
+                        if constrained_pool.empty:
+                            logger.error(f"Cannot fill slot {slot_name} in meal {meal} - no foods available")
+                            continue
                 
                 scored_pool = constrained_pool.copy()
                 scored_pool["_slot_score"] = scored_pool.apply(
@@ -6169,7 +6191,8 @@ class RecommenderService:
                             
             # Fill missing items until we reach requested_slots
             attempts_fill = 0
-            while len(selected_rows) < requested_slots and attempts_fill < 10:
+            max_fill_attempts = max(10, (requested_slots - len(selected_rows)) * 3)
+            while len(selected_rows) < requested_slots and attempts_fill < max_fill_attempts:
                 attempts_fill += 1
                 selected_ids = {r.get("food_id") for r in selected_rows}
                 selected_names = {_row_name_key(r) for r in selected_rows}
@@ -6183,11 +6206,17 @@ class RecommenderService:
                     semantic_key = _row_semantic_key(row)
                     return bool(semantic_key and semantic_key in selected_semantic_keys_current)
                 
+                # Relax constraints progressively based on attempts
+                check_semantic = attempts_fill <= 3
+                check_disliked = attempts_fill <= 5
+                check_dessert = attempts_fill <= 7
+                check_animal_policy = attempts_fill <= 8
+                
                 found_fb = None
                 # First try fallback rows prioritizing energy foods if requested_slots >= 4 and not meal_has_energy
                 for f_row in fallback_rows:
                     if f_row.get("food_id") not in selected_ids and _row_name_key(f_row) not in selected_names:
-                        if _would_duplicate_semantic(f_row):
+                        if check_semantic and _would_duplicate_semantic(f_row):
                             continue
                         if requested_slots >= 4 and not meal_has_energy:
                             if _is_fat_or_healthy_gain_food(f_row):
@@ -6201,7 +6230,7 @@ class RecommenderService:
                 if found_fb is None and requested_slots >= 4 and not meal_has_energy:
                     for f_row in fallback_rows:
                         if f_row.get("food_id") not in selected_ids and _row_name_key(f_row) not in selected_names:
-                            if _would_duplicate_semantic(f_row):
+                            if check_semantic and _would_duplicate_semantic(f_row):
                                 continue
                             found_fb = f_row
                             break
@@ -6210,13 +6239,13 @@ class RecommenderService:
                 if found_fb is None:
                     for _, r_row in ranked.iterrows():
                         if r_row.get("food_id") not in selected_ids and _row_name_key(r_row) not in selected_names:
-                            if _would_duplicate_semantic(r_row):
+                            if check_semantic and _would_duplicate_semantic(r_row):
                                 continue
-                            if disliked_foods and _row_matches_terms(r_row, disliked_foods):
+                            if check_disliked and disliked_foods and _row_matches_terms(r_row, disliked_foods):
                                 continue
-                            if _row_clean_category(r_row) in {"dessert_sweets", "drink_natural"} or _row_is_dessert(r_row):
+                            if check_dessert and (_row_clean_category(r_row) in {"dessert_sweets", "drink_natural"} or _row_is_dessert(r_row)):
                                 continue
-                            if _blocked_by_animal_policy(r_row):
+                            if check_animal_policy and _blocked_by_animal_policy(r_row):
                                 continue
                             if requested_slots >= 4 and not meal_has_energy:
                                 if _is_fat_or_healthy_gain_food(r_row):
@@ -6230,12 +6259,19 @@ class RecommenderService:
                 if found_fb is None and requested_slots >= 4 and not meal_has_energy:
                     for _, r_row in ranked.iterrows():
                         if r_row.get("food_id") not in selected_ids and _row_name_key(r_row) not in selected_names:
-                            if disliked_foods and _row_matches_terms(r_row, disliked_foods):
+                            if check_disliked and disliked_foods and _row_matches_terms(r_row, disliked_foods):
                                 continue
-                            if _row_clean_category(r_row) in {"dessert_sweets", "drink_natural"} or _row_is_dessert(r_row):
+                            if check_dessert and (_row_clean_category(r_row) in {"dessert_sweets", "drink_natural"} or _row_is_dessert(r_row)):
                                 continue
-                            if _blocked_by_animal_policy(r_row):
+                            if check_animal_policy and _blocked_by_animal_policy(r_row):
                                 continue
+                            found_fb = r_row
+                            break
+                
+                # Last resort: allow duplicates but different food_id
+                if found_fb is None:
+                    for _, r_row in ranked.iterrows():
+                        if r_row.get("food_id") not in selected_ids:
                             found_fb = r_row
                             break
                             
