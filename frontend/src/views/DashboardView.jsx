@@ -1646,10 +1646,22 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     });
   }, [initialFormState]);
 
-  const profileOutOfScopeResult = useMemo(() => buildAsianBmiOutOfScopeResult(formState), [formState]);
+  const profileOutOfScopeResult = useMemo(() => {
+    const result = buildAsianBmiOutOfScopeResult(formState);
+    if (!result) return null;
+    // Nếu người dùng đang có mục tiêu tăng cân hợp lệ (chưa đạt),
+    // không block màn hình — họ đang trong hành trình tăng cân và BMI
+    // đã cải thiện, đây là thành công chứ không phải lỗi.
+    const targetWeight = Number(formState.target_weight ?? formState.target_weight_kg ?? 0);
+    const currentWeight = Number(formState.weight ?? formState.weight_kg ?? 0);
+    if (targetWeight > 0 && currentWeight < targetWeight) return null;
+    return result;
+  }, [formState]);
   const profileOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(profileOutOfScopeResult), [profileOutOfScopeResult]);
   const resultOutOfScopeNotice = useMemo(() => getOutOfScopeNotice(result), [result]);
   const outOfScopeNotice = profileOutOfScopeNotice || resultOutOfScopeNotice;
+
+  // bmiNormalWhileGaining đã chuyển sang ChartsPage
   const meals = useMemo(() => {
     const builtMeals = buildMeals(result?.meal_plan, formState.diet_style, {
       ...formState,
@@ -1660,6 +1672,8 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
           ...(selectedIngredients || []),
         ]),
       ),
+      // Khi thực đơn được khôi phục, không giới hạn items_per_meal theo profile
+      _restored_from_history: result?.meal_plan?.restored_from_history === true,
     });
 
     const renderedMealNames = builtMeals.flatMap((meal) =>
@@ -2456,12 +2470,19 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       }
       const freshProfile = currentUser?.profile;
       if (freshProfile) {
-        setFormState((current) => ({
-          ...current,
-          ...mapUserProfileToFormState(freshProfile),
-          available_ingredients: current.available_ingredients || current.ingredients || [],
-          ingredients: current.ingredients || current.available_ingredients || [],
-        }));
+        setFormState((current) => {
+          const mapped = mapUserProfileToFormState(freshProfile);
+          return {
+            ...current,
+            ...mapped,
+            // Giữ nguyên weight/weight_kg trong formState (dùng để tính BMI cho meal plan)
+            // để tránh weight log tracking vô tình trigger BMI out-of-scope block
+            weight: current.weight,
+            weight_kg: current.weight_kg,
+            available_ingredients: current.available_ingredients || current.ingredients || [],
+            ingredients: current.ingredients || current.available_ingredients || [],
+          };
+        });
       }
     } catch (error) {
       console.error("Failed to reload profile after weight update:", error);
@@ -2784,6 +2805,117 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
   );
 }
 
+function BmiNormalBanner({ bmi, bmiCategory, currentWeight, targetWeight, heightCm, onEditProfile, goalReached }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [showGoalDialog, setShowGoalDialog] = useState(false);
+
+  // Mở dialog tự động ngay khi đạt mục tiêu
+  useEffect(() => {
+    if (goalReached && !dismissed) {
+      setShowGoalDialog(true);
+    }
+  }, [goalReached]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tính cân nặng tối đa (BMI 25)
+  const maxAllowedWeight = heightCm > 0
+    ? Number((24.9 * (heightCm / 100) * (heightCm / 100)).toFixed(1))
+    : null;
+
+  if (dismissed) return null;
+
+  return (
+    <>
+      {/* Banner nhỏ — chỉ hiện khi CHƯA đạt mục tiêu */}
+      {!goalReached && (
+        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50/60 p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black text-slate-900">
+                BMI đã đạt mức{" "}
+                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">
+                  Bình thường · {bmi}
+                </span>
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Đóng thông báo"
+              onClick={() => setDismissed(true)}
+              className="flex-shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-emerald-100 hover:text-slate-600"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dialog — hiện khi ĐÃ đạt mục tiêu */}
+      {showGoalDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[28px] border border-emerald-100 bg-white p-8 shadow-2xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+              <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-center text-xl font-black text-slate-900">
+              🎉 Bạn đã hoàn thành mục tiêu!
+            </h3>
+            <p className="mt-3 text-center text-sm leading-relaxed text-slate-500">
+              Chúc mừng! Bạn đã đạt{" "}
+              <span className="font-bold text-slate-800">{currentWeight} kg</span> — đúng mục tiêu{" "}
+              <span className="font-bold text-slate-800">{targetWeight} kg</span>.
+              <br />
+              BMI hiện tại:{" "}
+              <span className="font-bold text-emerald-700">{bmi} (Bình thường)</span>.
+            </p>
+            <p className="mt-4 text-center text-sm font-semibold text-slate-700">
+              Bạn muốn tiếp tục sử dụng NutriGain như thế nào?
+            </p>
+            <div className="mt-5 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowGoalDialog(false); setDismissed(true); onEditProfile?.(); }}
+                className="flex h-12 w-full items-center justify-center rounded-2xl bg-emerald-600 text-sm font-black text-white shadow-md transition hover:bg-emerald-700"
+              >
+                Tăng cân tiếp — cập nhật mục tiêu mới
+              </button>
+              {maxAllowedWeight !== null && (
+                <p className="text-center text-xs text-slate-400">
+                  Mục tiêu tối đa:{" "}
+                  <span className="font-semibold text-slate-600">{maxAllowedWeight} kg</span>{" "}
+                  (BMI 25 — ngưỡng Bình thường)
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => { setShowGoalDialog(false); setDismissed(true); onEditProfile?.(); }}
+                className="flex h-12 w-full items-center justify-center rounded-2xl border-2 border-slate-200 text-sm font-bold text-slate-700 transition hover:border-emerald-400 hover:text-emerald-700"
+              >
+                Duy trì cân nặng hiện tại
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowGoalDialog(false); setDismissed(true); }}
+                className="text-center text-xs font-semibold text-slate-400 transition hover:text-slate-600"
+              >
+                Nhắc tôi sau
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function NoMealPlanState({ isSubmitting, submitError, onGenerate, onEditProfile, reason }) {
   if (reason) {
     return (
@@ -2797,7 +2929,7 @@ function NoMealPlanState({ isSubmitting, submitError, onGenerate, onEditProfile,
           </h2>
           <div className="mt-4 space-y-4 text-left text-sm leading-7 text-brand-text-sub sm:text-base">
             <p>
-              {reason}
+              {bmiMessageForCategory(reason) || "Vui lòng kiểm tra lại hồ sơ để NutriGain có thể tính thực đơn phù hợp."}
             </p>
             <p>
               Hãy chỉnh lại hồ sơ để NutriGain có thể tính thực đơn an toàn và phù hợp hơn.
@@ -5864,7 +5996,10 @@ function MealsPage({
       const mealItems = Array.isArray(meal.items) ? meal.items : [];
       const selectedMatches = mealItems.filter((item) => hasSelectedIngredientMatch(item));
       const remainingItems = mealItems.filter((item) => !selectedMatches.some((matched) => matched.id === item.id));
-      const allowedRemainingCount = Math.max(expectedCount - selectedMatches.length, 0);
+      // Khi đã khôi phục thực đơn, dùng số món thực tế của bữa đó thay vì giới hạn theo profile
+      const isRestoredPlan = result?.meal_plan?.restored_from_history === true;
+      const effectiveExpectedCount = isRestoredPlan ? mealItems.length : expectedCount;
+      const allowedRemainingCount = Math.max(effectiveExpectedCount - selectedMatches.length, 0);
       const slicedRemainingItems = remainingItems.slice(0, allowedRemainingCount);
       const mergedItems = [...selectedMatches, ...slicedRemainingItems].filter((item, index, array) => index === array.findIndex((current) => current.id === item.id));
       return { ...meal, items: mergedItems };
@@ -6049,9 +6184,16 @@ function MealsPage({
       // Normalize the response to match the expected format
       const normalizedResult = {
         ...(result || {}),
+        // Clear stale ingredient data from previous meal plan
+        ingredientWarnings: null,
+        unavailableIngredients: [],
         meal_plan: {
           ...(restoredData?.meal_plan || {}),
           meals: restoredData?.meals || [],
+          // Use available_ingredients from restored plan only, not from old result
+          available_ingredients: restoredData?.meal_plan?.available_ingredients || restoredData?.available_ingredients || [],
+          ingredient_coverage: restoredData?.meal_plan?.ingredient_coverage || restoredData?.ingredient_coverage || null,
+          ingredientWarnings: null,
           restored_from_history: true,
           restored_at: new Date().toISOString(),
         },
@@ -6197,11 +6339,18 @@ function MealsPage({
         isSubmitting={isSubmitting}
       />
 
-      {ingredientCoverage.hasSelected ? (
+      {ingredientCoverage.hasSelected && (ingredientCoverage.covered.length > 0 || ingredientCoverage.missing.length > 0) ? (
         <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-5 py-4 text-sm font-semibold text-emerald-900">
-          <p>
-            Thực đơn đã ưu tiên: {ingredientCoverage.selected.map((value) => displayIngredientLabel(value)).join(", ")}
-          </p>
+          {ingredientCoverage.covered.length > 0 && (
+            <p>
+              Thực đơn đã ưu tiên: {ingredientCoverage.covered.join(", ")}
+            </p>
+          )}
+          {ingredientCoverage.missing.length > 0 && (
+            <p className={`${ingredientCoverage.covered.length > 0 ? "mt-1 " : ""}text-amber-700`}>
+              Chưa tìm được món phù hợp cho: {ingredientCoverage.missing.join(", ")}
+            </p>
+          )}
           {ingredientWarnings ? (
             <p className="mt-1 text-amber-700">
               {ingredientWarnings.message}
@@ -7208,6 +7357,22 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
   const trendInfo = trendPresentation(summary.trend);
   const shouldMuteRangeEmphasis = chartData.length <= 1;
 
+  // Thông báo BMI đã đạt mức bình thường — hiện khi BMI >= 18.5, dù chưa hay đã đạt mục tiêu
+  const bmiNormalWhileGaining = useMemo(() => {
+    const heightCm = Number(profileSettings?.height_cm || profileSettings?.height || 0);
+    const currentWeight = Number(summary.current_weight || profileSettings?.weight_kg || profileSettings?.weight || 0);
+    const targetWeight = Number(profileSettings?.target_weight_kg || profileSettings?.target_weight || 0);
+    if (!heightCm || !currentWeight || !targetWeight) return null;
+    const heightM = heightCm / 100;
+    const bmi = Number((currentWeight / (heightM * heightM)).toFixed(1));
+    if (bmi < 18.5) return null;
+    const category = bmi < 25 ? "normal" : bmi < 30 ? "overweight" : "obese";
+    // Chỉ hiện banner khi BMI còn trong ngưỡng bình thường (< 25)
+    if (category !== "normal") return null;
+    const goalReached = currentWeight >= targetWeight;
+    return { bmi, bmi_category: category, current_weight: currentWeight, target_weight: targetWeight, height_cm: heightCm, goal_reached: goalReached };
+  }, [profileSettings, summary]);
+
   function openWeightForm() {
     setDraft(buildWeightDraft(profileSettings, summary));
     setSaveError("");
@@ -7245,20 +7410,10 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
       const heightM = height / 100;
       const bmi = weight / (heightM * heightM);
       
-      if (Number.isFinite(bmi)) {
-        // BMI quá cao (>= 25 theo chuẩn Châu Á)
-        if (bmi >= 25) {
-          setSaveError("Cân nặng này làm BMI của bạn nằm ngoài phạm vi NutriGain có thể ước tính an toàn (BMI >= 25). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng.");
-          weightInputRef.current?.focus();
-          return;
-        }
-        
-        // BMI quá thấp (< 12)
-        if (bmi < 12) {
-          setSaveError("Cân nặng này làm BMI của bạn quá thấp (< 12). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng.");
-          weightInputRef.current?.focus();
-          return;
-        }
+      if (Number.isFinite(bmi) && bmi < 12) {
+        setSaveError("Cân nặng này làm BMI của bạn quá thấp (< 12). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng.");
+        weightInputRef.current?.focus();
+        return;
       }
     }
 
@@ -7283,7 +7438,7 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
       if (errorMessage.includes("BMI_OBESE_NOT_SUPPORTED") || errorMessage.includes("BMI_OVERWEIGHT_NOT_SUPPORTED")) {
         errorMessage = "Cân nặng này làm hồ sơ vượt phạm vi NutriGain có thể ước tính. Vui lòng kiểm tra lại cân nặng hoặc chỉnh lại hồ sơ.";
       } else if (errorMessage.includes("BMI_NOT_UNDERWEIGHT")) {
-        errorMessage = "Cân nặng này làm BMI của bạn không còn thuộc nhóm thiếu cân. NutriGain được thiết kế cho người thiếu cân cần tăng cân lành mạnh.";
+        errorMessage = "Cân nặng này làm BMI của bạn vượt ngưỡng bình thường (≥ 25). NutriGain hỗ trợ tạo thực đơn cho người có BMI dưới 25.";
       }
       
       setSaveError(errorMessage);
@@ -7305,9 +7460,11 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
         title="Theo dõi tăng cân"
         subtitle="Cập nhật cân nặng và quan sát tiến độ theo mục tiêu của bạn."
         actions={
-          <PageHeaderButton variant="primary" onClick={openWeightForm}>
-            Cập nhật cân nặng hôm nay
-          </PageHeaderButton>
+          hasEnoughData ? (
+            <PageHeaderButton variant="primary" onClick={openWeightForm}>
+              Cập nhật cân nặng hôm nay
+            </PageHeaderButton>
+          ) : null
         }
       />
 
@@ -7328,6 +7485,18 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
         <WeightOverviewCard label="Còn thiếu" value={formatWeight(summary.remaining_kg)} tone="orange" />
         <WeightOverviewCard label="Tiến độ" value={`${formatNumber(summary.progress_percent || 0)}%`} />
       </section>
+
+      {bmiNormalWhileGaining ? (
+        <BmiNormalBanner
+          bmi={bmiNormalWhileGaining.bmi}
+          bmiCategory={bmiNormalWhileGaining.bmi_category}
+          currentWeight={bmiNormalWhileGaining.current_weight}
+          targetWeight={bmiNormalWhileGaining.target_weight}
+          heightCm={bmiNormalWhileGaining.height_cm}
+          goalReached={bmiNormalWhileGaining.goal_reached}
+          onEditProfile={onEditProfile}
+        />
+      ) : null}
 
       {summary.should_checkin && hasEnoughData ? (
         <section className="rounded-3xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm font800 leading-6 text-orange-900 shadow-sm">
@@ -7379,28 +7548,42 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
           ) : hasEnoughData ? (
             <WeightTrendLineChart data={chartData} />
           ) : (
-            <div className="flex min-h-[320px] items-center justify-center rounded-[28px] border border-dashed border-emerald-200 bg-emerald-50/40 px-6 py-10">
-              <div className="max-w-xl text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-100">
-                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h2.25c.38 0 .72-.23.86-.58l1.46-3.66a1 1 0 011.86 0l2.14 5.34a1 1 0 001.86 0L15.5 8.5a1 1 0 011.86 0l1.14 2.86c.14.35.48.58.86.58H21" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-xl font-black text-slate-950">
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-8 rounded-[24px] border border-dashed border-emerald-200 bg-gradient-to-b from-emerald-50/60 to-white px-6 py-12">
+              {/* Icon */}
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-emerald-500 shadow-md shadow-emerald-100 ring-1 ring-emerald-100">
+                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.75">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h2.25c.38 0 .72-.23.86-.58l1.46-3.66a1 1 0 011.86 0l2.14 5.34a1 1 0 001.86 0L15.5 8.5a1 1 0 011.86 0l1.14 2.86c.14.35.48.58.86.58H21" />
+                </svg>
+              </div>
+
+              {/* Text */}
+              <div className="max-w-sm text-center">
+                <h3 className="text-[1.15rem] font-black tracking-tight text-slate-900">
                   {chartPoints.length === 0 ? "Chưa có dữ liệu cân nặng" : "Chưa đủ dữ liệu để vẽ xu hướng"}
                 </h3>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">
                   {chartPoints.length === 0
-                    ? "Hãy cập nhật cân nặng đầu tiên để NutriGain bắt đầu theo dõi tiến độ tăng cân."
-                    : "Bạn đã ghi nhận mốc cân nặng đầu tiên. Hãy cập nhật thêm ít nhất 1 lần cân nặng trong những ngày tới để NutriGain vẽ đường xu hướng."}
+                    ? "Hãy thêm cân nặng đầu tiên để NutriGain bắt đầu theo dõi tiến độ của bạn."
+                    : "Bạn đã có mốc đầu tiên. Thêm ít nhất 1 lần nữa để NutriGain vẽ được đường xu hướng."}
                 </p>
-
-                {chartPoints.length === 1 ? (
-                  <p className="mt-5 inline-flex items-center justify-center rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-100">
-                    Mốc đầu tiên: {firstChartPointDate ? formatDisplayDate(firstChartPointDate) : "Chưa xác định"} · {formatNumber(firstChartPoint?.weight_kg)} kg
-                  </p>
-                ) : null}
               </div>
+
+              {/* Milestone chip — only when 1 point exists */}
+              {chartPoints.length === 1 ? (
+                <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-slate-600 shadow-sm ring-1 ring-slate-100">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Mốc đầu tiên: {firstChartPointDate ? formatDisplayDate(firstChartPointDate) : "Chưa xác định"} · {formatNumber(firstChartPoint?.weight_kg)} kg
+                </div>
+              ) : null}
+
+              {/* CTA button */}
+              <button
+                type="button"
+                onClick={openWeightForm}
+                className="inline-flex h-11 items-center rounded-xl bg-emerald-600 px-6 text-sm font-bold text-white shadow-md shadow-emerald-600/20 transition hover:bg-emerald-700 active:scale-[0.97]"
+              >
+                Cập nhật cân nặng hôm nay
+              </button>
             </div>
           )}
         </div>
@@ -10376,7 +10559,7 @@ function buildEligibilityStatus(profile, summary) {
     bmi,
     status,
     statusLabel: asianBmiLabel(status),
-    eligible: status === "underweight",
+    eligible: status === "underweight" || status === "normal",
     reason: bmiPreviewMessage(status),
     profile: { weight, height, targetWeight: Number.isFinite(targetWeight) ? targetWeight : null, bmiStatus: summary.bmiStatus },
   };
@@ -10407,10 +10590,10 @@ function buildProfileSoftErrors(profile) {
   if (Number.isFinite(targetWeight) && Number.isFinite(weight) && targetWeight <= weight) errors.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
   if (Number.isFinite(targetWeight) && Number.isFinite(height) && height > 0) {
     const targetBmi = targetWeight / ((height / 100) ** 2);
-    if (targetBmi >= 23.0) {
+    if (targetBmi >= 25.0) {
       const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
-      const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
-      errors.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+      const maxNormal = (24.9 * ((height / 100) ** 2)).toFixed(1);
+      errors.target_weight = `Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 25). Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
     }
   }
   return errors;
@@ -11560,6 +11743,7 @@ function summarizeIngredientCoverageFromMeals(meals = [], selectedIngredients = 
 function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
   if (!mealPlan) return [];
   const itemCountSummary = mealPlan.meal_item_count_summary || mealPlan.item_count_summary || {};
+  const isRestoredPlan = profileSettings._restored_from_history === true;
   const selectedIngredients = Array.from(
     new Set(
       [
@@ -11613,7 +11797,9 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
       const mealType = String(meal.meal_type || "").toLowerCase();
       const countInfo = itemCountSummary[mealType] || {};
       if (!Array.isArray(meal.items)) console.warn("meal.items không phải là mảng:", meal);
-      const filteredItems = items.filter((item) => hasSelectedIngredientMatch(item) || isUiMenuEligible(item));
+      const filteredItems = isRestoredPlan
+        ? items  // Khi khôi phục, giữ nguyên tất cả items
+        : items.filter((item) => hasSelectedIngredientMatch(item) || isUiMenuEligible(item));
       const mappedItems = filteredItems.map((item, index) => mapFoodPayload(item, `${meal.meal_type}-${index}`, mealLabels[meal.meal_type] || meal.meal_type, selectedIngredients));
       return {
         title: mealLabels[meal.meal_type] || meal.meal_type || "Bữa ăn",
@@ -11621,7 +11807,9 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
         accent: mealAccents[meal.meal_type] || "green",
         expectedItems: Number(meal.expected_items ?? countInfo.expected ?? profileSettings.items_per_meal ?? 0) || null,
         actualItems: Number(meal.actual_items ?? countInfo.actual ?? filteredItems.length) || filteredItems.length,
-        items: keepSelectedMatchesAfterDietFilter(mappedItems).filter((item) => hasSelectedIngredientMatch(item) || !isFoodDisliked(item, profileSettings)),
+        items: isRestoredPlan
+          ? mappedItems  // Khi khôi phục, giữ nguyên, không filter thêm
+          : keepSelectedMatchesAfterDietFilter(mappedItems).filter((item) => hasSelectedIngredientMatch(item) || !isFoodDisliked(item, profileSettings)),
       };
     });
   } else {
@@ -11632,7 +11820,9 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
         const safeItems = Array.isArray(items) ? items : [];
         const countInfo = itemCountSummary[mealKey] || {};
         if (!Array.isArray(items)) console.warn("items không phải là mảng:", items);
-        const filteredItems = safeItems.filter((item) => hasSelectedIngredientMatch(item) || isUiMenuEligible(item));
+        const filteredItems = isRestoredPlan
+          ? safeItems
+          : safeItems.filter((item) => hasSelectedIngredientMatch(item) || isUiMenuEligible(item));
         const mappedItems = filteredItems.map((item, index) => mapFoodPayload(item, `${mealKey}-${index}`, mealLabels[mealKey] || mealKey, selectedIngredients));
         return {
           title: mealLabels[mealKey] || mealKey,
@@ -11640,7 +11830,9 @@ function buildMeals(mealPlan, dietType = "balanced", profileSettings = {}) {
           accent: mealAccents[mealKey] || "green",
           expectedItems: Number(countInfo.expected ?? profileSettings.items_per_meal ?? 0) || null,
           actualItems: Number(countInfo.actual ?? filteredItems.length) || filteredItems.length,
-          items: keepSelectedMatchesAfterDietFilter(mappedItems).filter((item) => hasSelectedIngredientMatch(item) || !isFoodDisliked(item, profileSettings)),
+          items: isRestoredPlan
+            ? mappedItems
+            : keepSelectedMatchesAfterDietFilter(mappedItems).filter((item) => hasSelectedIngredientMatch(item) || !isFoodDisliked(item, profileSettings)),
         };
       });
   }

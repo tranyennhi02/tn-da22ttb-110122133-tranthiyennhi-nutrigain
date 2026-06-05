@@ -51,10 +51,13 @@ function buildWeightGoalPreview(data) {
   };
 }
 
-// Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
-// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
-//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
-// Backend sử dụng giới hạn an toàn: 1.0 kg/tháng
+// Mốc tham khảo từ Intermountain Health
+// Nguồn: Intermountain Health khuyến nghị mức tăng cân an toàn là 0.5–2.0 lb/tuần
+// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng (mức an toàn cho người trưởng thành)
+//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng (mức tối đa, thường dành cho vận động viên)
+// 
+// NutriGain sử dụng giới hạn an toàn: 1.0 kg/tháng cho người dùng thông thường
+// Mức này phù hợp với khả năng tổng hợp cơ bắp tự nhiên và giảm thiểu tích mỡ thừa
 const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
 const SAFE_GAIN_MAX_KG_PER_MONTH = 1.0;
 const WEEKS_PER_MONTH = 4;
@@ -333,13 +336,11 @@ function StepBody({ data, update, errors, onLogout }) {
   function handle(e){ update(e.target.name, e.target.value); }
   const bmi = calculateAsianBmi(data.weight, data.height);
   const bmiCategory = classifyAsianBMI(bmi);
-  const isOutOfScope = Number.isFinite(bmi) && bmi >= 18.5;
+  const isOutOfScope = Number.isFinite(bmi) && bmi >= 25.0;
 
   let outOfScopeMessage = "";
   if (isOutOfScope) {
-    if (bmiCategory === "normal") {
-      outOfScopeMessage = "BMI của bạn hiện đang ở mức bình thường. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
-    } else if (bmiCategory === "overweight") {
+    if (bmiCategory === "overweight") {
       outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
     } else if (bmiCategory === "obese") {
       outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
@@ -426,8 +427,8 @@ function StepGoal({ data, update, errors, validation }) {
   const recommendedMaxMonths = hasValidGoal ? Math.ceil(goalPreview.targetDiff / SAFE_GAIN_MIN_KG_PER_MONTH) : null;
   
   const speedNote = hasFullTimeline
-    ? `Con số này được tính từ cân nặng hiện tại, cân nặng mục tiêu và thời gian bạn chọn. Mức này phù hợp với mốc tăng cân an toàn 1kg/tháng, nên NutriGain sẽ dùng để ước tính lượng calo cần bổ sung và gợi ý thực đơn phù hợp.`
-    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo an toàn: 1kg/tháng.`;
+    ? `Con số này được tính từ cân nặng hiện tại, cân nặng mục tiêu và thời gian bạn chọn. Mức này phù hợp với mốc tăng cân an toàn 1kg/tháng (theo khuyến nghị của Intermountain Health: 0.5-2.0 lb/tuần, tương đương ~1kg/tháng), nên NutriGain sẽ dùng để ước tính lượng calo cần bổ sung và gợi ý thực đơn phù hợp.`
+    : `Khi có thời gian mục tiêu, NutriGain sẽ ước tính tốc độ tăng cân mỗi tháng cho bạn. NutriGain dùng mốc tham khảo an toàn 1kg/tháng (theo khuyến nghị của Intermountain Health: 0.5-2.0 lb/tuần).`;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -746,10 +747,9 @@ function validateStep(stepName, data) {
       errs.target_weight = "Mục tiêu nên lớn hơn cân nặng hiện tại";
     } else if (height > 0) {
       const targetBmi = target / ((height / 100) ** 2);
-      if (targetBmi >= 23.0) {
-        const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
-        const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
-        errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+      if (targetBmi >= 25.0) {
+        const maxNormal = (24.9 * ((height / 100) ** 2)).toFixed(1);
+        errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
       }
     }
   }
@@ -781,10 +781,9 @@ function validateProfile(data) {
     errs.target_weight = "Cân nặng mục tiêu phải lớn hơn cân nặng hiện tại.";
   } else if (height > 0) {
     const targetBmi = target / ((height / 100) ** 2);
-    if (targetBmi >= 23.0) {
-      const minNormal = (18.5 * ((height / 100) ** 2)).toFixed(1);
-      const maxNormal = (22.9 * ((height / 100) ** 2)).toFixed(1);
-      errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu trong khoảng ${minNormal}kg–${maxNormal}kg.`;
+    if (targetBmi >= 25.0) {
+      const maxNormal = (24.9 * ((height / 100) ** 2)).toFixed(1);
+      errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
     }
   }
   if (!data.target_duration_value && !data.target_duration_months) {
@@ -879,7 +878,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
   const progressStep = Math.max(0, step);
   const progressPct = totalVisible > 1 ? Math.round((progressStep / (totalVisible - 1)) * 100) : 0;
   const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
-  const canGenerateMealPlan = classifyAsianBMI(currentBmi) === "underweight";
+  const canGenerateMealPlan = classifyAsianBMI(currentBmi) === "underweight" || classifyAsianBMI(currentBmi) === "normal";
   const weightGoalValidation = useMemo(
     () => validateWeightGoalTimeline({
       currentWeightKg: data.weight || data.weight_kg,
@@ -956,7 +955,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     
     if (stepName === "body") {
       const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
-      if (Number.isFinite(currentBmi) && currentBmi >= 18.5) {
+      if (Number.isFinite(currentBmi) && currentBmi >= 25.0) {
         return;
       }
     }
@@ -1223,7 +1222,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
           <StepSummary data={data} isSaving={isSaving} finishError={finishError}
             onFinish={handleFinish} onBack={goBack} step={step} isExistingUser={isExistingUser} />
         )}
-        {stepName !== "welcome" && !isSummary && !(stepName === "body" && currentBmi >= 18.5) && (
+        {stepName !== "welcome" && !isSummary && !(stepName === "body" && currentBmi >= 25.0) && (
           <div className="mt-8 flex items-center justify-between gap-4">
             {/* 1. Back Button */}
             {((isOnboardingMode && step > 1) || (isEditProfileMode && step > 0)) && (

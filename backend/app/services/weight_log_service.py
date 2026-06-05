@@ -100,10 +100,9 @@ class WeightLogService:
         }
 
     def save_log(self, db: Session, user: User, payload: WeightLogCreate) -> dict:
-        # Validation: Kiểm tra weight hợp lý
         weight_kg = float(payload.weight_kg)
         
-        # Kiểm tra range cơ bản
+        # Chỉ kiểm tra range hợp lý, không validate tốc độ thay đổi
         if weight_kg < 25 or weight_kg > 250:
             raise HTTPException(
                 status_code=422,
@@ -113,33 +112,6 @@ class WeightLogService:
                 }
             )
         
-        # Kiểm tra BMI nếu có profile với chiều cao
-        profile = db.scalar(select(UserProfileEntity).where(UserProfileEntity.user_id == user.id))
-        if profile and profile.height_cm:
-            height_m = profile.height_cm / 100
-            bmi = weight_kg / (height_m * height_m)
-            
-            # BMI quá cao (>= 25 theo chuẩn Châu Á)
-            if bmi >= 25:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "code": "INVALID_WEIGHT_BMI_TOO_HIGH",
-                        "message": "Cân nặng này làm BMI của bạn nằm ngoài phạm vi NutriGain có thể ước tính an toàn (BMI >= 25). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng."
-                    }
-                )
-            
-            # BMI quá thấp (< 12)
-            if bmi < 12:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "code": "INVALID_WEIGHT_BMI_TOO_LOW",
-                        "message": "Cân nặng này làm BMI của bạn quá thấp (< 12). Vui lòng kiểm tra lại đơn vị kg hoặc chỉnh lại hồ sơ nếu chiều cao/cân nặng chưa đúng."
-                    }
-                )
-        
-        # Quick update route: treat as user-initiated quick_update
         return self.upsert_weight_log(db, user.id, weight_kg, payload.log_date, payload.note, source="quick_update")
 
     def upsert_weight_log_from_profile_update(

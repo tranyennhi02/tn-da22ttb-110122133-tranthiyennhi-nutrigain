@@ -26,8 +26,8 @@ export function classifyAsianBMI(bmi) {
   if (!Number.isFinite(raw)) return "unknown";
   const value = Number(raw.toFixed(1));
   if (value < 18.5) return "underweight";
-  if (value < 23) return "normal";
-  if (value < 25) return "overweight";
+  if (value < 25) return "normal";
+  if (value < 30) return "overweight";
   return "obese";
 }
 
@@ -56,7 +56,7 @@ export function bmiMessageForCategory(category) {
     return "Gầy / thiếu cân – NutriGain có thể hỗ trợ tạo thực đơn tăng cân.";
   }
   if (normalized === "normal") {
-    return "BMI của bạn đang ở mức bình thường. NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân.";
+    return "BMI của bạn đang ở mức bình thường. NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn tăng cân thêm.";
   }
   if (normalized === "overweight") {
     return "BMI của bạn đang thuộc nhóm thừa cân. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
@@ -64,7 +64,7 @@ export function bmiMessageForCategory(category) {
   if (normalized === "obese") {
     return "BMI của bạn đang thuộc nhóm béo phì. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
   }
-  return "NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân có BMI dưới 18.5.";
+  return "NutriGain hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 25 (thiếu cân hoặc bình thường).";
 }
 
 export function bmiPreviewMessage(category) {
@@ -72,14 +72,14 @@ export function bmiPreviewMessage(category) {
   if (normalized === "underweight") {
     return "Gầy / thiếu cân – NutriGain có thể hỗ trợ tạo thực đơn tăng cân.";
   }
+  if (normalized === "normal") {
+    return "BMI của bạn đang ở mức bình thường – NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn.";
+  }
   if (normalized === "overweight") {
     return "BMI của bạn đang thuộc nhóm thừa cân. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
   }
   if (normalized === "obese") {
     return "BMI của bạn đang thuộc nhóm béo phì. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
-  }
-  if (normalized === "normal") {
-    return "BMI của bạn đang ở mức bình thường. NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân.";
   }
   return "Nhập chiều cao và cân nặng để xem BMI theo chuẩn Châu Á.";
 }
@@ -90,7 +90,8 @@ export function buildAsianBmiOutOfScopeResult(profile) {
 
   const roundedBmi = Number(bmi.toFixed(1));
   const category = classifyAsianBMI(bmi);
-  if (category === "underweight") return null;
+  // Cho phép underweight và normal — chỉ block overweight/obese
+  if (category === "underweight" || category === "normal") return null;
   const label = asianBmiLabel(category);
   const reason = bmiReasonForCategory(category);
   const message = bmiMessageForCategory(category);

@@ -221,7 +221,7 @@ def ensure_database_schema(engine: Engine) -> None:
         connection.execute(text("UPDATE users SET role = UPPER(role) WHERE role IS NOT NULL"))
         connection.execute(text("UPDATE users SET role = 'USER' WHERE role IS NULL OR role = ''"))
         connection.execute(text("UPDATE users SET status = 'LOCKED' WHERE is_active = 0"))
-        connection.execute(text("UPDATE users SET status = 'ACTIVE' WHERE status IS NULL OR status = ''"))
+        connection.execute(text("UPDATE users SET status = 'ACTIVE' WHERE status IS NULL OR status IS NULL OR status = ''"))
         connection.execute(text("UPDATE users SET email_verified = 1 WHERE email_verified IS NULL OR email_verified = 0"))
         connection.execute(
             text(
@@ -235,6 +235,59 @@ def ensure_database_schema(engine: Engine) -> None:
                     protein = COALESCE(protein, protein_per_serving_clean, 0),
                     fat = COALESCE(fat, fat_per_serving_clean, 0),
                     carbs = COALESCE(carbs, carbs_per_serving_clean, 0)
+                """
+            )
+        )
+        # Ensure cua (crab) foods have required menu columns so they appear in recommendations
+        connection.execute(
+            text(
+                """
+                UPDATE foods
+                SET
+                    dish_name_vi = COALESCE(NULLIF(dish_name_vi, ''), name_vi, name, 'Cua (chín)'),
+                    clean_category = COALESCE(NULLIF(clean_category, ''), 'protein_seafood'),
+                    recommended_serving_g = COALESCE(recommended_serving_g, 100.0),
+                    kcal_per_serving_clean = COALESCE(NULLIF(kcal_per_serving_clean, 0), calories, 130.0),
+                    protein_per_serving_clean = COALESCE(NULLIF(protein_per_serving_clean, 0), protein, 27.0),
+                    fat_per_serving_clean = COALESCE(NULLIF(fat_per_serving_clean, 0), fat, 1.5),
+                    carbs_per_serving_clean = COALESCE(NULLIF(carbs_per_serving_clean, 0), carbs, 0.0),
+                    serving_display = COALESCE(NULLIF(serving_display, ''), '100g')
+                WHERE
+                    menu_eligible = 1
+                    AND LOWER(COALESCE(dish_name_vi, name_vi, name, original_name, '')) LIKE '%cua%'
+                    AND (
+                        kcal_per_serving_clean IS NULL
+                        OR kcal_per_serving_clean = 0
+                        OR dish_name_vi IS NULL
+                        OR dish_name_vi = ''
+                        OR recommended_serving_g IS NULL
+                    )
+                """
+            )
+        )
+        # Also handle case where dish_name_vi is still NULL but original_name contains 'crab'
+        connection.execute(
+            text(
+                """
+                UPDATE foods
+                SET
+                    dish_name_vi = 'Cua (chín)',
+                    clean_category = COALESCE(NULLIF(clean_category, ''), 'protein_seafood'),
+                    recommended_serving_g = COALESCE(recommended_serving_g, 100.0),
+                    kcal_per_serving_clean = COALESCE(NULLIF(kcal_per_serving_clean, 0), calories, 130.0),
+                    protein_per_serving_clean = COALESCE(NULLIF(protein_per_serving_clean, 0), protein, 27.0),
+                    fat_per_serving_clean = COALESCE(NULLIF(fat_per_serving_clean, 0), fat, 1.5),
+                    carbs_per_serving_clean = COALESCE(NULLIF(carbs_per_serving_clean, 0), carbs, 0.0),
+                    serving_display = COALESCE(NULLIF(serving_display, ''), '100g')
+                WHERE
+                    menu_eligible = 1
+                    AND LOWER(COALESCE(original_name, '')) LIKE '%crab%'
+                    AND (
+                        dish_name_vi IS NULL OR dish_name_vi = ''
+                        OR kcal_per_serving_clean IS NULL
+                        OR kcal_per_serving_clean = 0
+                        OR recommended_serving_g IS NULL
+                    )
                 """
             )
         )

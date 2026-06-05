@@ -1755,7 +1755,7 @@ class HealthyWeightGainRecommender:
             "tdee": round(maintenance_kcal, 1),
             "maintenance_kcal": round(maintenance_kcal, 1),
             "surplus_kcal": round(surplus_kcal, 1),
-            "eligible": display_bmi < 18.5,
+            "eligible": display_bmi < 25.0,
             "bmi_category": bmi_category,
             "bmi_label": bmi_status,
             "bmi_status": bmi_status,
@@ -2179,7 +2179,7 @@ class HealthyWeightGainRecommender:
 
         target_nutrition = self._estimate_target_nutrition(profile)
         if not target_nutrition.get("eligible", True):
-            raise ValueError("NutriGain chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân có BMI dưới 18.5.")
+            raise ValueError("NutriGain chỉ hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 25 (thiếu cân hoặc bình thường).")
         user_vector = self._scale_profile_vector(target_nutrition)
         all_scores = cosine_similarity(user_vector, self.feature_matrix).ravel()
 

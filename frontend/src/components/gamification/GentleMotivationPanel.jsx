@@ -234,7 +234,7 @@ export default function GentleMotivationPanel({ onAction, refreshKey = 0 }) {
 
           <div className="flex items-center justify-between pt-3 border-t border-emerald-100">
             <div className="text-sm font-semibold text-slate-600">
-              {pendingEatingStreak ? "Bắt đầu lần đầu" : challengeDone ? "Đã hoàn thành" : "Đang thực hiện"}
+              {pendingEatingStreak ? "Bắt đầu lần đầu" : challengeDone ? "" : "Đang thực hiện"}
             </div>
             <button
               onClick={handleCompleteChallenge}

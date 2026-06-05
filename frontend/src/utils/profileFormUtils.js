@@ -29,10 +29,13 @@ export function foodListToInput(value) {
   return "";
 }
 
-// Mốc tham khảo từ Intermountain Health: 0.5–2.0 lb/tuần
-// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng
-//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng
-// Backend sử dụng giới hạn an toàn: 1.0 kg/tháng
+// Mốc tham khảo từ Intermountain Health
+// Nguồn: Intermountain Health khuyến nghị mức tăng cân an toàn là 0.5–2.0 lb/tuần
+// Quy đổi: 0.5 lb/tuần ≈ 0.23 kg/tuần ≈ 1 kg/tháng (mức an toàn cho người trưởng thành)
+//          2.0 lb/tuần ≈ 0.9 kg/tuần ≈ 3.6 kg/tháng (mức tối đa, thường dành cho vận động viên)
+// 
+// NutriGain sử dụng giới hạn an toàn: 1.0 kg/tháng cho người dùng thông thường
+// Mức này phù hợp với khả năng tổng hợp cơ bắp tự nhiên và giảm thiểu tích mỡ thừa
 const SAFE_GAIN_MIN_KG_PER_MONTH = 1.0;
 const SAFE_GAIN_MAX_KG_PER_MONTH = 1.0;
 const WEEKS_PER_MONTH = 4;

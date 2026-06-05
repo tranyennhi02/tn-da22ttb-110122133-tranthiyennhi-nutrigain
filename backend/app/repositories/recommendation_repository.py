@@ -152,29 +152,22 @@ class RecommendationRepository:
         user_id_int = int(request_payload["user_id"])
         today_date = datetime.utcnow().date()
 
-        # Handle existing meal plan for today to prevent UniqueConstraint error
-        from app.models.entities import MealPlan, Meal, MealPlanItem, FoodLogItem, MealConsumptionLog
-        existing_plan = self.db.scalar(
-            select(MealPlan).where(MealPlan.user_id == user_id_int, MealPlan.plan_date == today_date)
-        )
-        if existing_plan:
-            # Check if there are consumption logs
-            has_logs = self.db.scalar(
-                select(MealConsumptionLog.id)
-                .where(MealConsumptionLog.meal_plan_id == existing_plan.id)
-                .limit(1)
+        # Mark ALL existing plans for today as superseded (preserves meal history)
+        from app.models.entities import MealPlan, Meal, MealPlanItem, FoodLogItem, MealConsumptionLog, FoodLog
+        existing_plans = list(
+            self.db.scalars(
+                select(MealPlan).where(MealPlan.user_id == user_id_int, MealPlan.plan_date == today_date)
             )
-
-            # Always mark old plan as superseded instead of deleting
-            # This preserves meal history and consumption logs
+        )
+        for existing_plan in existing_plans:
             existing_plan.status = "superseded"
-            self.db.flush()
             print("[MEAL PLAN SUPERSEDED]", {
                 "user_id": user_id_int,
                 "old_plan_id": existing_plan.id,
-                "had_consumption_logs": has_logs is not None,
                 "old_plan_date": existing_plan.plan_date.isoformat() if existing_plan.plan_date else None,
             })
+        if existing_plans:
+            self.db.flush()
 
         meal_plan = MealPlan(
             user_id=user_id_int,

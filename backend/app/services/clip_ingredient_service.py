@@ -36,7 +36,7 @@ MAX_IMAGE_DOWNLOAD_BYTES = 8 * 1024 * 1024
 
 # PHẦN 1: Meat/Seafood force thresholds
 MEAT_FORCE_NAMES = {"Thịt lợn", "Thịt bò", "Thịt gà", "Xúc xích"}
-SEAFOOD_FORCE_NAMES = {"Cá", "Tôm", "Cua", "Sò", "Hàu", "Hải sản"}
+SEAFOOD_FORCE_NAMES = {"Cá", "Cá hồi", "Tôm", "Cua", "Sò", "Hàu", "Hải sản"}
 MEAT_FORCE_MIN_SCORE = 0.36
 SEAFOOD_FORCE_MIN_SCORE = 0.34
 FORCE_MIN_MARGIN = 0.035
@@ -44,7 +44,7 @@ FORCE_MIN_MARGIN = 0.035
 # Safety thresholds for special accept branches
 MEAT_NAMES = {"Thịt lợn", "Thịt bò", "Thịt gà"}
 SAUSAGE_NAMES = {"Xúc xích"}
-SEAFOOD_NAMES = {"Cá", "Tôm", "Cua", "Sò", "Hàu", "Hải sản"}
+SEAFOOD_NAMES = {"Cá", "Cá hồi", "Tôm", "Cua", "Sò", "Hàu", "Hải sản"}
 
 
 def get_prompt_majority(top_prompts: list[dict[str, Any]], ingredient_name: str, top_n: int = 10) -> dict[str, Any]:
@@ -145,6 +145,7 @@ def can_accept_candidate(
         "shrimp_prompt_majority",
         "crab_prompt_majority",
         "fish_prompt_majority",
+        "salmon_prompt_majority",
         "sausage_prompt_majority",
         "beef_prompt_majority",
         "chicken_prompt_majority",
@@ -174,6 +175,12 @@ def can_accept_candidate(
             if rank == 1 and score >= 0.28 and count >= 6 and top3_count >= 3 and ratio >= 0.6:
                 return True, "fish_majority_override_ok"
             return False, f"fish_majority_not_strong_enough (score={score:.4f}, count={count}, top3={top3_count}, ratio={ratio:.2f})"
+        
+        # Salmon majority override
+        if reason == "salmon_prompt_majority" and name == "Cá hồi":
+            if rank == 1 and score >= 0.28 and count >= 6 and top3_count >= 3 and ratio >= 0.6:
+                return True, "salmon_majority_override_ok"
+            return False, f"salmon_majority_not_strong_enough (score={score:.4f}, count={count}, top3={top3_count}, ratio={ratio:.2f})"
         
         # Shrimp majority override
         if reason == "shrimp_prompt_majority" and name == "Tôm":
@@ -251,6 +258,7 @@ VALID_INGREDIENTS = [
     "Xúc xích",
     "Cua",
     "Cá",
+    "Cá hồi",
     "Hàu",
     "Sò",
     "Tôm",
@@ -557,6 +565,7 @@ INGREDIENT_PROMPT_GROUPS = {
         "sliced carrot",
         "sliced carrots",
         "carrot sticks",
+        "orange root vegetable",
         "cà rốt",
         "ca rot",
         "củ cà rốt",
@@ -594,11 +603,39 @@ INGREDIENT_PROMPT_GROUPS = {
         "cooked fish",
         "raw fish",
         "whole fish",
+        "white fish",
+        "fish steak",
         "con cá",
         "thịt cá",
         "cá tươi",
         "cá sống",
         "phi lê cá",
+    ],
+    "Cá hồi": [
+        "salmon",
+        "salmon fillet",
+        "raw salmon",
+        "fresh salmon",
+        "salmon steak",
+        "pink salmon",
+        "atlantic salmon",
+        "salmon fish",
+        "salmon meat",
+        "a photo of salmon fillet",
+        "a photo of raw salmon",
+        "a photo of fresh salmon fish",
+        "pink salmon fillet",
+        "orange salmon fillet",
+        "cá hồi",
+        "ca hoi",
+        "phi lê cá hồi",
+        "phi le ca hoi",
+        "cá hồi tươi",
+        "ca hoi tuoi",
+        "cá hồi sống",
+        "ca hoi song",
+        "miếng cá hồi",
+        "mieng ca hoi",
     ],
     "Đậu nành": [
         "soybeans",
@@ -645,7 +682,8 @@ INGREDIENT_PROMPT_GROUPS = {
 }
 
 FILENAME_INGREDIENT_PATTERNS = [
-    ("Cà rốt", ["ca rot", "carrot"]),  # Check vegetables first
+    ("Cá hồi", ["ca hoi", "salmon"]),  # Check salmon FIRST before generic fish
+    ("Cà rốt", ["ca rot", "carrot"]),  # Check vegetables
     ("Cà chua", ["ca chua", "tomato"]),
     ("Cam", ["qua cam", "orange fruit"]),
     ("Khoai lang", ["khoai lang", "sweet potato"]),  # MUST check before potato!
@@ -657,7 +695,7 @@ FILENAME_INGREDIENT_PATTERNS = [
     ("Tôm", ["tom", "shrimp", "prawn", "tom su"]),
     ("Cua", ["con cua", "crab", "thit cua", "cua bien", "cua dong"]),
     ("Hải sản", ["hai san", "seafood", "shellfish"]),
-    ("Cá", ["con ca", "thit ca", "fish"]),  # Removed dangerous "ca" alias
+    ("Cá", ["con ca", "thit ca", "fish"]),  # Removed dangerous "ca" alias, check AFTER salmon
     ("Thịt lợn", ["thit lon", "thit heo", "heo", "lon", "pork"]),
     ("Thịt bò", ["thit bo", "beef", "bo"]),
     ("Trứng", ["trung", "egg"]),
@@ -997,6 +1035,19 @@ def _recognize_ingredients_with_clip(
                 accepted_reason = "fish_prompt_majority"
                 accepted_majority_info = majority
                 logger.info("[INGREDIENT ACCEPTED] fish_prompt_majority score=%.3f majority=%s", 
+                           best_score, majority)
+        
+        # Rule cho Cá hồi (salmon) - ưu tiên cao hơn Cá và Cà rốt
+        if not accepted_ingredients and best_name == "Cá hồi" and not has_blocker:
+            if (
+                best_score >= 0.28
+                and majority["count"] >= 6
+                and majority["top3Count"] >= 3
+            ):
+                accepted_ingredients = ["Cá hồi"]
+                accepted_reason = "salmon_prompt_majority"
+                accepted_majority_info = majority
+                logger.info("[INGREDIENT ACCEPTED] salmon_prompt_majority score=%.3f majority=%s", 
                            best_score, majority)
         
         # PHẦN 4: Rule cho Xúc xích - majority accept
@@ -1983,6 +2034,7 @@ def _recognize_ingredients_with_clip(
                     "shrimp_prompt_majority",
                     "crab_prompt_majority",
                     "fish_prompt_majority",
+                    "salmon_prompt_majority",
                     "sausage_prompt_majority",
                     "beef_prompt_majority",
                     "chicken_prompt_majority",

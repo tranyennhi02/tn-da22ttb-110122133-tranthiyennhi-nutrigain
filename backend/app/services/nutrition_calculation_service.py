@@ -16,9 +16,9 @@ def classify_asian_bmi(bmi: float) -> str:
     value = round(float(bmi), 1)
     if value < 18.5:
         return "underweight"
-    if value < 23:
-        return "normal"
     if value < 25:
+        return "normal"
+    if value < 30:
         return "overweight"
     return "obese"
 

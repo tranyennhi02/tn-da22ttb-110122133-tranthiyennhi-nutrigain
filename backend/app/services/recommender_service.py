@@ -618,7 +618,7 @@ BMI_NOT_UNDERWEIGHT = "BMI_NOT_UNDERWEIGHT"
 BMI_OVERWEIGHT_NOT_SUPPORTED = "BMI_OVERWEIGHT_NOT_SUPPORTED"
 BMI_OBESE_NOT_SUPPORTED = "BMI_OBESE_NOT_SUPPORTED"
 BMI_SCOPE_MESSAGE = (
-    "NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người thiếu cân có BMI dưới 18.5."
+    "NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 25 (thiếu cân hoặc bình thường)."
 )
 BMI_NOT_UNDERWEIGHT_MESSAGE = (
     BMI_SCOPE_MESSAGE
@@ -630,12 +630,10 @@ BMI_SEVERE_UNDERWEIGHT_WARNING = (
     "và tham khảo chuyên gia dinh dưỡng khi cần."
 )
 BMI_REASON_BY_CATEGORY = {
-    "normal": BMI_NOT_UNDERWEIGHT,
     "overweight": BMI_OVERWEIGHT_NOT_SUPPORTED,
     "obese": BMI_OBESE_NOT_SUPPORTED,
 }
 BMI_MESSAGE_BY_CATEGORY = {
-    "normal": BMI_NOT_UNDERWEIGHT_MESSAGE,
     "overweight": BMI_OVERWEIGHT_MESSAGE,
     "obese": BMI_OBESE_MESSAGE,
 }
@@ -676,7 +674,7 @@ def _is_maintain_value(value: object) -> bool:
 
 
 def _has_weight_gain_intent(*, bmi: float | None, goal: object, weight_gain_speed: object) -> bool:
-    if bmi is not None and bmi < 18.5:
+    if bmi is not None and bmi < 25.0:
         return True
     if _is_weight_loss_goal_value(goal):
         return False
@@ -950,6 +948,11 @@ INGREDIENT_ALIAS_GROUPS: dict[str, list[str]] = {
         "kielbasa", "bratwurst", "wiener", "chorizo", "salami", "pepperoni",
         "thit xong khoi", "thit hun khoi", "smoked meat", "processed meat",
     ],
+    "cua": [
+        "cua", "crab", "thit cua", "cua bien", "cua dong",
+        "cua luoc", "cua hap", "cua rang me", "cua nuong",
+        "cua xao", "cua chien", "ghe", "stone crab", "blue crab",
+    ],
     "orange": [
         "cam", "qua cam", "cam tuoi", "nuoc cam",
         "orange", "orange fruit", "fresh orange", "orange juice",
@@ -965,6 +968,7 @@ INGREDIENT_GROUP_ORDER = [
     "chicken",
     "lamb",
     "sausage",
+    "cua",
     "fish",
     "orange",
     "protein",
@@ -978,6 +982,7 @@ INGREDIENT_GROUP_TO_MACRO: dict[str, str] = {
     "chicken": "protein",
     "lamb": "protein",
     "sausage": "protein",
+    "cua": "protein",
     "fish": "protein",
     "orange": "fruit",
     "protein": "protein",
@@ -991,6 +996,7 @@ INGREDIENT_GROUP_TO_PRIMARY_CATEGORY: dict[str, str] = {
     "chicken": "protein_meat",
     "lamb": "protein_meat",
     "sausage": "protein_meat",
+    "cua": "protein_seafood",
     "fish": "protein_seafood",
     "orange": "fruit",
     "protein": "protein_meat",
@@ -1057,6 +1063,9 @@ def _ingredient_candidate_terms(raw_ingredient: object) -> list[str]:
         "lamb": ["thit cuu", "cuu", "lamb"],
         "xuc xich": ["xuc xich", "sausage", "sausages", "frankfurter", "hot dog", "hotdog", "kielbasa", "bratwurst", "wiener", "chorizo", "salami", "pepperoni"],
         "sausage": ["xuc xich", "sausage", "sausages", "frankfurter", "hot dog", "hotdog", "kielbasa", "bratwurst", "wiener", "chorizo", "salami", "pepperoni"],
+        "cua": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe", "stone crab", "blue crab"],
+        "crab": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe", "stone crab", "blue crab"],
+        "thit cua": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe"],
         "tao": ["nuoc tao", "banh tao", "banh strudel tao", "banh sung bo tao"],
         "ca": ["ca hoi", "ca ngu", "ca thu", "ca trang", "ca bong", "ca loc"],
         "tom": ["shrimp", "prawn"],
@@ -1155,7 +1164,11 @@ def ingredient_match_list(food: object, available_ingredients: object) -> list[s
             if not alias_norm:
                 continue
             if len(alias_norm) <= 3:
-                if f" {alias_norm} " in padded_haystack:
+                # Use token-based matching to avoid false negatives like
+                # "cua" not matching " cua song " (padded space approach fails
+                # when the short term is a prefix of the next token).
+                haystack_tokens = haystack.split()
+                if alias_norm in haystack_tokens:
                     found = True
                     break
             elif alias_norm in haystack:
@@ -1721,7 +1734,7 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                 if not alias_norm:
                     continue
                 if len(alias_norm) <= 3:
-                    found = f" {alias_norm} " in padded_haystack
+                    found = alias_norm in haystack.split()
                 else:
                     found = alias_norm in haystack
                 if found:
@@ -1734,6 +1747,20 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                     ):
                         core_match = True
                     break
+
+        # Debug log for cua
+        if ingredient_group == "cua" or _is_cua_ingredient(ingredient_key):
+            if not alias_hit:
+                print("[INGREDIENT MATCH QUALITY DEBUG - CUA MISS]", {
+                    "ingredient": ingredient_key,
+                    "food": name,
+                    "aliases": aliases,
+                    "haystack": haystack[:150],
+                    "haystackTokens": haystack.split()[:15],
+                }, flush=True)
+            elif alias_hit and matched_alias == aliases[0] if aliases else False:
+                # Only log first few hits
+                pass
 
         if specific_ingredient and not alias_hit:
             return 0.0
@@ -1800,7 +1827,7 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                     return 1.0
                 return 3.0 if core_match else 2.0
 
-        if _is_cua_ingredient(ingredient_group):
+        if _is_cua_ingredient(ingredient_key) or ingredient_group == "cua":
             if core_match and candidate_category in {"protein_seafood", "seafood", "protein_meat", "animal_protein", "protein"}:
                 return 3.0
             if core_match:
@@ -1969,7 +1996,7 @@ def _ingredient_candidate_rank(food: object, ingredient: object) -> tuple[int, i
             exact_phrase = 1
             break
         if len(term) <= 3:
-            term_found = f" {term} " in padded_haystack
+            term_found = term in haystack.split()
         else:
             term_found = term in haystack
         if term_found:
@@ -2186,6 +2213,34 @@ def _limit_ranked_candidate_pool(
                     print("[ORANGE CANDIDATE PRESERVED]", {
                         "count": len(orange_rows),
                         "top": [safe_name(row) for _, row in orange_rows.head(20).iterrows()],
+                    }, flush=True)
+
+            # Check if cua (crab) is in available ingredients and preserve cua candidates
+            has_cua_ingredient = any(
+                get_ingredient_group(normalize_ingredient_name(ing)) == "cua"
+                for ing in normalized_ingredients
+            )
+            if has_cua_ingredient and "name" in ranked_sorted.columns:
+                _cua_terms = ("cua", "crab", "thit cua", "ghe")
+                # Debug: scan full ranked_sorted for any cua names
+                _all_cua_in_ranked = ranked_sorted[
+                    ranked_sorted["name"].astype(str).apply(
+                        lambda v: any(t in normalize_ingredient_name(v).split() for t in _cua_terms)
+                               or any(t in normalize_ingredient_name(v) for t in ("crab", "thit cua", "ghe"))
+                    )
+                ]
+                print("[CUA IN RANKED_SORTED SCAN]", {
+                    "has_cua_ingredient": has_cua_ingredient,
+                    "ranked_total": len(ranked_sorted),
+                    "cua_found": len(_all_cua_in_ranked),
+                    "names": _all_cua_in_ranked["name"].tolist()[:20] if not _all_cua_in_ranked.empty else [],
+                }, flush=True)
+                cua_rows = _all_cua_in_ranked
+                if not cua_rows.empty:
+                    candidate_pool = pd.concat([candidate_pool, cua_rows], ignore_index=False)
+                    print("[CUA CANDIDATE PRESERVED]", {
+                        "count": len(cua_rows),
+                        "names": [safe_name(row) for _, row in cua_rows.head(20).iterrows()],
                     }, flush=True)
 
             # LAMB SOURCE DEBUG in candidate pool building
@@ -2611,6 +2666,24 @@ def find_best_candidate_for_required_ingredient(
     
     # Check if this is a sausage ingredient
     is_sausage_ingredient = (ing_group == "sausage")
+    
+    # Debug log for cua ingredient: scan pool for any cua/crab names
+    if _is_cua_ingredient(ingredient_key):
+        cua_pool_scan: list[str] = []
+        for _c in _iter_candidate_items(candidate_pool):
+            try:
+                _cname = normalize_text_vi(safe_name(_c))
+                _corig = normalize_text_vi(safe_text(safe_get(_c, "original_name", "")))
+                if any(t in _cname for t in ("cua", "crab", "ghe")) or any(t in _corig for t in ("cua", "crab")):
+                    cua_pool_scan.append(safe_name(_c))
+            except Exception:
+                pass
+        print("[CUA CANDIDATE POOL SCAN]", {
+            "ingredient": ingredient_key,
+            "ingredientGroup": ing_group,
+            "poolTotal": len(list(_iter_candidate_items(candidate_pool))),
+            "cuaMatchInPool": cua_pool_scan[:20],
+        }, flush=True)
 
     for candidate in _iter_candidate_items(candidate_pool):
         try:
@@ -2648,12 +2721,14 @@ def find_best_candidate_for_required_ingredient(
             score_value = safe_score(candidate)
             kcal_value = safe_calories(candidate)
             kcal_fit = -abs(float(kcal_value) - float(target_item_kcal)) if target_item_kcal not in (None, 0) else 0.0
+            # Prefer candidates with valid calorie data (kcal > 0)
+            has_valid_kcal = 1 if float(kcal_value) > 0 else 0
             
             # For sausage ingredients, prioritize sausage_priority first
             if is_sausage_ingredient:
-                bucket = (sausage_priority_score, q, specificity_score, category_priority, candidate_rank[0], candidate_rank[1], candidate_rank[2], primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, score_value, kcal_fit, candidate)
+                bucket = (sausage_priority_score, q, specificity_score, category_priority, candidate_rank[0], candidate_rank[1], candidate_rank[2], primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, has_valid_kcal, score_value, kcal_fit, candidate)
             else:
-                bucket = (q, specificity_score, category_priority, candidate_rank[0], candidate_rank[1], candidate_rank[2], primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, score_value, kcal_fit, candidate)
+                bucket = (q, specificity_score, category_priority, candidate_rank[0], candidate_rank[1], candidate_rank[2], primary_meat_boost, macro_ok, 1 if q >= 2.0 else 0, has_valid_kcal, score_value, kcal_fit, candidate)
             
             if q >= 2.0:
                 matched.append(bucket)
@@ -2916,6 +2991,23 @@ def apply_required_ingredient_slots(
         for ingredient in missing:
             current_plan_items = flatten_plan_items(current_plan)
             has_strong_candidate = False
+            # Always debug for cua ingredient
+            if _is_cua_ingredient(ingredient):
+                cua_debug: list[dict] = []
+                for _dc in _iter_candidate_items(candidate_pool):
+                    try:
+                        _dq = ingredient_match_quality(_dc, ingredient)
+                        if _dq > 0:
+                            cua_debug.append({"name": safe_name(_dc), "quality": _dq, "category": safe_category(_dc)})
+                    except Exception:
+                        pass
+                cua_debug.sort(key=lambda x: x["quality"], reverse=True)
+                print("[CUA MATCH QUALITY DEBUG]", {
+                    "ingredient": ingredient,
+                    "poolSize": len(list(_iter_candidate_items(candidate_pool))),
+                    "qualityAboveZero": len(cua_debug),
+                    "top10": cua_debug[:10],
+                }, flush=True)
             if _debug_recommender_enabled():
                 debug_candidates: list[dict[str, object]] = []
                 for candidate in _iter_candidate_items(candidate_pool):
@@ -3023,7 +3115,8 @@ def apply_required_ingredient_slots(
 
             new_plan = _replace_plan_item(current_plan, str(slot["meal_type"]), int(slot["row_index"]), candidate)
             candidate_kcal_delta = abs(safe_calories(candidate) - safe_calories(slot["old_item"]))
-            if candidate_kcal_delta > MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA:
+            # Skip kcal_delta check when candidate has no calorie data (0.0) — let nutrition_delta_is_safe decide
+            if safe_calories(candidate) > 0 and candidate_kcal_delta > MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA:
                 print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
                     "ingredient": ingredient,
                     "reason": "nutrition_delta_too_large",
@@ -3949,7 +4042,8 @@ class RecommenderService:
         bmi = float(profile_validation["bmi"])
         weight_status = RecommenderService._weight_status_from_bmi(bmi)
         bmi_label = asian_bmi_label(weight_status)
-        if bmi >= 18.5:
+        # Block overweight/obese (>= 25) — allow underweight and normal (18.5–24.9)
+        if bmi >= 25.0:
             reason = BMI_REASON_BY_CATEGORY.get(weight_status, BMI_NOT_UNDERWEIGHT)
             message = BMI_MESSAGE_BY_CATEGORY.get(weight_status, BMI_NOT_UNDERWEIGHT_MESSAGE)
             return {
@@ -3963,14 +4057,29 @@ class RecommenderService:
                 "warnings": profile_validation.get("warnings", []),
             }
 
+        if bmi < 16:
+            eligibility_message = BMI_SEVERE_UNDERWEIGHT_WARNING
+        elif bmi < 18.5:
+            eligibility_message = None
+        else:
+            # normal range (18.5 <= bmi < 25) — eligible but with info note
+            eligibility_message = (
+                "BMI của bạn đang ở mức bình thường. "
+                "NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn tăng cân thêm."
+            )
+
         return {
             "bmi": round(bmi, 2),
             "weight_status": weight_status,
             "bmi_category": weight_status,
             "bmi_label": bmi_label,
             "eligible": True,
-            "reason": "Người dùng thiếu cân có BMI dưới 18.5 và đủ điều kiện tạo thực đơn tăng cân.",
-            "message": BMI_SEVERE_UNDERWEIGHT_WARNING if bmi < 16 else None,
+            "reason": (
+                "Người dùng thiếu cân có BMI dưới 18.5 và đủ điều kiện tạo thực đơn tăng cân."
+                if bmi < 18.5
+                else "Người dùng có BMI bình thường và đủ điều kiện tạo thực đơn tăng cân."
+            ),
+            "message": eligibility_message,
             "warnings": profile_validation.get("warnings", []),
         }
 
@@ -5328,7 +5437,7 @@ class RecommenderService:
         return next_df.sort_values("score", ascending=False)
 
     @staticmethod
-    def filterFoodsByDietType(ranked: pd.DataFrame, diet_type: str, min_items: int = 0) -> pd.DataFrame:
+    def filterFoodsByDietType(ranked: pd.DataFrame, diet_type: str, min_items: int = 0, user_required_ingredients: list[str] | None = None) -> pd.DataFrame:
         normalized_diet = _normalize_search_text(diet_type or "balanced")
         if ranked.empty:
             return ranked
@@ -5344,8 +5453,15 @@ class RecommenderService:
         if not any(term in normalized_diet for term in EAT_CLEAN_DIET_TERMS):
             return ranked
 
-        blocked_mask = ranked.apply(
-            lambda row: (
+        # Foods matching a user-required ingredient must NOT be blocked even in eat_clean/balanced diet
+
+        def _is_blocked_by_diet(row: object) -> bool:
+            # If the food matches any user-required ingredient, never block it
+            if user_required_ingredients:
+                for ing in user_required_ingredients:
+                    if ingredient_is_covered_by_food(row, ing):
+                        return False
+            return (
                 HealthyWeightGainRecommender._is_dirty_bulk_name(
                     f"{row.get('name', '')} {row.get('name_en', '')}"
                 )
@@ -5353,9 +5469,9 @@ class RecommenderService:
                 or _row_matches_terms(row, EAT_CLEAN_BLOCKED_TERMS)
                 or _is_processed_meat_row(row)
                 or _is_dessert_or_sweet_row(row)
-            ),
-            axis=1,
-        )
+            )
+
+        blocked_mask = ranked.apply(_is_blocked_by_diet, axis=1)
         preferred = ranked[~blocked_mask].copy()
         fallback = ranked[blocked_mask].copy()
         if len(preferred) >= max(0, int(min_items)) or fallback.empty:
@@ -5367,8 +5483,8 @@ class RecommenderService:
         return pd.concat([preferred, fallback], ignore_index=True).sort_values("score", ascending=False)
 
     @staticmethod
-    def _filter_eat_clean_ineligible(ranked: pd.DataFrame, diet_style: str) -> pd.DataFrame:
-        return RecommenderService.filterFoodsByDietType(ranked, diet_style)
+    def _filter_eat_clean_ineligible(ranked: pd.DataFrame, diet_style: str, user_required_ingredients: list[str] | None = None) -> pd.DataFrame:
+        return RecommenderService.filterFoodsByDietType(ranked, diet_style, user_required_ingredients=user_required_ingredients)
 
     @staticmethod
     def pickBalancedMeal(
@@ -7160,11 +7276,11 @@ class RecommenderService:
         )
         if target_weight is not None and height is not None and float(height) > 0:
             target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
-            if target_bmi >= 23.0:
+            if target_bmi >= 25.0:
                 min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
-                max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
+                max_normal_weight = round(24.9 * ((float(height) / 100.0) ** 2), 1)
                 raise ValueError(
-                    f"Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. "
+                    f"Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 25). "
                     f"Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
                 )
 
@@ -7497,6 +7613,7 @@ class RecommenderService:
             ranked,
             payload.diet_type or payload.diet_style,
             min_items=meal_slots * 3,
+            user_required_ingredients=available_ingredients or [],
         )
 
         disliked_foods_expanded = _expand_food_terms(disliked_foods)

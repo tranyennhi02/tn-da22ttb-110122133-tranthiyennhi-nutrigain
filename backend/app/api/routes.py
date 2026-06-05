@@ -870,7 +870,7 @@ def toggle_meal_consumption(
             "food_id": resolved_item.food_id,
         })
 
-    # 1. Update FoodLogItem check-in first
+    # 1. Update FoodLogItem check-in first (only if we found a specific meal plan item)
     if resolved_item is not None:
         try:
             _require_recommendation_controller().check_in_meal_plan_item(
@@ -882,9 +882,8 @@ def toggle_meal_consumption(
             )
         except Exception as e:
             logger.exception("[MEAL CONSUMPTION TOGGLE] Exception in check_in_meal_plan_item for meal_plan_item_id=%s: %s", meal_plan_item_id, str(e))
-            raise HTTPException(status_code=400, detail="Cannot update meal plan item consumption")
-    elif meal_type and food_id_str is not None:
-        raise HTTPException(status_code=404, detail="Meal plan item not found for meal_type and food_id")
+            # Don't fail the whole request, just log the error and continue with MealConsumptionLog
+            print("[MEAL CONSUMPTION TOGGLE] Failed to update meal plan item, continuing with consumption log")
 
     # 2. Update MealConsumptionLog for Stats Page
     log_food_ids = [value for value in {food_id_str, original_food_id_str} if value is not None]

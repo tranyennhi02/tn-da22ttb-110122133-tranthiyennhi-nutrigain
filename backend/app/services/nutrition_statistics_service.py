@@ -323,10 +323,32 @@ class NutritionStatisticsService:
             "meal_plan_ids": sorted(set(item.get("meal_plan_id") for item in items if item.get("meal_plan_id"))),
             "meal_plans_info_count": len(meal_plan_info_map),
         })
-        
+
+        # Lấy tập hợp plan_id bị superseded/invalid trực tiếp từ DB để đảm bảo chính xác
+        # (meal_plan_info_map có thể không có entry nếu outerjoin trả về None)
+        all_plan_ids = {item.get("meal_plan_id") for item in items if item.get("meal_plan_id")}
+        if all_plan_ids:
+            excluded_plan_ids = {
+                row[0]
+                for row in db.query(MealPlan.id)
+                .filter(MealPlan.id.in_(all_plan_ids))
+                .filter(MealPlan.status.in_(["superseded", "invalid"]))
+                .all()
+            }
+        else:
+            excluded_plan_ids = set()
+
+        # Totals chỉ tính các items thuộc plan đang dùng (không phải superseded/invalid)
+        # để tránh cộng dồn khi user tạo thực đơn mới trong ngày.
+        # items vẫn trả về đầy đủ để nhật ký hiển thị lịch sử mọi plan.
+        active_items = [
+            item for item in items
+            if item.get("meal_plan_id") not in excluded_plan_ids
+        ]
+
         return {
             "items": items,
-            "totals": self._history_totals(items),
+            "totals": self._history_totals(active_items),
             "meal_plans": meal_plan_info_map,
         }
 
@@ -494,9 +516,15 @@ class NutritionStatisticsService:
 
         logs = (
             db.query(MealConsumptionLog)
+            .outerjoin(MealPlan, MealConsumptionLog.meal_plan_id == MealPlan.id)
             .filter(MealConsumptionLog.user_id == user.id)
             .filter(MealConsumptionLog.consumed_at >= start_utc)
             .filter(MealConsumptionLog.consumed_at < end_utc)
+            # Exclude logs from superseded/invalid plans (replaced by newer plan)
+            .filter(
+                (MealConsumptionLog.meal_plan_id.is_(None))
+                | (MealPlan.status.notin_(["superseded", "invalid"]))
+            )
             .order_by(MealConsumptionLog.consumed_at.asc())
             .all()
         )
