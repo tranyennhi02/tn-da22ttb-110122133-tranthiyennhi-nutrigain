@@ -20,8 +20,16 @@ export default function Sidebar({
   onClose,
   onNavigate,
   onLogout,
+  maintainMode = false,
 }) {
   const initials = (userEmail || "NG").slice(0, 2).toUpperCase();
+
+  const resolvedMenuItems = menuItems.map((item) => {
+    if (item.id === "charts" && maintainMode) {
+      return { ...item, label: "Theo dõi cân nặng" };
+    }
+    return item;
+  });
 
   return (
     <aside
@@ -52,7 +60,7 @@ export default function Sidebar({
           Workspace
         </div>
         <div className="space-y-1">
-          {menuItems.map((item) => {
+          {resolvedMenuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeSection === item.id;
             return (

@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.entities import MealReminderLog, User, UserProfileEntity
 from app.services.email_service import is_smtp_configured, send_email
+from app.services.sms_service import _mask_phone, _normalize_phone, is_twilio_configured, send_sms
 
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,26 @@ class MealReminderService:
         sent = send_email(recipient, subject, html_body, text_body=text_body)
         return "sent" if sent else "failed"
 
+    def send_meal_reminder_sms(self, phone: str, meal_type: str, user_id: int | None = None) -> str:
+        """Send an SMS meal reminder. Returns 'sent', 'failed', or 'skipped'."""
+        if not is_twilio_configured():
+            _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=twilio_not_configured user_id={user_id}")
+            return "skipped"
+
+        recipient = _normalize_phone(phone)
+        if not recipient:
+            _emit_log(f"[MEAL REMINDER SMS SKIPPED] user_id={user_id}, reason=invalid_phone")
+            return "skipped"
+
+        meal_label = MEAL_LABELS.get(meal_type, meal_type)
+        body = (
+            f"NutriGain nhắc bạn: Đã đến giờ ăn {meal_label} rồi. "
+            "Hãy ăn nhẹ nhàng và đều đặn theo kế hoạch hôm nay nhé!"
+        )
+        _emit_log(f"[MEAL REMINDER SMS TO] user_id={user_id}, to={_mask_phone(recipient)}, meal_type={meal_type}")
+        sent = send_sms(recipient, body)
+        return "sent" if sent else "failed"
+
     def _already_logged(self, db: Session, user_id: int, meal_type: str, reminder_date) -> bool:
         existing = db.scalar(
             select(MealReminderLog.id).where(
@@ -166,7 +187,10 @@ class MealReminderService:
         rows = db.execute(
             select(User, UserProfileEntity)
             .join(UserProfileEntity, UserProfileEntity.user_id == User.id)
-            .where(UserProfileEntity.meal_reminder_enabled.is_(True), User.is_active.is_(True))
+            .where(
+                (UserProfileEntity.meal_reminder_enabled.is_(True) | UserProfileEntity.sms_reminder_enabled.is_(True)),
+                User.is_active.is_(True),
+            )
         ).all()
 
         for user, profile in rows:
@@ -196,54 +220,70 @@ class MealReminderService:
 
                 raw_user_email = _normalize_email(getattr(user, "email", None))
                 recipient_email = self._resolve_recipient(user, profile)
-                if not recipient_email:
-                    self._save_log(
-                        db,
-                        user.id,
-                        meal_type,
-                        scheduled_time=current_time,
-                        reminder_date=reminder_date,
-                        sent_at=local_now,
-                        status="skipped",
-                        error_message="invalid_user_email" if raw_user_email else "no_user_email",
-                    )
-                    reason = "invalid_user_email" if raw_user_email else "no_user_email"
-                    _emit_log(f"[MEAL REMINDER SKIPPED] user_id={user.id}, reason={reason}, email={_mask_email(raw_user_email)}")
-                    counts["skipped"] += 1
-                    continue
 
-                try:
-                    status = self.send_meal_reminder_email(recipient_email, meal_type, user_id=user.id)
-                    self._save_log(
-                        db,
-                        user.id,
-                        meal_type,
-                        scheduled_time=scheduled_time,
-                        reminder_date=reminder_date,
-                        sent_at=local_now,
-                        status=status,
-                        error_message="smtp_not_configured" if status == "skipped" else None,
-                    )
-                    if status == "sent":
-                        _emit_log(f"[MEAL REMINDER SENT] user_id={user.id}, meal_type={meal_type}")
-                    elif status == "failed":
-                        _emit_log(f"[MEAL REMINDER FAILED] user_id={user.id}, error=send_email_failed", level="warning")
+                any_sent = False
+                last_status = "skipped"
+
+                # ── Email channel ──────────────────────────────────────────
+                if bool(profile.meal_reminder_enabled):
+                    if not recipient_email:
+                        reason = "invalid_user_email" if raw_user_email else "no_user_email"
+                        _emit_log(f"[MEAL REMINDER EMAIL SKIPPED] user_id={user.id}, reason={reason}")
+                        counts["skipped"] += 1
                     else:
-                        _emit_log(f"[MEAL REMINDER SKIPPED] reason=smtp_not_configured user_id={user.id} meal_type={meal_type}")
-                    counts[status] = counts.get(status, 0) + 1
-                except Exception as exc:
-                    _emit_log(f"[MEAL REMINDER FAILED] user_id={user.id}, error={exc}", level="warning")
-                    self._save_log(
-                        db,
-                        user.id,
-                        meal_type,
-                        scheduled_time=scheduled_time,
-                        reminder_date=reminder_date,
-                        sent_at=local_now,
-                        status="failed",
-                        error_message=str(exc),
-                    )
-                    counts["failed"] += 1
+                        try:
+                            email_status = self.send_meal_reminder_email(recipient_email, meal_type, user_id=user.id)
+                            if email_status == "sent":
+                                any_sent = True
+                                last_status = "sent"
+                                _emit_log(f"[MEAL REMINDER EMAIL SENT] user_id={user.id}, meal_type={meal_type}")
+                            elif email_status == "failed":
+                                last_status = "failed"
+                                _emit_log(f"[MEAL REMINDER EMAIL FAILED] user_id={user.id}", level="warning")
+                            else:
+                                _emit_log(f"[MEAL REMINDER EMAIL SKIPPED] reason=smtp_not_configured user_id={user.id}")
+                            counts[email_status] = counts.get(email_status, 0) + 1
+                        except Exception as exc:
+                            last_status = "failed"
+                            _emit_log(f"[MEAL REMINDER EMAIL FAILED] user_id={user.id}, error={exc}", level="warning")
+                            counts["failed"] += 1
+
+                # ── SMS channel ────────────────────────────────────────────
+                if bool(getattr(profile, "sms_reminder_enabled", False)):
+                    phone = getattr(profile, "phone_number", None)
+                    if not phone:
+                        _emit_log(f"[MEAL REMINDER SMS SKIPPED] user_id={user.id}, reason=no_phone_number")
+                        counts["skipped"] += 1
+                    else:
+                        try:
+                            sms_status = self.send_meal_reminder_sms(phone, meal_type, user_id=user.id)
+                            if sms_status == "sent":
+                                any_sent = True
+                                last_status = "sent"
+                                _emit_log(f"[MEAL REMINDER SMS SENT] user_id={user.id}, meal_type={meal_type}")
+                            elif sms_status == "failed":
+                                last_status = "failed"
+                                _emit_log(f"[MEAL REMINDER SMS FAILED] user_id={user.id}", level="warning")
+                            else:
+                                _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=twilio_not_configured user_id={user.id}")
+                            counts[sms_status] = counts.get(sms_status, 0) + 1
+                        except Exception as exc:
+                            last_status = "failed"
+                            _emit_log(f"[MEAL REMINDER SMS FAILED] user_id={user.id}, error={exc}", level="warning")
+                            counts["failed"] += 1
+
+                # Log once per meal per day regardless of channel count
+                final_status = "sent" if any_sent else last_status
+                self._save_log(
+                    db,
+                    user.id,
+                    meal_type,
+                    scheduled_time=scheduled_time,
+                    reminder_date=reminder_date,
+                    sent_at=local_now,
+                    status=final_status,
+                    error_message=None if any_sent else "no_channel_sent",
+                )
 
         return counts
 
@@ -271,6 +311,32 @@ class MealReminderService:
             return True, "Đã gửi email thử.", _mask_email(recipient_email)
         _emit_log(f"[MEAL REMINDER FAILED] user_id={user.id}, error=send_test_email_failed", level="warning")
         return False, "Chưa gửi được email. Vui lòng kiểm tra cấu hình SMTP.", None
+
+    def send_test_sms(self, user: User, meal_type: str = "breakfast") -> tuple[bool, str, str | None]:
+        """Send a one-off test SMS reminder to the user's stored phone number."""
+        meal_key = str(meal_type or "breakfast").strip().lower()
+        if meal_key not in MEAL_LABELS:
+            meal_key = "breakfast"
+
+        profile = getattr(user, "profile", None)
+        phone = getattr(profile, "phone_number", None) if profile else None
+        if not phone:
+            return False, "Tài khoản chưa có số điện thoại để nhận SMS.", None
+
+        if not is_twilio_configured():
+            return False, "Twilio chưa được cấu hình.", None
+
+        meal_label = MEAL_LABELS.get(meal_key, meal_key)
+        body = (
+            f"NutriGain nhắc bạn: Đã đến giờ ăn {meal_label} rồi. "
+            "Hãy ăn nhẹ nhàng và đều đặn theo kế hoạch hôm nay nhé!"
+        )
+        sent = send_sms(phone, body)
+        if sent:
+            _emit_log(f"[MEAL REMINDER SMS TEST SENT] user_id={user.id}, meal_type={meal_key}")
+            return True, "Đã gửi SMS thử.", _mask_phone(phone)
+        _emit_log(f"[MEAL REMINDER SMS TEST FAILED] user_id={user.id}", level="warning")
+        return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình Twilio.", None
 
 
 _service = MealReminderService()
@@ -313,3 +379,7 @@ def check_and_send_meal_reminders(db: Session, now: datetime | None = None) -> d
 
 def send_test_meal_reminder_email(user: User, meal_type: str = "breakfast") -> tuple[bool, str, str | None]:
     return _service.send_test_email(user, meal_type)
+
+
+def send_test_meal_reminder_sms(user: User, meal_type: str = "breakfast") -> tuple[bool, str, str | None]:
+    return _service.send_test_sms(user, meal_type)

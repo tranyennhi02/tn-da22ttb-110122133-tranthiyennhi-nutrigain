@@ -222,6 +222,8 @@ class UserService:
             "lunch_time": profile.lunch_time,
             "dinner_time": profile.dinner_time,
             "meal_reminder_enabled": bool(profile.meal_reminder_enabled),
+            "sms_reminder_enabled": bool(getattr(profile, "sms_reminder_enabled", False)),
+            "phone_number": getattr(profile, "phone_number", None),
             "reminder_email": profile.reminder_email,
             "updated_at": profile.updated_at.isoformat(timespec="seconds"),
         }

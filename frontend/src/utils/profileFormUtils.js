@@ -113,10 +113,12 @@ export function normalizeProfilePayload(form) {
 
   const hasMealReminderFields =
     Object.prototype.hasOwnProperty.call(form, "meal_reminder_enabled") ||
+    Object.prototype.hasOwnProperty.call(form, "sms_reminder_enabled") ||
     Object.prototype.hasOwnProperty.call(form, "breakfast_time") ||
     Object.prototype.hasOwnProperty.call(form, "lunch_time") ||
     Object.prototype.hasOwnProperty.call(form, "dinner_time");
   const mealReminderEnabled = Boolean(form.meal_reminder_enabled);
+  const smsReminderEnabled = Boolean(form.sms_reminder_enabled);
 
   const payload = {
     age: form.age ? Number(form.age) : null,
@@ -142,10 +144,13 @@ export function normalizeProfilePayload(form) {
   };
 
   if (hasMealReminderFields) {
+    const anyReminderEnabled = mealReminderEnabled || smsReminderEnabled;
     payload.meal_reminder_enabled = mealReminderEnabled;
-    payload.breakfast_time = mealReminderEnabled ? (form.breakfast_time || "07:00") : (form.breakfast_time || null);
-    payload.lunch_time = mealReminderEnabled ? (form.lunch_time || "12:00") : (form.lunch_time || null);
-    payload.dinner_time = mealReminderEnabled ? (form.dinner_time || "18:30") : (form.dinner_time || null);
+    payload.sms_reminder_enabled = smsReminderEnabled;
+    payload.phone_number = form.phone_number || null;
+    payload.breakfast_time = anyReminderEnabled ? (form.breakfast_time || "07:00") : (form.breakfast_time || null);
+    payload.lunch_time = anyReminderEnabled ? (form.lunch_time || "12:00") : (form.lunch_time || null);
+    payload.dinner_time = anyReminderEnabled ? (form.dinner_time || "18:30") : (form.dinner_time || null);
   }
 
   const weightGainPlan = buildWeightGainPlan({

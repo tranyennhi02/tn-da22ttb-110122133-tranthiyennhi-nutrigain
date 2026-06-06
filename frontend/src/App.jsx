@@ -692,6 +692,8 @@ export function mapUserProfileToFormState(profile) {
     disliked_foods: normalizedProfile.disliked_foods,
     disliked_food_groups: normalizedProfile.disliked_food_groups,
     meal_reminder_enabled: profile?.meal_reminder_enabled ?? profile?.reminder_enabled ?? true,
+    sms_reminder_enabled: profile?.sms_reminder_enabled ?? false,
+    phone_number: profile?.phone_number || "",
     breakfast_time: profile?.breakfast_time || "07:00",
     lunch_time: profile?.lunch_time || "12:00",
     dinner_time: profile?.dinner_time || "18:30",

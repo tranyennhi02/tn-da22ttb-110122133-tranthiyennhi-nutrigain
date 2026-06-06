@@ -97,6 +97,8 @@ def ensure_database_schema(engine: Engine) -> None:
     _add_column_if_missing(engine, "user_profiles", "dinner_time", "dinner_time VARCHAR(5) NULL")
     _add_column_if_missing(engine, "user_profiles", "meal_reminder_enabled", "meal_reminder_enabled BOOLEAN NOT NULL DEFAULT 0")
     _add_column_if_missing(engine, "user_profiles", "reminder_email", "reminder_email VARCHAR(255) NULL")
+    _add_column_if_missing(engine, "user_profiles", "sms_reminder_enabled", "sms_reminder_enabled BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(engine, "user_profiles", "phone_number", "phone_number VARCHAR(20) NULL")
     _add_column_if_missing(engine, "user_profiles", "gender", "gender VARCHAR(20) NULL")
     _add_column_if_missing(engine, "weight_logs", "source", "source VARCHAR(50) NULL")
     _add_column_if_missing(engine, "weight_logs", "is_chart_milestone", "is_chart_milestone BOOLEAN NOT NULL DEFAULT 0")

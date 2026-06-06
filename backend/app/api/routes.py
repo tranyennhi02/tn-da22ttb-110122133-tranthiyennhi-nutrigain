@@ -24,7 +24,7 @@ from app.services.nutrition_statistics_service import NutritionStatisticsService
 from app.services.ingredient_recognition_service import recognize_ingredients_from_image
 from app.services.weight_log_service import WeightLogService
 from app.services.gamification_service import GamificationService
-from app.services.meal_reminder_service import send_test_meal_reminder_email
+from app.services.meal_reminder_service import send_test_meal_reminder_email, send_test_meal_reminder_sms
 from app.views.schemas import (
     AccountStatusUpdate,
     AdminCategorySummaryResponse,
@@ -54,6 +54,8 @@ from app.views.schemas import (
     MealPlanRestoreInput,
     MealReminderTestEmailInput,
     MealReminderTestEmailResponse,
+    MealReminderTestSmsInput,
+    MealReminderTestSmsResponse,
     MealConsumptionToggleInput,
     MessageResponse,
     NutritionStatisticsResponse,
@@ -455,6 +457,16 @@ def test_meal_reminder_email(
 ) -> MealReminderTestEmailResponse:
     success, message, sent_to = send_test_meal_reminder_email(current_user, payload.meal_type)
     return MealReminderTestEmailResponse(success=success, message=message, sent_to=sent_to)
+
+
+@router.post("/meal-reminders/test-sms", response_model=MealReminderTestSmsResponse, tags=["meal-reminders"])
+def test_meal_reminder_sms(
+    payload: MealReminderTestSmsInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MealReminderTestSmsResponse:
+    success, message, sent_to = send_test_meal_reminder_sms(current_user, payload.meal_type)
+    return MealReminderTestSmsResponse(success=success, message=message, sent_to=sent_to)
 
 
 @router.post("/weight-logs", response_model=WeightLogResponse, tags=["weight-logs"])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 from pydantic import BaseModel, Field, field_validator
@@ -65,6 +66,16 @@ class MealReminderTestEmailResponse(BaseModel):
     sent_to: str | None = None
 
 
+class MealReminderTestSmsInput(BaseModel):
+    meal_type: str = "test"
+
+
+class MealReminderTestSmsResponse(BaseModel):
+    success: bool
+    message: str
+    sent_to: str | None = None
+
+
 class MealConsumptionToggleInput(BaseModel):
     meal_plan_id: int | None = None
     meal_type: str | None = None
@@ -124,6 +135,23 @@ class UserProfileInput(BaseModel):
     breakfast_time: str | None = None
     lunch_time: str | None = None
     dinner_time: str | None = None
+    sms_reminder_enabled: bool = False
+    phone_number: str | None = None
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def validate_phone_number(cls, value: Any) -> str | None:
+        if value is None or str(value).strip() == "":
+            return None
+        raw = re.sub(r"[\s\-\.\(\)]", "", str(value).strip())
+        vn_local = bool(re.fullmatch(r"0[3-9]\d{8}", raw))
+        vn_intl  = bool(re.fullmatch(r"(\+?84)[3-9]\d{8}", raw))
+        if not vn_local and not vn_intl:
+            raise ValueError("Số điện thoại không hợp lệ. Vui lòng nhập đúng định dạng Việt Nam (ví dụ: 0912345678).")
+        # Normalise to local format for storage
+        if vn_intl:
+            raw = "0" + re.sub(r"^\+?84", "", raw)
+        return raw
 
     @field_validator("favorite_foods", mode="before")
     @classmethod
@@ -172,6 +200,8 @@ class UserProfileView(BaseModel):
     breakfast_time: str | None = None
     lunch_time: str | None = None
     dinner_time: str | None = None
+    sms_reminder_enabled: bool = False
+    phone_number: str | None = None
     updated_at: str | None = None
 
 

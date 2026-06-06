@@ -256,6 +256,8 @@ const INIT = {
   diet_style: "balanced", budget_level: "standard",
   favorite_foods: "", unfavorite_foods: "",
   meal_reminder_enabled: true,
+  sms_reminder_enabled: false,
+  phone_number: "",
   breakfast_time: "07:00",
   lunch_time: "12:00",
   dinner_time: "18:30",
@@ -488,7 +490,7 @@ function StepGoal({ data, update, errors, validation }) {
 }
 
 // ─── StepDiet ────────────────────────────────────────────────────────────────
-function StepDiet({ data, update }) {
+function StepDiet({ data, update, errors = {}, setErrors = () => {} }) {
   const diets = [
     { v:"balanced", title:"Cân bằng", icon:"⚖️" },
     { v:"eat_clean", title:"Eat Clean", icon:"🥬" },
@@ -535,19 +537,51 @@ function StepDiet({ data, update }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-bold text-[#0F172A]">Nhắc giờ ăn</p>
-            <p className="mt-1 text-sm text-[#64748B]">NutriGain sẽ gửi email nhắc bạn khi đến giờ ăn.</p>
+            <p className="mt-1 text-sm text-[#64748B]">NutriGain sẽ nhắc bạn khi đến giờ ăn qua Email hoặc SMS.</p>
           </div>
-          <label className="flex items-center gap-2 text-sm font-bold text-[#0F172A]">
-            <input
-              type="checkbox"
-              checked={Boolean(data.meal_reminder_enabled)}
-              onChange={(event)=>update("meal_reminder_enabled", event.target.checked)}
-              className="h-5 w-5 rounded border-[#CBD5E1] text-[#10B981] focus:ring-[#10B981]"
-            />
-            Bật nhắc giờ ăn qua email
-          </label>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm font-bold text-[#0F172A] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(data.meal_reminder_enabled)}
+                onChange={(event)=>update("meal_reminder_enabled", event.target.checked)}
+                className="h-5 w-5 flex-shrink-0 rounded border-[#CBD5E1] text-[#10B981] focus:ring-[#10B981]"
+              />
+              <span className="w-36">Bật nhắc qua Email</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm font-bold text-[#0F172A] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(data.sms_reminder_enabled)}
+                onChange={(event)=>update("sms_reminder_enabled", event.target.checked)}
+                className="h-5 w-5 flex-shrink-0 rounded border-[#CBD5E1] text-[#10B981] focus:ring-[#10B981]"
+              />
+              <span className="w-36">Bật nhắc qua SMS</span>
+            </label>
+          </div>
         </div>
-        {data.meal_reminder_enabled && (
+        {data.sms_reminder_enabled && (
+          <div className="mt-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold text-[#0F172A]">Số điện thoại nhận SMS <span className="text-red-500">*</span></span>
+              <input
+                type="tel"
+                value={data.phone_number || ""}
+                onChange={(event) => {
+                  update("phone_number", event.target.value);
+                  const err = validatePhoneNumber(event.target.value);
+                  setErrors(p => ({ ...p, phone_number: err || "" }));
+                }}
+                placeholder="Ví dụ: 0912345678"
+                className={`h-[46px] w-full rounded-2xl border-2 bg-white px-3 text-sm font-semibold text-[#0F172A] outline-none transition focus:ring-4 focus:ring-[#10B981]/10 ${errors.phone_number ? "border-red-400 focus:border-red-400" : "border-[#E2E8F0] focus:border-[#10B981]"}`}
+              />
+              {errors.phone_number && (
+                <p className="mt-1.5 text-xs text-red-500">{errors.phone_number}</p>
+              )}
+            </label>
+          </div>
+        )}
+        {(data.meal_reminder_enabled || data.sms_reminder_enabled) && (
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {[
               ["breakfast_time", "Giờ ăn sáng", "07:00"],
@@ -727,6 +761,17 @@ function StepSummary({ data, onFinish, onBack, isSaving, finishError, step, isEx
   );
 }
 
+// ─── phone validation helper ─────────────────────────────────────────────────
+function validatePhoneNumber(phone) {
+  const raw = String(phone || "").trim().replace(/[\s\-\.\(\)]/g, "");
+  if (!raw) return "Vui lòng nhập số điện thoại để nhận SMS";
+  // Accept: 0xxxxxxxxx (10 digits), +84xxxxxxxxx, 84xxxxxxxxx
+  const vnLocal = /^0[3-9]\d{8}$/.test(raw);
+  const vnIntl  = /^(\+?84)[3-9]\d{8}$/.test(raw);
+  if (!vnLocal && !vnIntl) return "Số điện thoại không hợp lệ (ví dụ: 0912345678)";
+  return null;
+}
+
 // ─── validate per step ───────────────────────────────────────────────────────
 function validateStep(stepName, data) {
   const errs = {};
@@ -753,6 +798,10 @@ function validateStep(stepName, data) {
       }
     }
   }
+  if (stepName === "diet" && data.sms_reminder_enabled) {
+    const phoneErr = validatePhoneNumber(data.phone_number);
+    if (phoneErr) errs.phone_number = phoneErr;
+  }
   return errs;
 }
 
@@ -768,6 +817,11 @@ function validateProfile(data) {
   if (!data.diet_style && !data.diet_type) errs.diet_style = "Vui lòng chọn chế độ ăn";
   if (!data.budget_level) errs.budget_level = "Vui lòng chọn ngân sách";
   if (!data.meal_complexity && !data.items_per_meal) errs.meal_complexity = "Vui lòng chọn số món mỗi bữa";
+
+  if (data.sms_reminder_enabled) {
+    const phoneErr = validatePhoneNumber(data.phone_number);
+    if (phoneErr) errs.phone_number = phoneErr;
+  }
 
   const target = safeNum(data.target_weight || data.target_weight_kg);
   const durationValue = data.target_duration_value === "" || data.target_duration_value == null
@@ -852,6 +906,8 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
       unfavorite_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? foodListToInput(profile.disliked_foods) : prev.unfavorite_foods,
       disliked_foods: profile.disliked_foods !== undefined && profile.disliked_foods !== null ? parseFoodList(profile.disliked_foods) : prev.disliked_foods,
       meal_reminder_enabled: Boolean(profile.meal_reminder_enabled),
+      sms_reminder_enabled: Boolean(profile.sms_reminder_enabled),
+      phone_number: profile.phone_number || prev.phone_number || "",
       breakfast_time: profile.breakfast_time || prev.breakfast_time || "07:00",
       lunch_time: profile.lunch_time || prev.lunch_time || "12:00",
       dinner_time: profile.dinner_time || prev.dinner_time || "18:30",
@@ -924,6 +980,11 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
         next.weight_gain_speed = weightGainPlan.suggestedSpeed;
       }
       if (field === "meal_reminder_enabled" && value) {
+        next.breakfast_time = next.breakfast_time || "07:00";
+        next.lunch_time = next.lunch_time || "12:00";
+        next.dinner_time = next.dinner_time || "18:30";
+      }
+      if (field === "sms_reminder_enabled" && value) {
         next.breakfast_time = next.breakfast_time || "07:00";
         next.lunch_time = next.lunch_time || "12:00";
         next.dinner_time = next.dinner_time || "18:30";
@@ -1216,7 +1277,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
         {stepName==="body" && <StepBody data={data} update={update} errors={errors} onLogout={onLogout} />}
         {stepName==="activity" && <StepActivity data={data} update={update} />}
         {stepName==="goal" && <StepGoal data={data} update={update} errors={errors} validation={weightGoalValidation} onChange={handleChange} />}
-        {stepName==="diet" && <StepDiet data={data} update={update} />}
+        {stepName==="diet" && <StepDiet data={data} update={update} errors={errors} setErrors={setErrors} />}
         {stepName==="foods" && <StepFoods data={data} update={update} onChange={handleChange} />}
         {stepName==="summary" && (
           <StepSummary data={data} isSaving={isSaving} finishError={finishError}

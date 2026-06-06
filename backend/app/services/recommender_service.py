@@ -130,6 +130,9 @@ RECOMMENDER_DIVERSITY_JITTER = _float_env("RECOMMENDER_DIVERSITY_JITTER", 0.18)
 FOOD_CATALOG_CACHE_TTL_SECONDS = _int_env("FOOD_CATALOG_CACHE_TTL_SECONDS", 300)
 MAX_CANDIDATES_PER_GROUP = max(1, _int_env("MAX_CANDIDATES_PER_GROUP", 100))
 MAX_TOTAL_CANDIDATES_FOR_SCORING = max(1, _int_env("MAX_TOTAL_CANDIDATES_FOR_SCORING", 400))
+# Number of suggestion items always generated per meal so users have enough items to choose from.
+# The user-configured items_per_meal (3-5) only controls kcal scaling and the frontend selection limit.
+SUGGESTIONS_PER_MEAL = 8
 _FOOD_CATALOG_CACHE: dict[str, object] = {
     "loaded_at": 0.0,
     "items": None,
@@ -5536,7 +5539,10 @@ class RecommenderService:
         target_protein = float(target.get("protein") or target.get("protein_g") or 0.0)
         fat_priority = target_calories > 0 and target_fat > 0 and ((target_fat * 9.0) / target_calories) >= 0.28
         protein_priority = target_calories > 0 and target_protein > 0 and ((target_protein * 4.0) / target_calories) >= 0.16
-        ratio_sum = sum(DEFAULT_MEAL_CALORIE_RATIOS.get(m, 0) for m in meal_structure) or float(len(meal_structure))
+        # Tính ratio_sum từ đúng các bữa trong meal_structure để đảm bảo
+        # sum(meal_target_kcal) = target_calories chính xác.
+        _raw_ratios = {m: DEFAULT_MEAL_CALORIE_RATIOS.get(m, 1.0 / max(1, len(meal_structure))) for m in meal_structure}
+        ratio_sum = sum(_raw_ratios.values()) or float(len(meal_structure))
         
         seen_food_ids = set()
         seen_food_names: set[str] = set()
@@ -5730,10 +5736,15 @@ class RecommenderService:
             score_delta += RecommenderService._natural_food_score_adjustment(row) * 0.75
             return score_delta
 
+        # Number of suggestion items to always generate per meal regardless of items_per_meal.
+        # items_per_meal (requested_slots) controls slot-category definitions and kcal scaling,
+        # but we always fill up to SUGGESTIONS_PER_MEAL items so users have enough to choose from.
+        # Uses the module-level SUGGESTIONS_PER_MEAL constant (default: 8).
+
         for meal, requested_slots in meal_structure.items():
-            meal_ratio = DEFAULT_MEAL_CALORIE_RATIOS.get(meal, 1.0 / len(meal_structure)) / ratio_sum
+            meal_ratio = _raw_ratios[meal] / ratio_sum
             meal_target_kcal = target_calories * meal_ratio
-            
+
             if requested_slots <= 3:
                 slots = [
                     {"name": "starch", "cats": STARCH_CATEGORIES, "required": True},
@@ -6004,7 +6015,26 @@ class RecommenderService:
                 # to avoid repetitive meal plans
                 # ──────────────────────────────────────────────────────────────
                 sorted_pool = scored_pool.sort_values("_slot_score", ascending=False)
-                
+
+                # ──────────────────────────────────────────────────────────────
+                # FILTER ĐỒ ĂN CÓ KCAL QUÁ THẤP (yêu cầu 3)
+                # Khi slot_target_kcal cao, loại bỏ các món có kcal_per_100g quá thấp
+                # để tránh tình huống không thể đạt target dù scale tối đa (8×).
+                # Ngưỡng: kcal_raw tối thiểu = slot_target_kcal / 8.0
+                # ──────────────────────────────────────────────────────────────
+                _slot_target_preview = meal_target_kcal / max(1, requested_slots)
+                _min_kcal_raw = _slot_target_preview / 8.0  # tương ứng multiplier tối đa
+                if _min_kcal_raw > 5.0 and len(sorted_pool) > 1:
+                    _high_kcal_pool = sorted_pool[
+                        sorted_pool.apply(
+                            lambda r: float(r.get("calories_raw", 0) or r.get("kcal_per_serving_clean", 0) or 0) >= _min_kcal_raw,
+                            axis=1,
+                        )
+                    ]
+                    if not _high_kcal_pool.empty:
+                        sorted_pool = _high_kcal_pool
+                # ──────────────────────────────────────────────────────────────
+
                 # Determine if we should use diverse selection
                 has_priority_ingredients = bool(available_ingredients)
                 use_diverse_selection = not has_priority_ingredients
@@ -6048,9 +6078,10 @@ class RecommenderService:
                     meal_priority_ingredient_count[meal] = meal_priority_ingredient_count.get(meal, 0) + 1
                 # ──────────────────────────────────────────────────────────────
                 
-                slot_target_kcal = meal_target_kcal / len(slots)
+                # Scale mỗi item theo 1/requested_slots để tổng requested_slots món ≈ meal_target_kcal
+                slot_target_kcal = meal_target_kcal / max(1, requested_slots)
                 base_calories = max(float(best_row.get("calories_raw", 1.0) or 1.0), 1.0)
-                serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 3.5))
+                serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                 for nutrient_col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
                     if nutrient_col in best_row:
                         best_row[nutrient_col] = float(best_row.get(nutrient_col, 0) or 0) * serving_multiplier
@@ -6191,9 +6222,9 @@ class RecommenderService:
                         if f_row.get("food_id") not in selected_ids:
                             # Scale the fallback row to match slot target
                             scaled_row = f_row.copy()
-                            slot_target_kcal = meal_target_kcal / requested_slots
+                            slot_target_kcal = meal_target_kcal / max(1, requested_slots)
                             base_calories = max(float(scaled_row.get("calories_raw", scaled_row.get("calories", 1.0)) or 1.0), 1.0)
-                            serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 3.5))
+                            serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                             
                             for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw", "calories", "protein", "fat", "carbs"):
                                 if col in scaled_row:
@@ -6254,9 +6285,9 @@ class RecommenderService:
                                     continue
                                 # Scale the row
                                 scaled_row = r_row.copy()
-                                slot_target_kcal = meal_target_kcal / requested_slots
+                                slot_target_kcal = meal_target_kcal / max(1, requested_slots)
                                 base_calories = max(float(scaled_row.get("calories_raw", scaled_row.get("calories", 1.0)) or 1.0), 1.0)
-                                serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 3.5))
+                                serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                                 
                                 for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw", "calories", "protein", "fat", "carbs"):
                                     if col in scaled_row:
@@ -6393,9 +6424,9 @@ class RecommenderService:
                             
                 if found_fb is not None:
                     scaled_row = found_fb.copy()
-                    slot_target_kcal = meal_target_kcal / requested_slots
+                    slot_target_kcal = meal_target_kcal / max(1, requested_slots)
                     base_calories = max(float(scaled_row.get("calories_raw", scaled_row.get("calories", 1.0)) or 1.0), 1.0)
-                    serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 3.5))
+                    serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                     
                     for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw", "calories", "protein", "fat", "carbs"):
                         if col in scaled_row:
@@ -6447,10 +6478,454 @@ class RecommenderService:
                 )
             # ------------------------------------------------------------------
 
-            if selected_rows:
-                plan[meal] = pd.DataFrame(selected_rows)
+            logger.info(
+                "[FILL_START] meal=%s primary_slots=%d items_before_fill=%d need_fill=%d "
+                "seen_cross_meal=%d ranked_pool=%d",
+                meal, requested_slots, len(selected_rows),
+                max(0, SUGGESTIONS_PER_MEAL - len(selected_rows)),
+                len(seen_food_ids), len(ranked),
+            )
+
+            # ──────────────────────────────────────────────────────────────────
+            # ──────────────────────────────────────────────────────────────────
+            # FILL TO SUGGESTIONS_PER_MEAL (always 8 items per meal)
+            # Priority: cross-meal dedup ưu tiên, relax dần khi không đủ.
+            # Pass 1: không trùng bữa này + không trùng bữa khác
+            # Pass 2: không trùng bữa này (cho phép dùng lại món bữa khác)
+            #
+            # IMPORTANT: optional items use a REDUCED kcal target so that
+            # only CORE items (first requested_slots) contribute to the meal
+            # calorie guarantee.  Optional items are scaled to
+            #   meal_target_kcal / SUGGESTIONS_PER_MEAL
+            # so their individual portions look realistic but their combined
+            # kcal does NOT compete with — or inflate — the core total.
+            # ──────────────────────────────────────────────────────────────────
+            # Core items were already scaled to: meal_target_kcal / requested_slots
+            # Optional items are scaled to a proportionally smaller portion:
+            _fill_slot_target = meal_target_kcal / max(1, SUGGESTIONS_PER_MEAL)
+            _fill_min_kcal    = _fill_slot_target / 8.0
+
+            def _scale_fill_row(raw_row: pd.Series) -> pd.Series:
+                sf = raw_row.copy()
+                fb  = max(float(sf.get("calories_raw", sf.get("calories", 1.0)) or 1.0), 1.0)
+                fm  = float(np.clip(_fill_slot_target / fb, 0.15, 8.0))
+                for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                    if col in sf:
+                        sf[col] = float(sf.get(col, 0) or 0) * fm
+                fbsg = float(sf.get("base_serving_grams", sf.get("quantity_g", sf.get("serving_grams", 100.0))) or 100.0)
+                fpg  = fm * fbsg
+                fmn, fmx = _serving_limits(sf.get("clean_category", ""), sf.get("name", ""))
+                if fmn is not None and fmx is not None:
+                    fpg = float(np.clip(fpg, fmn, fmx))
+                    fm  = fpg / fbsg if fbsg > 0 else fm
+                    for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                        p100 = {"calories_raw": "kcal_per_100g_clean", "protein_raw": "protein_per_100g_clean",
+                                "fat_raw": "fat_per_100g_clean", "carbs_raw": "carbs_per_100g_clean"}.get(col)
+                        if p100 and p100 in sf and not pd.isna(sf.get(p100, None)):
+                            sf[col] = float(sf.get(p100, 0.0) or 0.0) * fpg / 100.0
+                sf["serving_grams"]      = round(fpg, 0)
+                sf["serving_multiplier"] = fm
+                sf["culinary_role"]      = "extra"
+                return sf
+
+            def _pick_fill_candidate(
+                this_ids: set,
+                this_names: set,
+                this_sem: set,
+                allow_cross_meal_reuse: bool,
+                relax_quality: bool,
+            ):
+                """Trả về row đầu tiên thoả điều kiện, hoặc None."""
+                for _, fr in ranked.iterrows():
+                    fid   = fr.get("food_id")
+                    fname = _row_name_key(fr)
+                    # Không dùng lại món đã có trong bữa này
+                    if fid in this_ids or fname in this_names:
+                        continue
+                    # Cross-meal dedup (bỏ khi allow_cross_meal_reuse)
+                    if not allow_cross_meal_reuse and (
+                        fid in seen_food_ids or fname in seen_food_names
+                    ):
+                        continue
+                    # Kcal tối thiểu (bỏ khi relax_quality)
+                    if not relax_quality and _fill_min_kcal > 5.0:
+                        _fk = float(fr.get("calories_raw", 0) or fr.get("kcal_per_serving_clean", 0) or 0)
+                        if _fk < _fill_min_kcal:
+                            continue
+                    # Semantic dedup (bỏ khi relax_quality)
+                    fsem = _row_semantic_key(fr)
+                    if not relax_quality and fsem and fsem in this_sem:
+                        continue
+                    # Dessert/drink (bỏ khi relax_quality)
+                    if not relax_quality and (
+                        _row_clean_category(fr) in {"dessert_sweets", "drink_natural"}
+                        or _row_is_dessert(fr)
+                    ):
+                        continue
+                    return fr
+                return None
+
+            while len(selected_rows) < SUGGESTIONS_PER_MEAL:
+                this_meal_ids   = {r.get("food_id") for r in selected_rows}
+                this_meal_names = {_row_name_key(r) for r in selected_rows}
+                this_meal_sem   = {k for k in (_row_semantic_key(r) for r in selected_rows) if k}
+
+                # Pass 1: strict — không trùng bữa khác, có filter quality
+                found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                                             allow_cross_meal_reuse=False, relax_quality=False)
+                # Pass 2: relax quality — không trùng bữa khác, bỏ filter kcal/semantic/dessert
+                if found is None:
+                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                                                 allow_cross_meal_reuse=False, relax_quality=True)
+                # Pass 3: last resort — cho phép tái dùng món bữa khác (tránh trùng trong bữa này)
+                if found is None:
+                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                                                 allow_cross_meal_reuse=True, relax_quality=True)
+
+                if found is None:
+                    logger.warning(
+                        "[FILL_LOOP] meal=%s EXHAUSTED: pass1/2/3 đều None, "
+                        "items=%d/%d seen_cross=%d ranked=%d",
+                        meal, len(selected_rows), SUGGESTIONS_PER_MEAL,
+                        len(seen_food_ids), len(ranked),
+                    )
+                    break
+
+                sf = _scale_fill_row(found)
+                selected_rows.append(sf)
+                seen_food_ids.add(sf.get("food_id"))
+                seen_food_names.add(_row_name_key(sf))
+            # ──────────────────────────────────────────────────────────────────
+            logger.info(
+                "[FILL_DONE] meal=%s items_after_fill=%d/%d",
+                meal, len(selected_rows), SUGGESTIONS_PER_MEAL,
+            )
+
+            # ══════════════════════════════════════════════════════════════════
+            # NEW VALIDATION: TAG CORE vs OPTIONAL, VALIDATE ONLY CORE ITEMS
+            # ──────────────────────────────────────────────────────────────────
+            # Architecture (per spec):
+            #   CORE items   = first `requested_slots` items (default selected)
+            #   OPTIONAL items = remaining items up to SUGGESTIONS_PER_MEAL
+            # Validation applies ONLY to CORE items:
+            #   - core kcal within [target*0.85, target*1.15]
+            #   - no combinatorial search needed
+            # Optional items provide variety for user swapping — no kcal guarantee.
+            # ══════════════════════════════════════════════════════════════════
+            _MAX_RETRIES = 3
+            _core_count = max(1, requested_slots)
+            _kcal_lo    = meal_target_kcal * 0.85
+            _kcal_hi    = meal_target_kcal * 1.15
+            _slot_tgt   = meal_target_kcal / max(1, requested_slots)
+            # Optional items are scaled to a smaller portion so they don't inflate
+            # the displayed total.  They use meal_target / SUGGESTIONS_PER_MEAL so
+            # each optional item is a realistic serving but together they are
+            # clearly subordinate to the core selection.
+            _optional_slot_tgt = meal_target_kcal / max(1, SUGGESTIONS_PER_MEAL)
+
+            # ── helpers ───────────────────────────────────────────────────────
+
+            def _v_row_kcal(r: dict) -> float:
+                """Đọc calories_raw đã được scale."""
+                return float(r.get("calories_raw", 0) or r.get("calories", 0) or 0)
+
+            def _v_total(rows: list) -> float:
+                return sum(_v_row_kcal(r) for r in rows)
+
+            def _v_core_kcal(rows: list) -> float:
+                """Tổng kcal của CORE items (requested_slots đầu tiên)."""
+                return sum(_v_row_kcal(r) for r in rows[:_core_count])
+
+            def _v_core_ok(rows: list) -> bool:
+                """Validate chỉ CORE items: tổng kcal nằm trong [_kcal_lo, _kcal_hi].
+                Không cần duyệt tổ hợp — đơn giản và ổn định."""
+                if len(rows) < _core_count:
+                    return False
+                core_kcal = _v_core_kcal(rows)
+                return _kcal_lo <= core_kcal <= _kcal_hi
+
+            # Legacy alias — no longer uses combinations(); kept for log messages only
+            def _v_combo_ok(rows: list) -> bool:
+                return _v_core_ok(rows)
+
+            # Scale 1 row về _slot_tgt kcal (display: có clamp grams)
+            def _v_scale_row(raw_row: dict) -> dict:
+                _r = dict(raw_row)
+                _base = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
+                _m = float(np.clip(_slot_tgt / _base, 0.15, 8.0))
+                for _c in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                    if _c in _r:
+                        _r[_c] = float(_r.get(_c, 0) or 0) * _m
+                _bsg = float(_r.get("base_serving_grams", _r.get("serving_grams", 100.0)) or 100.0)
+                _pg  = _m * _bsg
+                _mn, _mx = _serving_limits(_r.get("clean_category", ""), _r.get("name", ""))
+                if _mn is not None and _mx is not None:
+                    _pg = float(np.clip(_pg, _mn, _mx))
+                    _m  = _pg / _bsg if _bsg > 0 else _m
+                    for _c in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                        _p = {"calories_raw": "kcal_per_100g_clean",
+                              "protein_raw": "protein_per_100g_clean",
+                              "fat_raw": "fat_per_100g_clean",
+                              "carbs_raw": "carbs_per_100g_clean"}.get(_c)
+                        if _p and _p in _r and not pd.isna(_r.get(_p)):
+                            _r[_c] = float(_r.get(_p, 0.0) or 0.0) * _pg / 100.0
+                _r["serving_grams"]      = round(_pg, 0)
+                _r["serving_multiplier"] = _m
+                return _r
+
+            # Scale 1 optional row về _optional_slot_tgt kcal (smaller portion)
+            def _v_scale_optional_row(raw_row: dict) -> dict:
+                _r = dict(raw_row)
+                _base = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
+                _m = float(np.clip(_optional_slot_tgt / _base, 0.15, 8.0))
+                for _c in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                    if _c in _r:
+                        _r[_c] = float(_r.get(_c, 0) or 0) * _m
+                _bsg = float(_r.get("base_serving_grams", _r.get("serving_grams", 100.0)) or 100.0)
+                _pg  = _m * _bsg
+                _mn, _mx = _serving_limits(_r.get("clean_category", ""), _r.get("name", ""))
+                if _mn is not None and _mx is not None:
+                    _pg = float(np.clip(_pg, _mn, _mx))
+                    _m  = _pg / _bsg if _bsg > 0 else _m
+                    for _c in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+                        _p = {"calories_raw": "kcal_per_100g_clean",
+                              "protein_raw": "protein_per_100g_clean",
+                              "fat_raw": "fat_per_100g_clean",
+                              "carbs_raw": "carbs_per_100g_clean"}.get(_c)
+                        if _p and _p in _r and not pd.isna(_r.get(_p)):
+                            _r[_c] = float(_r.get(_p, 0.0) or 0.0) * _pg / 100.0
+                _r["serving_grams"]      = round(_pg, 0)
+                _r["serving_multiplier"] = _m
+                return _r
+
+            # Scale 1 row về _slot_tgt kcal (validation: KHÔNG clamp grams)
+            # calories_raw = slot_tgt chính xác → combo check luôn đúng
+            def _v_scale_row_exact(raw_row: dict) -> dict:
+                _r = dict(raw_row)
+                # Lấy kcal gốc trước bất kỳ scale nào (ưu tiên kcal_per_100g_clean)
+                _p100 = float(_r.get("kcal_per_100g_clean", 0) or 0)
+                _bsg  = float(_r.get("base_serving_grams", _r.get("serving_grams", 100.0)) or 100.0)
+                if _p100 > 0:
+                    _base_kcal = _p100 * _bsg / 100.0
+                else:
+                    _base_kcal = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
+                _m = float(np.clip(_slot_tgt / max(_base_kcal, 1.0), 0.15, 8.0))
+                # Set calories_raw = slot_tgt (không clamp)
+                _r["calories_raw"] = _slot_tgt
+                # Scale macros tỉ lệ
+                for _c in ("protein_raw", "fat_raw", "carbs_raw"):
+                    if _c in _r:
+                        _r[_c] = float(_r.get(_c, 0) or 0) * _m
+                _pg = _m * _bsg
+                _r["serving_grams"]      = round(_pg, 0)
+                _r["serving_multiplier"] = _m
+                return _r
+
+            # Rescale đồng đều toàn bộ list (display mode — grams clamp)
+            def _v_rescale_all(rows: list) -> list:
+                return [_v_scale_row(r) for r in rows]
+
+            # Rescale đồng đều toàn bộ list (exact mode — calories_raw = slot_tgt).
+            # IMPORTANT: only CORE items (indices 0.._core_count-1) are rescaled to
+            # hit the nutrition target.  Optional items keep their smaller portion.
+            def _v_rescale_all_exact(rows: list) -> list:
+                result = []
+                for _i, _r in enumerate(rows):
+                    if _i < _core_count:
+                        result.append(_v_scale_row_exact(_r))
+                    else:
+                        # Optional: keep current scale (already set to _optional_slot_tgt)
+                        result.append(dict(_r) if not isinstance(_r, dict) else _r)
+                return result
+
+            # Fill đến đủ SUGGESTIONS_PER_MEAL món.
+            # Chỉ dedup trong meal hiện tại (bỏ qua cross-meal dedup)
+            # để đảm bảo luôn đủ 8 món.
+            # Optional items use _v_scale_optional_row (smaller portions) so they
+            # don't inflate the displayed kcal total above the core guarantee.
+            def _v_fill_to_8(rows: list) -> list:
+                _cur_ids   = {r.get("food_id") for r in rows}
+                _cur_names = {_row_name_key(r) for r in rows}
+                for _, _xr in ranked.iterrows():
+                    if len(rows) >= SUGGESTIONS_PER_MEAL:
+                        break
+                    _xid   = _xr.get("food_id")
+                    _xname = _row_name_key(_xr)
+                    # Chỉ skip nếu đã có trong bữa này (không check cross-meal)
+                    if _xid in _cur_ids or _xname in _cur_names:
+                        continue
+                    _sr = _v_scale_optional_row(dict(_xr))
+                    _sr["culinary_role"] = "extra"
+                    rows.append(_sr)
+                    _cur_ids.add(_xid)
+                    _cur_names.add(_xname)
+                    # Vẫn cập nhật cross-meal seen để bữa sau không trùng
+                    seen_food_ids.add(_xid)
+                    seen_food_names.add(_xname)
+                return rows
+
+            # Thay tối đa 4 món CORE có kcal thấp nhất bằng ứng viên từ ranked
+            # có calories_raw gốc >= slot_tgt * 0.8 (đủ kcal sau scale).
+            # Only CORE items (indices 0.._core_count-1) are candidates for replacement
+            # because only core items are validated for nutrition targets.
+            # Relax cross-meal dedup để tìm đủ ứng viên.
+            def _v_replace_low_kcal(rows: list, max_replace: int = 4) -> list:
+                _cur_ids   = {r.get("food_id") for r in rows}
+                _cur_names = {_row_name_key(r) for r in rows}
+                # Only sort and replace among CORE items
+                _core_rows = rows[:_core_count]
+                _sorted    = sorted(_core_rows, key=_v_row_kcal)  # thấp → cao
+                _replaced  = 0
+                for _, _cand in ranked.iterrows():
+                    if _replaced >= max_replace:
+                        break
+                    _cid   = _cand.get("food_id")
+                    _cname = _row_name_key(_cand)
+                    # Bỏ qua nếu đã có trong bữa này
+                    if _cid in _cur_ids or _cname in _cur_names:
+                        continue
+                    # Ứng viên phải có đủ kcal để scale lên _slot_tgt
+                    _cbase = float(_cand.get("calories_raw", _cand.get("calories", 0)) or 0)
+                    if _cbase < _slot_tgt * 0.8:
+                        continue
+                    _cscaled = _v_scale_row_exact(dict(_cand))
+                    _cscaled["culinary_role"] = "extra"
+                    _old = _sorted[_replaced]
+                    _idx = next(
+                        (i for i, r in enumerate(rows)
+                         if r.get("food_id") == _old.get("food_id")),
+                        None,
+                    )
+                    if _idx is None:
+                        _replaced += 1
+                        continue
+                    seen_food_ids.discard(_old.get("food_id"))
+                    seen_food_names.discard(_row_name_key(_old))
+                    rows[_idx] = _cscaled
+                    seen_food_ids.add(_cid)
+                    seen_food_names.add(_cname)
+                    _cur_ids.discard(_old.get("food_id"))
+                    _cur_ids.add(_cid)
+                    _replaced += 1
+                return rows
+
+            # ── Vòng validation + retry (tối đa 3 lần) ───────────────────────
+            # NEW ARCHITECTURE: validate only CORE items (first _core_count rows).
+            # Optional items (remaining up to SUGGESTIONS_PER_MEAL) are filled for
+            # variety/swap support but are NOT included in nutrition validation.
+            _best_rows: list = list(selected_rows)   # lưu phương án tốt nhất
+            _best_score: float = -1.0                # core kcal gần target nhất
+
+            _attempt = 0
+            while _attempt < _MAX_RETRIES:
+                _attempt += 1
+
+                # Bước 1: fill đủ 8 món
+                if len(selected_rows) < SUGGESTIONS_PER_MEAL:
+                    selected_rows = _v_fill_to_8(selected_rows)
+
+                # Kiểm tra CORE items only
+                _core_kcal = _v_core_kcal(selected_rows)
+                _total     = _v_total(selected_rows)
+                _cond1     = True   # no longer require total >= target*1.15
+                _cond2     = _v_core_ok(selected_rows)   # core kcal in range
+
+                logger.info(
+                    "[MEAL_VALIDATION] meal=%s attempt=%d core_kcal=%.1f total=%.1f target=%.1f "
+                    "cond2(core_ok)=%s",
+                    meal, _attempt, _core_kcal, _total, meal_target_kcal, _cond2,
+                )
+
+                # Lưu phương án tốt nhất (core kcal gần target nhất)
+                _core_delta = abs(_core_kcal - meal_target_kcal)
+                _score = -_core_delta + (10_000 if _cond2 else 0)
+                if _score > _best_score:
+                    _best_score = _score
+                    _best_rows  = list(selected_rows)
+
+                if _cond2:
+                    break   # PASS — thoát sớm
+
+                # Bước 5a: rescale CORE items only to hit target
+                selected_rows = _v_rescale_all_exact(selected_rows)
+
+                # Validate lại sau rescale
+                _cond2 = _v_core_ok(selected_rows)
+                if _cond2:
+                    _best_rows = list(selected_rows)
+                    break
+
+                # Bước 5c: thay món kcal thấp trong CORE nếu core_ok vẫn fail
+                if not _cond2 and not ranked.empty:
+                    selected_rows = _v_replace_low_kcal(selected_rows, max_replace=4)
+
+                    # Validate lại sau thay món
+                    _cond2 = _v_core_ok(selected_rows)
+                    _core_delta2 = abs(_v_core_kcal(selected_rows) - meal_target_kcal)
+                    _score2 = -_core_delta2 + (10_000 if _cond2 else 0)
+                    if _score2 > _best_score:
+                        _best_score = _score2
+                        _best_rows  = list(selected_rows)
+                    if _cond2:
+                        break
+
             else:
-                plan[meal] = ranked.iloc[0:0].copy()
+                # Hết 3 lần — dùng phương án tốt nhất đã lưu
+                _ft = _v_total(_best_rows)
+                _fc = _v_core_ok(_best_rows)
+                logger.warning(
+                    "[MEAL_VALIDATION] meal=%s EXHAUSTED %d retries "
+                    "best_core_kcal=%.1f target=%.1f core_ok=%s",
+                    meal, _MAX_RETRIES, _v_core_kcal(_best_rows), meal_target_kcal, _fc,
+                )
+                selected_rows = _best_rows
+
+            # ── Tag core vs optional items ─────────────────────────────────────
+            # First _core_count items = CORE (default selected, validated for nutrition)
+            # Remaining items = OPTIONAL (available for swap, not nutrition-validated)
+            #
+            # Ensure optional items are rescaled to _optional_slot_tgt so that
+            # their individual calories reflect a realistic portion size and do NOT
+            # cause the displayed "total" to balloon beyond the core guarantee.
+            for _ri, _row in enumerate(selected_rows):
+                if _ri >= _core_count:
+                    # Re-apply optional scaling (safe to call on dict or Series)
+                    _opt_scaled = _v_scale_optional_row(dict(_row) if not isinstance(_row, dict) else _row)
+                    _opt_scaled["culinary_role"] = _row.get("culinary_role", "extra")
+                    selected_rows[_ri] = _opt_scaled
+
+            # Explicitly tag every row so the flag is always a plain Python bool,
+            # never a pandas NaN.  Using selected_rows[_ri] = ... ensures the
+            # assignment writes back to the list (not just the loop variable).
+            for _ri in range(len(selected_rows)):
+                _is_core_flag = _ri < _core_count
+                _r = selected_rows[_ri]
+                if isinstance(_r, pd.Series):
+                    _r["_is_core"] = _is_core_flag
+                    _r["_is_default_selected"] = _is_core_flag
+                else:
+                    _r["_is_core"] = _is_core_flag
+                    _r["_is_default_selected"] = _is_core_flag
+                # No need to write back — Series and dict mutations are in-place
+
+            # ══════════════════════════════════════════════════════════════════
+
+            if selected_rows:
+                # Normalize: selected_rows có thể chứa hỗn hợp pd.Series và dict
+                # (dict từ các _v_scale_row helper, Series từ primary slot selection).
+                # pd.DataFrame chấp nhận list of dict hoặc list of Series, nhưng không
+                # chấp nhận hỗn hợp. Convert tất cả sang dict trước.
+                _norm_rows = [
+                    r.to_dict() if isinstance(r, pd.Series) else dict(r)
+                    for r in selected_rows
+                ]
+                meal_df = pd.DataFrame(_norm_rows)
+                meal_df.attrs["target_kcal"] = meal_target_kcal
+                plan[meal] = meal_df
+            else:
+                empty_df = ranked.iloc[0:0].copy()
+                empty_df.attrs["target_kcal"] = meal_target_kcal
+                plan[meal] = empty_df
         
         # ──────────────────────────────────────────────────────────────────────
         # LOG DIVERSITY SUMMARY
@@ -6750,12 +7225,30 @@ class RecommenderService:
         serving_display = str(row.get("serving_display", "") or "").strip()
         image_requirement = str(row.get("image_requirement", "") or "").strip() or cls._image_requirement(display_name, category)
         meal_role = cls.classifyMealRole(row)
+
+        # Core/optional item metadata (set by pickBalancedMeal via _is_core flag).
+        # is_core=True  → "Recommended" badge, default selected, used in nutrition validation.
+        # is_core=False → "Alternative" badge, not default selected, for user swap only.
+        _is_core_raw = row.get("_is_core", None)
+        # Guard against pandas NaN (which is not None but bool(nan) raises or evaluates True).
+        # Use pd.isna() to detect missing/NaN values and fall back to the legacy default.
+        if _is_core_raw is None or (not isinstance(_is_core_raw, bool) and pd.isna(_is_core_raw)):
+            is_core: bool = True  # legacy items without explicit tag default to core
+        else:
+            is_core = bool(_is_core_raw)
+        is_default_selected: bool = is_core
+        meal_role_display: str = "core" if is_core else "optional"
+
         return {
             "food_id": str(row["food_id"]),
             "original_name": original_name,
             "name": display_name,
             "food_group": HealthyWeightGainRecommender.category_label_vi(category),
             "meal_role": meal_role,
+            # Core/optional split fields
+            "is_core": is_core,
+            "is_default_selected": is_default_selected,
+            "meal_role_display": meal_role_display,
             "image_url": image_url,
             "image_alt": image_alt,
             "image_source_type": "real" if uses_real_photo else "placeholder",
@@ -8001,6 +8494,10 @@ class RecommenderService:
         total_protein = 0.0
         total_fat = 0.0
         total_carbs = 0.0
+        # core_kcal / core_protein track ONLY default-selected (is_core=True) items.
+        # All rebalancing and validation must use core_kcal, not total_kcal.
+        core_kcal = 0.0
+        core_protein = 0.0
 
         def _expected_slots_for_meal(meal_type: str) -> int:
             return max(1, int(meal_structure.get(str(meal_type).lower(), 4)))
@@ -8008,14 +8505,28 @@ class RecommenderService:
         for meal_type, meal_df in meal_plan.items():
             meal_list = []
             meal_actual_kcal = 0.0
+            meal_core_kcal = 0.0
+            # Retrieve the per-meal kcal target stored as a DataFrame attribute
+            meal_kcal_target = float(meal_df.attrs.get("target_kcal", 0.0)) if hasattr(meal_df, "attrs") else 0.0
+            if meal_kcal_target <= 0.0:
+                ratio_sum_inner = sum(DEFAULT_MEAL_CALORIE_RATIOS.get(m, 0) for m in meal_plan) or float(len(meal_plan))
+                meal_ratio_inner = DEFAULT_MEAL_CALORIE_RATIOS.get(meal_type, 1.0 / len(meal_plan)) / ratio_sum_inner
+                meal_kcal_target = target_kcal * meal_ratio_inner
             for _, row in meal_df.iterrows():
                 item = self._to_food_item_payload(row)
                 meal_list.append(item)
-                meal_actual_kcal += float(item.get("calories", 0))
-                total_kcal += float(item.get("calories", 0))
-                total_protein += float(item.get("protein", 0))
+                item_kcal = float(item.get("calories", 0))
+                item_protein = float(item.get("protein", 0))
+                meal_actual_kcal += item_kcal
+                total_kcal += item_kcal
+                total_protein += item_protein
                 total_fat += float(item.get("fat", 0))
                 total_carbs += float(item.get("carbs", 0))
+                # Accumulate core-only totals
+                if item.get("is_core", True):
+                    meal_core_kcal += item_kcal
+                    core_kcal += item_kcal
+                    core_protein += item_protein
                 
                 meal_items_for_db.append(
                     {
@@ -8033,33 +8544,43 @@ class RecommenderService:
                             "image_url": item.get("image_url"),
                             "image_badge": item.get("image_badge"),
                             "score": item["score"],
+                            # Preserve core/optional tagging so the DB round-trip
+                            # correctly restores is_core via meal_role prefix encoding.
+                            "is_core": item.get("is_core", True),
+                            "meal_role": item.get("meal_role", ""),
                         }
                 )
             
             meal_plan_payload.append({
                 "meal_type": meal_type,
                 "actual_kcal": round(meal_actual_kcal),
+                "core_kcal": round(meal_core_kcal),
+                "target_kcal": round(meal_kcal_target),
                 "items": meal_list
             })
 
         # ═══════════════════════════════════════════════════════════════════════════
-        # CALORIE REBALANCING: Ensure meal plan total kcal is close to target
+        # CALORIE REBALANCING: Ensure CORE items hit the calorie target.
+        # Only core (is_core=True / default-selected) items are used for validation.
+        # Optional items are for variety/swap and MUST NOT affect calorie validation.
         # ═══════════════════════════════════════════════════════════════════════════
         logger.info("[MEAL_CALORIE_BALANCE_CHECK] %s", {
             "targetKcal": target_kcal,
+            "planCoreKcal": round(core_kcal),
             "planTotalKcal": round(total_kcal),
             "lowerBound": round(target_kcal * 0.92),
             "upperBound": round(target_kcal * 1.08),
-            "deficit": round(target_kcal - total_kcal),
+            "coreDeficit": round(target_kcal - core_kcal),
             "itemCount": len(meal_items_for_db),
         })
         
-        # Only rebalance if deficit is significant (> 8% or below 92% of target)
-        if target_kcal > 0 and total_kcal < target_kcal * 0.92:
-            deficit = target_kcal - total_kcal
+        # Only rebalance if CORE items deficit is significant (> 8% or below 92% of target)
+        if target_kcal > 0 and core_kcal < target_kcal * 0.92:
+            deficit = target_kcal - core_kcal
             logger.info("[MEAL_CALORIE_TOP_UP_START] %s", {
                 "deficit": round(deficit),
-                "strategy": "increase_portions_and_add_items",
+                "coreKcal": round(core_kcal),
+                "strategy": "increase_portions_of_core_items",
             })
             
             # Calorie booster food categories (starch, dairy, healthy fats)
@@ -8067,7 +8588,7 @@ class RecommenderService:
                 "starch_grain", "starch_tuber", "dairy", "healthy_fat_nuts", "fruit"
             }
             
-            # Try to increase portions of existing energy-dense items first
+            # Try to increase portions of existing CORE energy-dense items first
             for meal in meal_plan_payload:
                 if deficit <= 0:
                     break
@@ -8075,7 +8596,10 @@ class RecommenderService:
                 for item in meal.get("items", []):
                     if deficit <= 0:
                         break
-                        
+                    # Only boost core items — optional items must not be scaled
+                    # to fill calorie gaps (they are not part of the nutrition guarantee).
+                    if not item.get("is_core", True):
+                        continue
                     item_category = _canonical_food_category(item.get("category"), item.get("name", ""))
                     if item_category not in energy_booster_categories:
                         continue
@@ -8111,7 +8635,9 @@ class RecommenderService:
                         
                         deficit -= added_kcal
                         total_kcal += added_kcal
+                        core_kcal += added_kcal
                         total_protein += float(item.get("protein", 0)) * (actual_increase - 1)
+                        core_protein += float(item.get("protein", 0)) * (actual_increase - 1)
                         total_fat += float(item.get("fat", 0)) * (actual_increase - 1)
                         total_carbs += float(item.get("carbs", 0)) * (actual_increase - 1)
                         
@@ -8126,23 +8652,23 @@ class RecommenderService:
                             "addedKcal": round(added_kcal),
                         })
             
-            # If still deficit, try adding high-calorie items from ranked candidates
+            # If still deficit in core kcal, try adding high-calorie CORE items from ranked candidates
             if deficit > target_kcal * 0.05 and not ranked.empty:  # More than 5% still needed
-                # Find meals with fewer items than expected
+                # Find meals with fewer CORE items than expected
                 for meal in meal_plan_payload:
                     if deficit <= 0:
                         break
                         
                     meal_type = meal.get("meal_type", "dinner")
                     expected_slots = _expected_slots_for_meal(meal_type)
-                    current_items = len(meal.get("items", []))
+                    current_core_items = len([i for i in meal.get("items", []) if i.get("is_core", True)])
                     
-                    if current_items < expected_slots:
-                        # Find a suitable high-calorie item to add
+                    if current_core_items < expected_slots:
+                        # Find a suitable high-calorie item to add as a CORE item
                         existing_ids = {str(item.get("food_id")) for item in meal.get("items", [])}
                         
                         # Filter candidates: energy categories, not already in plan, reasonable kcal
-                        target_item_kcal = deficit / max(1, expected_slots - current_items)
+                        target_item_kcal = deficit / max(1, expected_slots - current_core_items)
                         
                         for _, candidate_row in ranked.iterrows():
                             candidate_id = str(candidate_row.get("food_id", ""))
@@ -8165,14 +8691,19 @@ class RecommenderService:
                             if candidate_kcal < 50 or candidate_kcal > target_item_kcal * 2:
                                 continue
                             
-                            # Add this item
+                            # Add this item as a CORE item (it fills a required calorie slot)
                             new_item = self._to_food_item_payload(candidate_row)
+                            new_item["is_core"] = True
+                            new_item["is_default_selected"] = True
+                            new_item["meal_role_display"] = "core"
                             meal.get("items", []).append(new_item)
                             
                             added_kcal = float(new_item.get("calories", 0))
                             deficit -= added_kcal
                             total_kcal += added_kcal
+                            core_kcal += added_kcal
                             total_protein += float(new_item.get("protein", 0))
+                            core_protein += float(new_item.get("protein", 0))
                             total_fat += float(new_item.get("fat", 0))
                             total_carbs += float(new_item.get("carbs", 0))
                             
@@ -8192,23 +8723,27 @@ class RecommenderService:
                                 "image_url": new_item.get("image_url"),
                                 "image_badge": new_item.get("image_badge"),
                                 "score": new_item["score"],
+                                # Core top-up items are always core by definition
+                                "is_core": new_item.get("is_core", True),
+                                "meal_role": new_item.get("meal_role", ""),
                             })
                             
-                            logger.info("[MEAL_CALORIE_TOP_UP_ADD_ITEM] %s", {
+                            logger.info("[MEAL_CALORIE_TOP_UP_ADD_CORE_ITEM] %s", {
                                 "mealKey": meal_type,
                                 "foodId": new_item["food_id"],
                                 "foodName": new_item["name"],
                                 "kcal": round(added_kcal),
-                                "reason": "fill_deficit",
+                                "reason": "fill_core_deficit",
                             })
                             
                             break  # Only add one item per meal per iteration
             
             logger.info("[MEAL_CALORIE_BALANCE_DONE] %s", {
                 "targetKcal": target_kcal,
-                "finalPlanTotalKcal": round(total_kcal),
-                "finalProgressIfAllEaten": round((total_kcal / target_kcal * 100) if target_kcal > 0 else 0),
-                "difference": round(target_kcal - total_kcal),
+                "finalCoreKcal": round(core_kcal),
+                "finalTotalKcal": round(total_kcal),
+                "finalCoreProgress": round((core_kcal / target_kcal * 100) if target_kcal > 0 else 0),
+                "difference": round(target_kcal - core_kcal),
             })
         
         ingredient_warning_data: dict[str, object] | None = None
@@ -8587,7 +9122,10 @@ class RecommenderService:
             nonlocal preserved_item_count_note
             for meal in meal_plan_payload:
                 items = meal.get("items", [])
-                limit = _expected_slots_for_meal(meal.get("meal_type", "meal"))
+                # Hard limit: cap at SUGGESTIONS_PER_MEAL (8) to avoid run-away growth from
+                # ingredient-coverage injection, but NEVER trim down the suggestions pool
+                # to requested_slots here — that slicing is done only on the frontend.
+                limit = SUGGESTIONS_PER_MEAL
                 if len(items) <= limit:
                     continue
 
@@ -8612,6 +9150,7 @@ class RecommenderService:
             for meal in meal_plan_payload:
                 meal_type = str(meal.get("meal_type", "meal"))
                 meal_kcal = 0.0
+                meal_core_kcal = 0.0
                 for item in meal.get("items", []):
                     calories = float(item.get("calories") or item.get("kcal") or 0.0)
                     protein = float(item.get("protein") or 0.0)
@@ -8628,6 +9167,8 @@ class RecommenderService:
                     recomputed_protein += protein
                     recomputed_fat += fat
                     recomputed_carbs += carbs
+                    if item.get("is_core", True):
+                        meal_core_kcal += calories
                     rebuilt_items.append(
                         {
                             "meal_type": meal_type,
@@ -8647,7 +9188,20 @@ class RecommenderService:
                         }
                     )
                 meal["actual_kcal"] = round(meal_kcal)
+                meal["core_kcal"] = round(meal_core_kcal)
             return rebuilt_items, recomputed_kcal, recomputed_protein, recomputed_fat, recomputed_carbs
+
+        def _recompute_core_totals() -> tuple[float, float]:
+            """Return (core_kcal, core_protein) — sum over only is_core=True items.
+            Must be called after _recompute_plan_totals() so item values are current."""
+            _c_kcal = 0.0
+            _c_protein = 0.0
+            for _meal in meal_plan_payload:
+                for _item in _meal.get("items", []):
+                    if _item.get("is_core", True):
+                        _c_kcal += float(_item.get("calories") or _item.get("kcal") or 0.0)
+                        _c_protein += float(_item.get("protein") or 0.0)
+            return _c_kcal, _c_protein
 
         def _scale_payload_items(scale: float) -> None:
             for meal in meal_plan_payload:
@@ -9727,6 +10281,7 @@ class RecommenderService:
 
 
         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        core_kcal, core_protein = _recompute_core_totals()
         sample_total_kcal = total_kcal
         _debug_warning(
             "DEBUG_SAMPLE_TOTAL_KCAL=%s target=%s min=%s max=%s item_count=%s",
@@ -9741,35 +10296,38 @@ class RecommenderService:
         if low_quality_replacements:
             _debug_warning("DEBUG_LOW_QUALITY_REPLACED items=%s", low_quality_replacements)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
 
-        if target_kcal > 0 and total_kcal < min_kcal and total_kcal > 0:
-            scale_up = target_kcal / total_kcal
+        if target_kcal > 0 and core_kcal < min_kcal and core_kcal > 0:
+            scale_up = target_kcal / core_kcal
             if 0.75 <= scale_up <= 1.35:
                 _scale_payload_items(scale_up)
-                _debug_warning("DEBUG_KCAL_SCALE_UP applied scale=%s", scale_up)
+                _debug_warning("DEBUG_KCAL_SCALE_UP applied scale=%s (core_kcal)", scale_up)
             elif scale_up > 1.35:
                 _scale_payload_items(1.35)
-                added_items = _replace_or_fill_high_energy_items(target_add_kcal=(min_kcal - total_kcal), max_changes=3)
-                _debug_warning("DEBUG_KCAL_LOW replaced_high_energy_items=%s scale_candidate=%s", added_items, scale_up)
+                added_items = _replace_or_fill_high_energy_items(target_add_kcal=(min_kcal - core_kcal), max_changes=3)
+                _debug_warning("DEBUG_KCAL_LOW replaced_high_energy_items=%s scale_candidate=%s (core_kcal)", added_items, scale_up)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-                if total_kcal > 0:
-                    next_scale = target_kcal / total_kcal
+                core_kcal, core_protein = _recompute_core_totals()
+                if core_kcal > 0:
+                    next_scale = target_kcal / core_kcal
                     if 0.75 <= next_scale <= 1.35:
                         _scale_payload_items(next_scale)
-                        _debug_warning("DEBUG_KCAL_SCALE_UP_AFTER_ADD applied scale=%s", next_scale)
+                        _debug_warning("DEBUG_KCAL_SCALE_UP_AFTER_ADD applied scale=%s (core_kcal)", next_scale)
 
         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        core_kcal, core_protein = _recompute_core_totals()
 
-        if target_kcal > 0 and total_kcal > max_kcal and total_kcal > 0:
-            scale_down = target_kcal / total_kcal
+        if target_kcal > 0 and core_kcal > max_kcal and core_kcal > 0:
+            scale_down = target_kcal / core_kcal
             if 0.75 <= scale_down <= 1.35:
                 _scale_payload_items(scale_down)
-                _debug_warning("DEBUG_KCAL_SCALE_DOWN applied scale=%s", scale_down)
+                _debug_warning("DEBUG_KCAL_SCALE_DOWN applied scale=%s (core_kcal)", scale_down)
             elif scale_down < 0.75:
                 removed = 0
                 for meal in meal_plan_payload:
                     items = meal.get("items", [])
-                    while total_kcal > max_kcal and len(items) > 1 and removed < 3:
+                    while core_kcal > max_kcal and len(items) > 1 and removed < 3:
                         optional_indexes = [
                             idx for idx, item in enumerate(items)
                             if str(item.get("meal_role") or item.get("culinary_role") or "").lower() in {"extra", "fat", "side", "drink", "drink_or_extra"}
@@ -9781,14 +10339,16 @@ class RecommenderService:
                         removed += 1
                         preserved_item_count_note = True
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-                _debug_warning("DEBUG_KCAL_HIGH removed_snack_items=%s scale_candidate=%s", removed, scale_down)
-                if total_kcal > 0:
-                    next_scale_down = target_kcal / total_kcal
+                        core_kcal, core_protein = _recompute_core_totals()
+                _debug_warning("DEBUG_KCAL_HIGH removed_snack_items=%s scale_candidate=%s (core_kcal)", removed, scale_down)
+                if core_kcal > 0:
+                    next_scale_down = target_kcal / core_kcal
                     if 0.75 <= next_scale_down <= 1.35:
                         _scale_payload_items(next_scale_down)
-                        _debug_warning("DEBUG_KCAL_SCALE_DOWN_AFTER_REMOVE applied scale=%s", next_scale_down)
+                        _debug_warning("DEBUG_KCAL_SCALE_DOWN_AFTER_REMOVE applied scale=%s (core_kcal)", next_scale_down)
 
         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+        core_kcal, core_protein = _recompute_core_totals()
         
         target_protein = float(nutrition_target.get("protein_g") or nutrition_target.get("protein_target") or nutrition_target.get("protein") or 0.0)
         if target_protein > 0 and total_protein < target_protein * 0.90:
@@ -9799,6 +10359,7 @@ class RecommenderService:
             if replacements:
                 _debug_warning("DEBUG_PROTEIN_LOW replaced_low_protein_items=%s", replacements)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                core_kcal, core_protein = _recompute_core_totals()
 
         scale_p = 1.0
         if target_protein > 0 and total_protein > target_protein * 1.10:
@@ -10062,6 +10623,7 @@ class RecommenderService:
                 _debug_print("[FORCE INGREDIENT INSERTED]", force_selected_ingredients_logs[-1])
 
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
             final_covered_after = _forced_final_coverage()
             forced_final_after_snapshot = [
                 {
@@ -10284,7 +10846,7 @@ class RecommenderService:
                 fallback_reason = None if strong_candidate_rows else "no_strong_candidate"
                 for _, candidate_item, candidate_group, candidate_quality in candidate_rows_to_consider:
                     before_snapshot = copy.deepcopy(meal_plan_payload)
-                    before_totals = (total_kcal, total_protein, total_fat, total_carbs)
+                    before_totals = (core_kcal, total_protein, total_fat, total_carbs)
                     target_choice = _select_coverage_target(candidate_item, candidate_group)
                     if target_choice is None:
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
@@ -10307,6 +10869,7 @@ class RecommenderService:
                         preserved_item_count_note = True
 
                     meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                    core_kcal, core_protein = _recompute_core_totals()
                     catchup_applied = False
 
                     if target_protein > 0 and total_protein < target_protein * 0.90:
@@ -10317,30 +10880,35 @@ class RecommenderService:
                         if protein_replacements:
                             catchup_applied = True
                             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                            core_kcal, core_protein = _recompute_core_totals()
 
-                    if target_kcal > 0 and total_kcal < min_kcal:
+                    if target_kcal > 0 and core_kcal < min_kcal:
                         energy_replacements = _replace_or_fill_high_energy_items(
-                            target_add_kcal=max(min_kcal - total_kcal, 0.0),
+                            target_add_kcal=max(min_kcal - core_kcal, 0.0),
                             max_changes=2,
                             prefer_fat=candidate_group in {"dairy", "extra"},
                         )
                         if energy_replacements:
                             catchup_applied = True
                             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-                        if total_kcal < min_kcal and total_kcal > 0:
-                            final_scale = target_kcal / total_kcal
+                            core_kcal, core_protein = _recompute_core_totals()
+                        if core_kcal < min_kcal and core_kcal > 0:
+                            final_scale = target_kcal / core_kcal
                             if 1.0 <= final_scale <= 1.25:
                                 _scale_preferred_energy_items(final_scale)
                                 catchup_applied = True
                                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                                core_kcal, core_protein = _recompute_core_totals()
                             elif 0.75 <= final_scale <= 1.35:
                                 _scale_payload_items(final_scale)
                                 catchup_applied = True
                                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                                core_kcal, core_protein = _recompute_core_totals()
 
-                    if target_kcal > 0 and total_kcal < min_kcal:
+                    if target_kcal > 0 and core_kcal < min_kcal:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        core_kcal, core_protein = _recompute_core_totals()
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -10351,6 +10919,7 @@ class RecommenderService:
                     if target_protein > 0 and total_protein < target_protein * 0.85:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        core_kcal, core_protein = _recompute_core_totals()
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -10358,9 +10927,10 @@ class RecommenderService:
                         })
                         continue
 
-                    if target_kcal > 0 and total_kcal < before_totals[0] * 0.95 and not catchup_applied:
+                    if target_kcal > 0 and core_kcal < before_totals[0] * 0.95 and not catchup_applied:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        core_kcal, core_protein = _recompute_core_totals()
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -10456,6 +11026,7 @@ class RecommenderService:
                             action = "replace"
                             preserved_item_count_note = True
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        core_kcal, core_protein = _recompute_core_totals()
                         current_covered = _current_covered_ingredients()
                         if ingredient in current_covered:
                             coverage_added_foods.append(str(candidate_item.get("name") or candidate_item.get("food_id") or "item"))
@@ -10479,6 +11050,7 @@ class RecommenderService:
                         })
 
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
             final_covered = _current_covered_ingredients()
             final_uncovered = [ingredient for ingredient in requested_ingredients if ingredient not in final_covered]
             final_after_snapshot = [
@@ -10518,6 +11090,7 @@ class RecommenderService:
             }
             _scale_protein_items(scale_p)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
         else:
             response_hard_coverage_debug = None
 
@@ -10527,6 +11100,7 @@ class RecommenderService:
             added_items = _replace_or_fill_high_energy_items(target_add_kcal=min(max(target_kcal * 0.08, 120.0), 320.0), max_changes=2, prefer_fat=True)
             _debug_warning("DEBUG_FAT_LOW replaced_high_energy_items=%s", added_items)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
 
         target_carbs = float(nutrition_target.get("carbs_g") or nutrition_target.get("carb_target") or nutrition_target.get("carbs") or 0.0)
         if target_carbs > 0 and total_carbs > target_carbs * 1.12:
@@ -10534,56 +11108,65 @@ class RecommenderService:
             if replacements:
                 _debug_warning("DEBUG_CARBS_HIGH replaced_high_carb_items=%s", replacements)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                core_kcal, core_protein = _recompute_core_totals()
 
-        if target_kcal > 0 and total_kcal > 0:
-            final_scale = target_kcal / total_kcal
-            if total_kcal < min_kcal and 0.92 <= final_scale <= 1.35:
+        if target_kcal > 0 and core_kcal > 0:
+            final_scale = target_kcal / core_kcal
+            if core_kcal < min_kcal and 0.92 <= final_scale <= 1.35:
                 if target_protein > 0 and total_protein >= target_protein * 1.05:
                     _scale_preferred_energy_items(final_scale)
                 else:
                     _scale_payload_items(final_scale)
-                _debug_warning("DEBUG_FINAL_KCAL_SCALE_UP applied scale=%s", final_scale)
+                _debug_warning("DEBUG_FINAL_KCAL_SCALE_UP applied scale=%s (core_kcal)", final_scale)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-            elif total_kcal > max_kcal and 0.82 <= final_scale <= 1.0:
+                core_kcal, core_protein = _recompute_core_totals()
+            elif core_kcal > max_kcal and 0.82 <= final_scale <= 1.0:
                 _scale_payload_items(final_scale)
-                _debug_warning("DEBUG_FINAL_KCAL_SCALE_DOWN applied scale=%s", final_scale)
+                _debug_warning("DEBUG_FINAL_KCAL_SCALE_DOWN applied scale=%s (core_kcal)", final_scale)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                core_kcal, core_protein = _recompute_core_totals()
 
         if target_protein > 0 and total_protein > target_protein * 1.12:
             scale_p = (target_protein * 1.08) / total_protein
             _scale_protein_items(scale_p)
             _debug_warning("DEBUG_FINAL_PROTEIN_SCALE_DOWN applied scale=%s", scale_p)
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
             if total_protein > target_protein * 1.15:
                 protein_replacements = _replace_excess_protein_items(max_changes=3)
                 if protein_replacements:
                     _debug_warning("DEBUG_PROTEIN_HIGH_REPLACED items=%s", protein_replacements)
                     meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-            if target_kcal > 0 and total_kcal < min_kcal and total_kcal > 0:
-                catchup_scale = target_kcal / total_kcal
+                    core_kcal, core_protein = _recompute_core_totals()
+            if target_kcal > 0 and core_kcal < min_kcal and core_kcal > 0:
+                catchup_scale = target_kcal / core_kcal
                 if 1.0 <= catchup_scale <= 1.25:
                     _scale_preferred_energy_items(catchup_scale)
-                    _debug_warning("DEBUG_FINAL_ENERGY_CATCHUP applied scale=%s", catchup_scale)
+                    _debug_warning("DEBUG_FINAL_ENERGY_CATCHUP applied scale=%s (core_kcal)", catchup_scale)
                     meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                    core_kcal, core_protein = _recompute_core_totals()
 
         response_hard_coverage_debug = None
         fill_added_count = _fill_missing_items_for_all_meals("post_macro_adjustment")
         if fill_added_count:
             meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
         if target_protein > 0 and total_protein > target_protein * 1.15:
             protein_replacements = _replace_excess_protein_items(max_changes=3)
             if protein_replacements:
                 _debug_warning("DEBUG_POST_FILL_PROTEIN_HIGH_REPLACED items=%s", protein_replacements)
                 meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
-                if target_kcal > 0 and total_kcal < min_kcal and total_kcal > 0:
-                    catchup_scale = target_kcal / total_kcal
+                core_kcal, core_protein = _recompute_core_totals()
+                if target_kcal > 0 and core_kcal < min_kcal and core_kcal > 0:
+                    catchup_scale = target_kcal / core_kcal
                     if 1.0 <= catchup_scale <= 1.25:
                         _scale_preferred_energy_items(catchup_scale)
-                        _debug_warning("DEBUG_POST_FILL_ENERGY_CATCHUP applied scale=%s", catchup_scale)
+                        _debug_warning("DEBUG_POST_FILL_ENERGY_CATCHUP applied scale=%s (core_kcal)", catchup_scale)
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                        core_kcal, core_protein = _recompute_core_totals()
         meal_item_count_summary, meal_item_count_warnings, missing_item_count_total = _build_item_count_summary()
 
-        delta_pct = abs(total_kcal - target_kcal) / target_kcal if target_kcal > 0 else 0.0
+        delta_pct = abs(core_kcal - target_kcal) / target_kcal if target_kcal > 0 else 0.0
 
         errors = []
         warnings = []
@@ -10779,12 +11362,12 @@ class RecommenderService:
             warnings.append(BMI_SEVERE_UNDERWEIGHT_WARNING)
         if semantic_duplicate_relaxed_note:
             infos.append("Một số món tương tự nhau được dùng lại do không đủ lựa chọn phù hợp.")
-        if preserved_item_count_note or (target_kcal > 0 and total_kcal < min_kcal):
+        if preserved_item_count_note or (target_kcal > 0 and core_kcal < min_kcal):
             warnings.append("Có thể cần tăng khẩu phần trong giới hạn hợp lý hoặc thêm bữa phụ tùy chọn, nhưng thực đơn vẫn giữ đúng số món mỗi bữa bạn đã chọn.")
 
         validation_result = self._validate_generated_plan(
-            total_kcal=total_kcal,
-            total_protein=total_protein,
+            total_kcal=core_kcal,       # validate ONLY core-item calories
+            total_protein=core_protein, # validate ONLY core-item protein
             total_fat=total_fat,
             total_carbs=total_carbs,
             target=nutrition_target,
@@ -10798,6 +11381,45 @@ class RecommenderService:
         validation_result["ml_enabled"] = bool(ml_metadata.get("ml_enabled"))
         validation_result["ml_score_used"] = bool(ml_score_used)
         validation_result["ml_score_weight"] = ML_SCORE_WEIGHT
+
+        # ── Per-meal kcal validation (tolerance ±15%) — CORE ITEMS ONLY ─────────
+        # Only default-selected (is_core=True) items are validated against target.
+        # Optional items are for user swapping and do not count toward the guarantee.
+        _ratio_sum_vr = sum(DEFAULT_MEAL_CALORIE_RATIOS.get(m, 0) for m in ("breakfast", "lunch", "dinner")) or 1.0
+        meal_validations_vr: dict[str, dict] = {}
+        for _meal_entry in meal_plan_payload:
+            _mt = str(_meal_entry.get("meal_type", "")).lower()
+            _meal_target_kcal = float(_meal_entry.get("target_kcal") or 0.0)
+            if _meal_target_kcal <= 0.0:
+                _meal_ratio = DEFAULT_MEAL_CALORIE_RATIOS.get(_mt, 1.0 / 3) / _ratio_sum_vr
+                _meal_target_kcal = target_kcal * _meal_ratio if target_kcal > 0 else 0.0
+            # Sum ONLY core items for per-meal validation
+            _meal_actual = sum(
+                float(item.get("calories", 0) or 0)
+                for item in _meal_entry.get("items", [])
+                if item.get("is_core", True)
+            )
+            _meal_diff = _meal_actual - _meal_target_kcal
+            _meal_diff_pct = abs(_meal_diff) / _meal_target_kcal if _meal_target_kcal > 0 else 1.0
+            if _meal_target_kcal <= 0:
+                _meal_status, _meal_msg = "unknown", ""
+            elif _meal_diff_pct <= 0.15:
+                _meal_status, _meal_msg = "success", "Đạt mục tiêu kcal"
+            elif _meal_actual < _meal_target_kcal * 0.85:
+                _meal_status, _meal_msg = "low", f"Bạn đang thiếu {round(abs(_meal_diff))} kcal"
+            else:
+                _meal_status, _meal_msg = "high", f"Bạn đang dư {round(abs(_meal_diff))} kcal"
+            meal_validations_vr[_mt] = {
+                "meal_type": _mt,
+                "target_kcal": round(_meal_target_kcal),
+                "actual_kcal": round(_meal_actual),
+                "diff_kcal": round(_meal_diff),
+                "diff_pct": round(_meal_diff_pct * 100, 1),
+                "status": _meal_status,
+                "message": _meal_msg,
+            }
+        validation_result["meal_validations"] = meal_validations_vr
+        # ──────────────────────────────────────────────────────────────────────
         macro_only_major = (
             validation_result["status"] == "major_adjustment"
             and not errors
@@ -10889,6 +11511,11 @@ class RecommenderService:
             "nutrition_target": nutrition_target,
             "meal_plan": {
                 "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                # core_kcal / core_protein = ONLY default-selected items (is_core=True).
+                # These are the values validated against the calorie/protein target.
+                # total_kcal includes optional items and is provided for informational use only.
+                "core_kcal": round(core_kcal),
+                "core_protein_g": round(core_protein),
                 "total_kcal": round(total_kcal),
                 "total_protein_g": round(total_protein),
                 "total_fat_g": round(total_fat),
@@ -11082,6 +11709,9 @@ class RecommenderService:
                             "image_url": candidate_item.get("image_url"),
                             "image_badge": candidate_item.get("image_badge"),
                             "score": candidate_item["score"],
+                            # Ingredient-injected items are core by definition
+                            "is_core": candidate_item.get("is_core", True),
+                            "meal_role": candidate_item.get("meal_role", ""),
                         })
                         logger.info(
                             "[INGREDIENT COVERAGE INJECTED] user_id=%s ingredient=%s appended=%s meal=%s",

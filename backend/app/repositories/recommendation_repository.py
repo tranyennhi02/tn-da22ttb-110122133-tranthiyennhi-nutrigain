@@ -11,6 +11,28 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.entities import FoodLog, FoodLogItem, Meal, MealConsumptionLog, MealPlan, MealPlanItem, RecommendationRequest
 
+try:
+    from nutrigain_recommender import DEFAULT_MEAL_CALORIE_RATIOS
+except Exception:
+    DEFAULT_MEAL_CALORIE_RATIOS = {"breakfast": 0.30, "lunch": 0.35, "dinner": 0.35}
+
+
+def _decode_is_core_from_meal_role(meal_role: str | None) -> bool:
+    """Decode whether an item is a CORE item from the stored meal_role field.
+
+    During persistence the recommender encodes core/optional status as a prefix:
+      "core:<original_role>"   → is_core = True
+      "optional:<original_role>" → is_core = False
+      Any other value (legacy rows without the prefix) → default True (backward compat).
+    """
+    if not meal_role:
+        return True  # legacy rows default to core
+    role = str(meal_role).strip().lower()
+    if role.startswith("optional"):
+        return False
+    # "core:..." or any legacy value → True
+    return True
+
 
 def _protein_excess_warning(total_protein: float, target_protein: float) -> str:
     excess_g = max(int(round(float(total_protein or 0.0) - float(target_protein or 0.0))), 0)
@@ -267,11 +289,17 @@ class RecommendationRepository:
                     continue
 
                 qty = float(item_payload.get("serving_grams") or item_payload.get("quantity_g") or 0.0)
-                
+
+                # Encode is_core into meal_role so it survives DB round-trip.
+                # Format: "core:<original_meal_role>" or "optional:<original_meal_role>"
+                _raw_meal_role = str(item_payload.get("meal_role", "") or "")
+                _is_core_item = bool(item_payload.get("is_core", True))  # default True for legacy items
+                _meal_role_stored = f"{'core' if _is_core_item else 'optional'}:{_raw_meal_role}" if _raw_meal_role else ("core" if _is_core_item else "optional")
+
                 m_item = MealPlanItem(
                     meal_id=meal_rows[meal_type].id,
                     food_id=resolved_food_id,
-                    meal_role=str(item_payload.get("meal_role", "")),
+                    meal_role=_meal_role_stored,
                     quantity_g=qty if qty > 0 else None,
                     kcal=float(item_payload.get("calories") or item_payload.get("kcal") or 0.0),
                     protein=float(item_payload.get("protein") or 0.0),
@@ -637,6 +665,8 @@ class RecommendationRepository:
         food_metadata = self._food_metadata_by_ids(food_ids)
 
         meals = []
+        ratio_sum_repo = sum(DEFAULT_MEAL_CALORIE_RATIOS.get(m, 0) for m in ("breakfast", "lunch", "dinner")) or 1.0
+        day_target_kcal = float(meal_plan.target_kcal or 0.0)
         for meal in sorted(meal_plan.meals, key=lambda row: row.meal_order):
             items = []
             for item in meal.items:
@@ -668,8 +698,15 @@ class RecommendationRepository:
                         "is_eaten": is_eaten,
                         "eaten_at": eaten_meta.get("eaten_at") if eaten_meta else None,
                         "eaten_date": eaten_meta.get("eaten_date") if eaten_meta else None,
+                        # Decode is_core from stored meal_role ("core:..." or "optional:...")
+                        "is_core": _decode_is_core_from_meal_role(item.meal_role),
+                        "is_default_selected": _decode_is_core_from_meal_role(item.meal_role),
+                        "meal_role_display": "core" if _decode_is_core_from_meal_role(item.meal_role) else "optional",
                     }
                 )
+            # Compute per-meal kcal target using DEFAULT_MEAL_CALORIE_RATIOS
+            meal_ratio = DEFAULT_MEAL_CALORIE_RATIOS.get(meal.meal_type, 1.0 / 3) / ratio_sum_repo
+            meal_target_kcal = round(day_target_kcal * meal_ratio) if day_target_kcal > 0 else 0
             meals.append(
                 {
                     "id": meal.id,
@@ -679,6 +716,7 @@ class RecommendationRepository:
                     "total_protein": meal.total_protein,
                     "total_fat": meal.total_fat,
                     "total_carbs": meal.total_carbs,
+                    "target_kcal": meal_target_kcal,
                     "items": items,
                 }
             )
@@ -792,6 +830,39 @@ class RecommendationRepository:
                 f"{round(target_kcal)} kcal khoảng {round(kcal_diff_abs)} kcal, "
                 f"tương đương {kcal_diff_pct:.2f}%. Vui lòng tạo lại để có thực đơn phù hợp hơn."
             )
+
+        # ── Per-meal kcal validation (tolerance ±15%) ──────────────────────
+        ratio_sum_val = sum(DEFAULT_MEAL_CALORIE_RATIOS.get(m, 0) for m in ("breakfast", "lunch", "dinner")) or 1.0
+        meal_validations: dict[str, dict] = {}
+        for meal in meal_plan.meals:
+            meal_ratio = DEFAULT_MEAL_CALORIE_RATIOS.get(meal.meal_type, 1.0 / 3) / ratio_sum_val
+            meal_target = target_kcal * meal_ratio if target_kcal > 0 else 0.0
+            meal_actual = float(meal.total_kcal or 0.0)
+            meal_diff = meal_actual - meal_target
+            meal_diff_pct = abs(meal_diff) / meal_target if meal_target > 0 else 1.0
+            if meal_target <= 0:
+                meal_status = "unknown"
+                meal_message = ""
+            elif meal_diff_pct <= 0.15:
+                meal_status = "success"
+                meal_message = "Đạt mục tiêu kcal"
+            elif meal_actual < meal_target * 0.85:
+                meal_status = "low"
+                meal_message = f"Bạn đang thiếu {round(abs(meal_diff))} kcal"
+            else:
+                meal_status = "high"
+                meal_message = f"Bạn đang dư {round(abs(meal_diff))} kcal"
+            meal_validations[meal.meal_type] = {
+                "meal_type": meal.meal_type,
+                "target_kcal": round(meal_target),
+                "actual_kcal": round(meal_actual),
+                "diff_kcal": round(meal_diff),
+                "diff_pct": round(meal_diff_pct * 100, 1),
+                "status": meal_status,
+                "message": meal_message,
+            }
+        # ──────────────────────────────────────────────────────────────────
+
         return {
             "status": plan_status,
             "is_valid": is_valid,
@@ -807,6 +878,7 @@ class RecommendationRepository:
             "kcal_diff_pct": kcal_diff_pct,
             "errors": [] if is_valid else [reason],
             "warnings": warnings,
+            "meal_validations": meal_validations,
         }
 
     def restore_meal_plan(

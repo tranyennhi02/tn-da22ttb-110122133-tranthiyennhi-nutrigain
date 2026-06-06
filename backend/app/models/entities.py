@@ -135,6 +135,8 @@ class UserProfileEntity(Base):
     dinner_time: Mapped[str | None] = mapped_column(String(5), nullable=True, default="18:30")
     meal_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reminder_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sms_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

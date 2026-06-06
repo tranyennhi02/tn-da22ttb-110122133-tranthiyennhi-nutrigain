@@ -56,7 +56,7 @@ export function bmiMessageForCategory(category) {
     return "Gầy / thiếu cân – NutriGain có thể hỗ trợ tạo thực đơn tăng cân.";
   }
   if (normalized === "normal") {
-    return "BMI của bạn đang ở mức bình thường. NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn tăng cân thêm.";
+    return "BMI của bạn đang ở mức bình thường. NutriGain vẫn hỗ trợ tạo thực đơn tăng cân lành mạnh nếu bạn muốn cải thiện thể trạng.";
   }
   if (normalized === "overweight") {
     return "BMI của bạn đang thuộc nhóm thừa cân. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
@@ -73,7 +73,7 @@ export function bmiPreviewMessage(category) {
     return "Gầy / thiếu cân – NutriGain có thể hỗ trợ tạo thực đơn tăng cân.";
   }
   if (normalized === "normal") {
-    return "BMI của bạn đang ở mức bình thường – NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn.";
+    return "BMI của bạn đang ở mức bình thường – NutriGain vẫn hỗ trợ tạo thực đơn tăng cân lành mạnh nếu bạn muốn cải thiện thể trạng.";
   }
   if (normalized === "overweight") {
     return "BMI của bạn đang thuộc nhóm thừa cân. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
