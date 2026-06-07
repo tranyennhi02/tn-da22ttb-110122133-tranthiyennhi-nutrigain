@@ -42,7 +42,14 @@ export function clearAuthStorage() {
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith("profile") || key.startsWith("mealPlan") || key.startsWith("weightSummary") || key.startsWith("nutritionProfile"))) {
+      if (key && (
+        key.startsWith("profile") ||
+        key.startsWith("mealPlan") ||
+        key.startsWith("weightSummary") ||
+        key.startsWith("nutritionProfile") ||
+        key.startsWith("nutrigain_gami_stats") ||
+        key.startsWith("nutrigain_goal_dialog_dismissed_")
+      )) {
         keysToRemove.push(key);
       }
     }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import MealCard from "./MealCard";
+import MealScorePanel from "./MealScorePanel";
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * NutritionFeedback
@@ -222,9 +223,16 @@ function SingleMealSection({
         </div>
       </div>
 
+      {/* Gamification score panel — shown when target is set */}
+      <MealScorePanel
+        selectedItems={selectedItems}
+        targetKcal={effectiveTargetKcal}
+        mealType={meal.meal_type || meal.title}
+      />
+
       {/* Realtime nutrition feedback — shown only when items are selected */}
       {selectedItems.length > 0 && (
-        <div className="px-4 pt-3">
+        <div className="px-4 pt-1">
           <NutritionFeedback
             selectedItems={selectedItems}
             targetKcal={effectiveTargetKcal}

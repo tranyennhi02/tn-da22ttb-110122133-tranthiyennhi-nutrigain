@@ -5779,13 +5779,37 @@ class RecommenderService:
             
             selected_rows = []
             selected_semantic_keys: set[str] = set()
+            # Track image URLs used in this meal to prevent duplicate images
+            seen_meal_image_urls: set[str] = set()
 
-            def _prefer_semantic_distinct(pool: pd.DataFrame) -> pd.DataFrame:
+            def _row_image_url(row: pd.Series | dict) -> str:
+                """Get the effective image URL for a food row (placeholder or real)."""
+                return getFoodImageUrl(row)
+
+            def _hard_semantic_distinct(pool: pd.DataFrame) -> pd.DataFrame:
+                """Hard constraint: remove items whose semantic key is already in this meal.
+                Falls back to full pool only when the filtered pool is empty (regression prevention)."""
                 if pool.empty or not selected_semantic_keys:
                     return pool
                 distinct_pool = pool[
                     ~pool.apply(lambda row: bool(_row_semantic_key(row)) and _row_semantic_key(row) in selected_semantic_keys, axis=1)
                 ].copy()
+                # Only fallback to full pool when truly empty — prevents leaving a slot unfilled
+                return distinct_pool if not distinct_pool.empty else pool
+
+            def _image_distinct(pool: pd.DataFrame) -> pd.DataFrame:
+                """Soft constraint: prefer items whose image URL is not already used in this meal.
+                For placeholder images (non-real photos), this is a hard filter.
+                Falls back to full pool only when filtered pool is empty."""
+                if pool.empty or not seen_meal_image_urls:
+                    return pool
+                def _is_image_duplicate(row: pd.Series | dict) -> bool:
+                    # Only enforce image dedup for placeholder images;
+                    # real verified photos are always allowed regardless of URL collision.
+                    if _uses_verified_real_photo(row):
+                        return False
+                    return _row_image_url(row) in seen_meal_image_urls
+                distinct_pool = pool[~pool.apply(_is_image_duplicate, axis=1)].copy()
                 return distinct_pool if not distinct_pool.empty else pool
 
             for slot_idx, slot in enumerate(slots):
@@ -5796,7 +5820,10 @@ class RecommenderService:
                     ~ranked["food_id"].isin(seen_food_ids)
                     & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                 ].copy()
-                pool = _prefer_semantic_distinct(pool)
+                # Hard semantic dedup: exclude items sharing a semantic key with any item already in this meal
+                pool = _hard_semantic_distinct(pool)
+                # Image dedup: exclude placeholder-image items that would show the same image as an existing item
+                pool = _image_distinct(pool)
                 
                 # ──────────────────────────────────────────────────────────────
                 # PRIORITY INGREDIENT FILTERING
@@ -5934,7 +5961,8 @@ class RecommenderService:
                             ~ranked["food_id"].isin(seen_food_ids)
                             & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                         ].copy()
-                        relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
+                        relaxed_pool = _hard_semantic_distinct(relaxed_pool)
+                        relaxed_pool = _image_distinct(relaxed_pool)
                         if slot_name != "extra":
                             relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                         constrained_pool = relaxed_pool[relaxed_pool.apply(lambda row: _row_clean_category(row) in fallback_cats, axis=1)]
@@ -5959,7 +5987,8 @@ class RecommenderService:
                                 ~ranked["food_id"].isin(seen_food_ids)
                                 & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                             ].copy()
-                            relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
+                            relaxed_pool = _hard_semantic_distinct(relaxed_pool)
+                            relaxed_pool = _image_distinct(relaxed_pool)
                             if slot_name != "extra":
                                 relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                             constrained_pool = relaxed_pool[relaxed_pool.apply(lambda row: _row_clean_category(row) in ultimate_cats, axis=1)]
@@ -5971,7 +6000,8 @@ class RecommenderService:
                             ~ranked["food_id"].isin(seen_food_ids)
                             & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
                         ].copy()
-                        relaxed_pool = _prefer_semantic_distinct(relaxed_pool)
+                        relaxed_pool = _hard_semantic_distinct(relaxed_pool)
+                        relaxed_pool = _image_distinct(relaxed_pool)
                         if slot_name != "extra":
                             relaxed_pool = relaxed_pool[~relaxed_pool.apply(lambda row: _row_clean_category(row) == "drink_natural", axis=1)]
                         constrained_pool = relaxed_pool
@@ -6112,6 +6142,10 @@ class RecommenderService:
                 semantic_key = _row_semantic_key(best_row)
                 if semantic_key:
                     selected_semantic_keys.add(semantic_key)
+                # Track image URL to prevent duplicate images in this meal
+                _img_url = _row_image_url(best_row)
+                if _img_url and not _uses_verified_real_photo(best_row):
+                    seen_meal_image_urls.add(_img_url)
                 family = HealthyWeightGainRecommender._food_family(best_row)
                 if family:
                     family_counts[family] = family_counts.get(family, 0) + 1
@@ -6532,6 +6566,7 @@ class RecommenderService:
                 this_ids: set,
                 this_names: set,
                 this_sem: set,
+                this_img_urls: set,
                 allow_cross_meal_reuse: bool,
                 relax_quality: bool,
             ):
@@ -6556,6 +6591,11 @@ class RecommenderService:
                     fsem = _row_semantic_key(fr)
                     if not relax_quality and fsem and fsem in this_sem:
                         continue
+                    # Image dedup: skip placeholder images already used in this meal (bỏ khi relax_quality)
+                    if not relax_quality and not _uses_verified_real_photo(fr):
+                        _fimg = _row_image_url(fr)
+                        if _fimg and _fimg in this_img_urls:
+                            continue
                     # Dessert/drink (bỏ khi relax_quality)
                     if not relax_quality and (
                         _row_clean_category(fr) in {"dessert_sweets", "drink_natural"}
@@ -6569,17 +6609,21 @@ class RecommenderService:
                 this_meal_ids   = {r.get("food_id") for r in selected_rows}
                 this_meal_names = {_row_name_key(r) for r in selected_rows}
                 this_meal_sem   = {k for k in (_row_semantic_key(r) for r in selected_rows) if k}
+                this_meal_imgs  = {
+                    _row_image_url(r) for r in selected_rows
+                    if not _uses_verified_real_photo(r) and _row_image_url(r)
+                }
 
                 # Pass 1: strict — không trùng bữa khác, có filter quality
-                found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem, this_meal_imgs,
                                              allow_cross_meal_reuse=False, relax_quality=False)
-                # Pass 2: relax quality — không trùng bữa khác, bỏ filter kcal/semantic/dessert
+                # Pass 2: relax quality — không trùng bữa khác, bỏ filter kcal/semantic/dessert/image
                 if found is None:
-                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem, this_meal_imgs,
                                                  allow_cross_meal_reuse=False, relax_quality=True)
                 # Pass 3: last resort — cho phép tái dùng món bữa khác (tránh trùng trong bữa này)
                 if found is None:
-                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem,
+                    found = _pick_fill_candidate(this_meal_ids, this_meal_names, this_meal_sem, this_meal_imgs,
                                                  allow_cross_meal_reuse=True, relax_quality=True)
 
                 if found is None:
@@ -6595,6 +6639,10 @@ class RecommenderService:
                 selected_rows.append(sf)
                 seen_food_ids.add(sf.get("food_id"))
                 seen_food_names.add(_row_name_key(sf))
+                # Track image URL for optional fill items
+                _sf_img = _row_image_url(sf)
+                if _sf_img and not _uses_verified_real_photo(sf):
+                    seen_meal_image_urls.add(_sf_img)
             # ──────────────────────────────────────────────────────────────────
             logger.info(
                 "[FILL_DONE] meal=%s items_after_fill=%d/%d",
@@ -6746,6 +6794,10 @@ class RecommenderService:
             def _v_fill_to_8(rows: list) -> list:
                 _cur_ids   = {r.get("food_id") for r in rows}
                 _cur_names = {_row_name_key(r) for r in rows}
+                _cur_imgs  = {
+                    _row_image_url(r) for r in rows
+                    if not _uses_verified_real_photo(r) and _row_image_url(r)
+                }
                 for _, _xr in ranked.iterrows():
                     if len(rows) >= SUGGESTIONS_PER_MEAL:
                         break
@@ -6754,11 +6806,20 @@ class RecommenderService:
                     # Chỉ skip nếu đã có trong bữa này (không check cross-meal)
                     if _xid in _cur_ids or _xname in _cur_names:
                         continue
+                    # Skip placeholder images already used in this meal
+                    if not _uses_verified_real_photo(_xr):
+                        _ximg = _row_image_url(_xr)
+                        if _ximg and _ximg in _cur_imgs:
+                            continue
                     _sr = _v_scale_optional_row(dict(_xr))
                     _sr["culinary_role"] = "extra"
                     rows.append(_sr)
                     _cur_ids.add(_xid)
                     _cur_names.add(_xname)
+                    _ximg2 = _row_image_url(_sr)
+                    if _ximg2 and not _uses_verified_real_photo(_xr):
+                        _cur_imgs.add(_ximg2)
+                        seen_meal_image_urls.add(_ximg2)
                     # Vẫn cập nhật cross-meal seen để bữa sau không trùng
                     seen_food_ids.add(_xid)
                     seen_food_names.add(_xname)

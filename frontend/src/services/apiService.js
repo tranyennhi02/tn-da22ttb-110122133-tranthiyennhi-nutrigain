@@ -388,3 +388,22 @@ export async function toggleMealConsumption(payload) {
   });
   return parseResponse(response, "Cannot update meal consumption status");
 }
+
+export async function sendTestSms(meal_type = "breakfast") {
+  const response = await fetch(`${API_BASE_URL}/api/v1/meal-reminders/test-sms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ meal_type }),
+  });
+  return parseResponse(response, "Không thể gửi SMS thử");
+}
+
+export async function fetchSmsStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sms/status`, {
+    headers: authHeaders(),
+  });
+  return parseResponse(response, "Không thể kiểm tra trạng thái SMS");
+}

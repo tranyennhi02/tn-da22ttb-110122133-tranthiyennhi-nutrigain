@@ -312,29 +312,43 @@ class MealReminderService:
         _emit_log(f"[MEAL REMINDER FAILED] user_id={user.id}, error=send_test_email_failed", level="warning")
         return False, "Chưa gửi được email. Vui lòng kiểm tra cấu hình SMTP.", None
 
-    def send_test_sms(self, user: User, meal_type: str = "breakfast") -> tuple[bool, str, str | None]:
+    def send_test_sms(self, user: User, meal_type: str = "breakfast", db: Session | None = None) -> tuple[bool, str, str | None]:
         """Send a one-off test SMS reminder to the user's stored phone number."""
         meal_key = str(meal_type or "breakfast").strip().lower()
         if meal_key not in MEAL_LABELS:
             meal_key = "breakfast"
 
-        profile = getattr(user, "profile", None)
-        phone = getattr(profile, "phone_number", None) if profile else None
+        # Fetch phone_number directly from DB to avoid SQLAlchemy lazy-loading issues
+        phone: str | None = None
+        if db is not None:
+            phone = db.scalar(
+                select(UserProfileEntity.phone_number).where(UserProfileEntity.user_id == user.id)
+            )
+        else:
+            # Fallback: try relationship (may be None when session is closed)
+            profile = getattr(user, "profile", None)
+            phone = getattr(profile, "phone_number", None) if profile else None
+
         if not phone:
             return False, "Tài khoản chưa có số điện thoại để nhận SMS.", None
 
         if not is_twilio_configured():
             return False, "Twilio chưa được cấu hình.", None
 
+        recipient = _normalize_phone(phone)
+        if not recipient:
+            _emit_log(f"[MEAL REMINDER SMS TEST SKIPPED] user_id={user.id}, reason=invalid_phone")
+            return False, "Số điện thoại không hợp lệ.", None
+
         meal_label = MEAL_LABELS.get(meal_key, meal_key)
         body = (
             f"NutriGain nhắc bạn: Đã đến giờ ăn {meal_label} rồi. "
             "Hãy ăn nhẹ nhàng và đều đặn theo kế hoạch hôm nay nhé!"
         )
-        sent = send_sms(phone, body)
+        sent = send_sms(recipient, body)
         if sent:
             _emit_log(f"[MEAL REMINDER SMS TEST SENT] user_id={user.id}, meal_type={meal_key}")
-            return True, "Đã gửi SMS thử.", _mask_phone(phone)
+            return True, "Đã gửi SMS thử.", _mask_phone(recipient)
         _emit_log(f"[MEAL REMINDER SMS TEST FAILED] user_id={user.id}", level="warning")
         return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình Twilio.", None
 
@@ -381,5 +395,5 @@ def send_test_meal_reminder_email(user: User, meal_type: str = "breakfast") -> t
     return _service.send_test_email(user, meal_type)
 
 
-def send_test_meal_reminder_sms(user: User, meal_type: str = "breakfast") -> tuple[bool, str, str | None]:
-    return _service.send_test_sms(user, meal_type)
+def send_test_meal_reminder_sms(user: User, meal_type: str = "breakfast", db: Session | None = None) -> tuple[bool, str, str | None]:
+    return _service.send_test_sms(user, meal_type, db=db)

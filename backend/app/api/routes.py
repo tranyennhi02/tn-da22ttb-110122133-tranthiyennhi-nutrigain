@@ -25,6 +25,7 @@ from app.services.ingredient_recognition_service import recognize_ingredients_fr
 from app.services.weight_log_service import WeightLogService
 from app.services.gamification_service import GamificationService
 from app.services.meal_reminder_service import send_test_meal_reminder_email, send_test_meal_reminder_sms
+from app.services.sms_service import is_twilio_configured
 from app.views.schemas import (
     AccountStatusUpdate,
     AdminCategorySummaryResponse,
@@ -459,13 +460,21 @@ def test_meal_reminder_email(
     return MealReminderTestEmailResponse(success=success, message=message, sent_to=sent_to)
 
 
+@router.get("/sms/status", tags=["meal-reminders"])
+def sms_status(
+    _: User = Depends(get_current_user),
+) -> dict:
+    """Return whether Twilio SMS is configured and ready to send."""
+    return {"configured": is_twilio_configured()}
+
+
 @router.post("/meal-reminders/test-sms", response_model=MealReminderTestSmsResponse, tags=["meal-reminders"])
 def test_meal_reminder_sms(
     payload: MealReminderTestSmsInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MealReminderTestSmsResponse:
-    success, message, sent_to = send_test_meal_reminder_sms(current_user, payload.meal_type)
+    success, message, sent_to = send_test_meal_reminder_sms(current_user, payload.meal_type, db=db)
     return MealReminderTestSmsResponse(success=success, message=message, sent_to=sent_to)
 
 

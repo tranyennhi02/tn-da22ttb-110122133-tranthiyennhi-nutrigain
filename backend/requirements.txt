@@ -25,3 +25,6 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 requests
+
+# Twilio SMS
+twilio==9.3.7

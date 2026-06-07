@@ -25,9 +25,10 @@ import { calculateNutritionTarget } from "../utils/nutritionTarget";
 import { validateMealPlan } from "../utils/mealPlanValidation";
 import { normalizeProfilePayload } from "../utils/profileFormUtils";
 import { loadTodayMealPlan, regenerateMealPlan, restoreMealPlan, saveUserProfile } from "../controllers/recommendationController";
-import { fetchCurrentUser, fetchHistory, fetchWeightLogs, fetchWeightLogSummary, getAuthHeaders, toggleMealConsumption, fetchEatingHistory, saveWeightLog } from "../services/apiService";
+import { fetchCurrentUser, fetchHistory, fetchWeightLogs, fetchWeightLogSummary, getAuthHeaders, toggleMealConsumption, fetchEatingHistory, saveWeightLog, sendTestSms } from "../services/apiService";
 import { mapUserProfileToFormState } from "../App";
 import { exportNutritionReportPdf } from "../utils/exportNutritionReportPdf";
+import { computeMealRank, computeAlmostPerfect, computeDiversity, previewPoints, recordMealPoints } from "../utils/mealRank";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -2863,31 +2864,31 @@ function GoalAchievedDialog({ profileSettings, weightSummary, onEditProfile, onM
 
   const STORAGE_KEY = `nutrigain_goal_dialog_dismissed_${targetWeight}`;
 
-  // show được tính trực tiếp từ goalReached + sessionStorage, không lưu trong state
-  // để tránh stale closure khi weightSummary load async
+  // Đọc dismissed synchronously mỗi render — tránh hoàn toàn flash giữa render và effect
+  function isDismissed() {
+    if (targetWeight <= 0) return true; // data chưa load → coi như đã dismiss để không hiện
+    try { return localStorage.getItem(STORAGE_KEY) === "true"; }
+    catch { return false; }
+  }
+
   const [dismissed, setDismissed] = useState(false);
 
-  // Đồng bộ dismissed từ sessionStorage mỗi khi targetWeight thay đổi
+  // Sync lại khi targetWeight thay đổi (user đổi mục tiêu mới)
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(STORAGE_KEY) === "true";
-      setDismissed(stored);
-    } catch {
-      setDismissed(false);
-    }
-  }, [STORAGE_KEY]);
+    setDismissed(isDismissed());
+  }, [STORAGE_KEY]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function dismiss() {
     setDismissed(true);
-    try { sessionStorage.setItem(STORAGE_KEY, "true"); } catch { /* ignore */ }
+    try { localStorage.setItem(STORAGE_KEY, "true"); } catch { /* ignore */ }
   }
 
   const maxAllowedWeight = heightCm > 0
     ? Number((24.9 * (heightCm / 100) * (heightCm / 100)).toFixed(1))
     : null;
 
-  // Hiện dialog khi đạt mục tiêu và chưa dismiss
-  if (!goalReached || dismissed) return null;
+  // Kiểm tra trực tiếp localStorage khi render để tránh flash
+  if (targetWeight <= 0 || !goalReached || dismissed || isDismissed()) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
@@ -6896,6 +6897,109 @@ function MealPlanHeader({
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MealScoreInline — Bữa Ăn Hoàn Hảo gamification panel
+ * Pure computed, zero API calls, rendered inside each MealSection.
+ * ─────────────────────────────────────────────────────────────────────────── */
+const RANK_BADGE_CLASSES = {
+  SS: "bg-amber-400 text-white",
+  S:  "bg-emerald-500 text-white",
+  A:  "bg-green-500 text-white",
+  B:  "bg-blue-500 text-white",
+  C:  "bg-amber-500 text-white",
+  D:  "bg-red-400 text-white",
+};
+const RANK_RING_CLASSES = {
+  SS: "ring-amber-200",
+  S:  "ring-emerald-200",
+  A:  "ring-green-200",
+  B:  "ring-blue-200",
+  C:  "ring-amber-200",
+  D:  "ring-red-200",
+};
+
+function MealScoreInline({ eatenItems, selectedKcal, targetKcalMeal, mealType }) {
+  const rankResult   = computeMealRank(selectedKcal, targetKcalMeal);
+  const almostResult = computeAlmostPerfect(selectedKcal, targetKcalMeal);
+  const diversity    = computeDiversity(eatenItems);
+  const points       = rankResult
+    ? previewPoints(rankResult.rank, diversity.diversityPoints, almostResult.active)
+    : 0;
+
+  // Persist points to localStorage whenever rank/points change (debounced via stable deps)
+  useEffect(() => {
+    if (!rankResult || points <= 0 || !mealType) return;
+    recordMealPoints({ rank: rankResult.rank, points, mealType: String(mealType) });
+  }, [rankResult?.rank, points, mealType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasSelection = eatenItems.length > 0;
+  const badgeCls = rankResult ? RANK_BADGE_CLASSES[rankResult.rank] : "bg-slate-200 text-slate-500";
+  const ringCls  = rankResult ? RANK_RING_CLASSES[rankResult.rank]  : "ring-slate-200";
+
+  return (
+    <div className="mt-3 transition-all duration-300">
+      <div className={`rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm ring-1 ${ringCls} transition-all duration-300`}>
+        {/* Main row — rank · accuracy · points preview · diversity · label */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {/* Rank badge */}
+          <span className={`inline-flex h-8 min-w-[2.75rem] items-center justify-center rounded-xl px-3 text-sm font-black tracking-wider shadow-sm transition-all duration-300 ${badgeCls}`}>
+            {hasSelection && rankResult ? rankResult.rank : "–"}
+          </span>
+
+          {/* Accuracy */}
+          <div className="flex items-center gap-1 text-sm">
+            <span className="text-slate-400">📊</span>
+            <span className="font-black text-slate-800">
+              {hasSelection && rankResult ? `${rankResult.accuracyPct}%` : "–"}
+            </span>
+            <span className="text-xs text-slate-400">chính xác</span>
+          </div>
+
+          <div className="hidden h-4 w-px bg-slate-200 sm:block" />
+
+          {/* Points preview — subtle, not dominant */}
+          {hasSelection && rankResult && points > 0 && (
+            <div className="flex items-center gap-1 text-sm">
+              <span className="text-slate-400">✨</span>
+              <span className="font-semibold text-slate-600">+{points}</span>
+              <span className="text-xs text-slate-400">thành tích</span>
+            </div>
+          )}
+
+          {hasSelection && rankResult && points > 0 && (
+            <div className="hidden h-4 w-px bg-slate-200 sm:block" />
+          )}
+
+          {/* Diversity */}
+          <div className="flex items-center gap-1 text-sm">
+            <span className="text-slate-400">🥗</span>
+            <span className={`font-semibold transition-all duration-300 ${diversity.diversityPoints > 0 ? "text-emerald-600" : "text-slate-500"}`}>
+              {diversity.diversityPoints > 0 ? "Đa dạng tốt" : "0 đa dạng"}
+            </span>
+          </div>
+
+          {/* Rank label */}
+          {hasSelection && rankResult && (
+            <span className="sm:ml-auto text-sm font-bold text-slate-700">
+              {rankResult.label}
+            </span>
+          )}
+        </div>
+
+        {/* Almost Perfect nudge */}
+        {hasSelection && almostResult.active && rankResult?.rank !== "SS" && (
+          <div className="mt-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-100 transition-all duration-300">
+            <span className="text-sm leading-none">🔥</span>
+            <span className="text-xs font-black text-amber-700">
+              Chỉ còn thiếu <span className="text-amber-900">{almostResult.deficit} kcal</span> để đạt Bữa Ăn Hoàn Hảo!
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, expectedCount, status, items, totals, balance, accent, mealLog = {}, onToggleFood }) {
   const expected = Number(expectedCount || 0);
   const isShort = expected > 0 && itemCount < expected;
@@ -7037,28 +7141,10 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
         </div>
       </div>
 
-      {/* ── Realtime nutrition feedback — concise status only ───────────── */}
-      {hasSelection ? (
-        <div
-          className={`mt-3 rounded-2xl border px-4 py-2.5 text-sm font-black ${
-            mealKcalStatus === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : mealKcalStatus === "low" || mealKcalStatus === "high"
-              ? "border-amber-200 bg-amber-50 text-amber-700"
-              : "border-slate-200 bg-slate-50 text-slate-600"
-          }`}
-          role="status"
-          aria-live="polite"
-        >
-          {mealKcalMessage}
-        </div>
-      ) : (
-        <p className="mt-2 text-xs font-semibold text-slate-400">
-          {hasSplit
-            ? "Tick món để theo dõi calo và nhận đánh giá dinh dưỡng"
-            : "Tick các món bạn muốn ăn để xem đánh giá kcal"}
-        </p>
-      )}
+
+
+      {/* ── Bữa Ăn Hoàn Hảo — Gamification Score Panel ─────────────────── */}
+      {targetKcalMeal > 0 && <MealScoreInline eatenItems={eatenItems} selectedKcal={selectedKcal} targetKcalMeal={targetKcalMeal} mealType={mealName} />}
 
       {/* ── Food cards: core first, then optional ───────────────────────── */}
       {hasSplit ? (
@@ -8489,6 +8575,21 @@ function FoodDetailModal({ food, onClose }) {
 
 function AccountSettingsPage({ email, profile, eligibility, errors, onChange, onRegenerate, onEditProfile, isSubmitting }) {
   const [activeTab, setActiveTab] = useState("profile");
+  const [smsTesting, setSmsTesting] = useState(false);
+  const [smsTestResult, setSmsTestResult] = useState(null); // { success, message, sent_to }
+
+  const handleTestSms = async () => {
+    setSmsTesting(true);
+    setSmsTestResult(null);
+    try {
+      const result = await sendTestSms("breakfast");
+      setSmsTestResult({ success: result.success, message: result.message, sent_to: result.sent_to });
+    } catch (err) {
+      setSmsTestResult({ success: false, message: err?.message || "Gửi SMS thất bại. Vui lòng thử lại." });
+    } finally {
+      setSmsTesting(false);
+    }
+  };
 
   const tabs = [
     { id: 'profile', label: 'Hồ sơ cá nhân', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
@@ -8646,6 +8747,25 @@ function AccountSettingsPage({ email, profile, eligibility, errors, onChange, on
                   {profile.sms_reminder_enabled && (
                     <div>
                       <ProfileField label="Số điện thoại nhận SMS" name="phone_number" type="tel" value={profile.phone_number || ""} error={errors.phone_number} onChange={onChange} placeholder="Ví dụ: 0912345678" />
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleTestSms}
+                          disabled={smsTesting || !profile.phone_number}
+                          className="h-10 rounded-xl bg-emerald-600 px-5 text-sm font900 text-white hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {smsTesting ? "Đang gửi..." : "Gửi SMS thử"}
+                        </button>
+                        {!profile.phone_number && (
+                          <span className="text-xs text-slate-400">Nhập số điện thoại trước để gửi thử.</span>
+                        )}
+                      </div>
+                      {smsTestResult && (
+                        <div className={`mt-2 rounded-xl px-4 py-2.5 text-sm font800 ${smsTestResult.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                          {smsTestResult.message}
+                          {smsTestResult.sent_to && <span className="ml-1 opacity-70">({smsTestResult.sent_to})</span>}
+                        </div>
+                      )}
                     </div>
                   )}
 

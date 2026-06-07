@@ -85,6 +85,15 @@ def send_sms(to_phone: str, body: str) -> bool:
     except ImportError:
         logger.error("[SMS FAILED] reason=twilio_not_installed — run: pip install twilio")
         return False
-    except Exception:
-        logger.exception("[SMS FAILED] to=%s", _mask_phone(recipient))
+    except Exception as exc:
+        # Log Twilio-specific error code when available (e.g. error 21608 = unverified number)
+        twilio_code = getattr(exc, "code", None) or getattr(exc, "status", None)
+        twilio_msg = getattr(exc, "msg", None) or str(exc)
+        if twilio_code:
+            logger.error(
+                "[SMS FAILED] to=%s twilio_error_code=%s message=%s",
+                _mask_phone(recipient), twilio_code, twilio_msg,
+            )
+        else:
+            logger.exception("[SMS FAILED] to=%s", _mask_phone(recipient))
         return False
