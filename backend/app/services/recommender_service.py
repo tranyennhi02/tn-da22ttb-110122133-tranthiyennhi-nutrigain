@@ -5546,6 +5546,10 @@ class RecommenderService:
         
         seen_food_ids = set()
         seen_food_names: set[str] = set()
+        # Cross-meal semantic dedup: prevent same semantic group (e.g. "tofu") across different meals
+        seen_cross_meal_semantic_keys: set[str] = set()
+        # Semantic groups that must NEVER repeat across meals
+        _CROSS_MEAL_HARD_SEM = {"tofu", "egg", "rice", "potato", "sweet_potato", "chicken", "beef", "pork"}
         starch_group_counts: dict[str, int] = {}
         family_counts: dict[str, int] = {}
         dairy_count = 0
@@ -5819,6 +5823,12 @@ class RecommenderService:
                 pool = ranked[
                     ~ranked["food_id"].isin(seen_food_ids)
                     & ~ranked.apply(lambda row: _row_name_key(row) in seen_food_names, axis=1)
+                    & ~ranked.apply(
+                        lambda row: bool(_row_semantic_key(row))
+                            and _row_semantic_key(row) in seen_cross_meal_semantic_keys
+                            and _row_semantic_key(row) in _CROSS_MEAL_HARD_SEM,
+                        axis=1,
+                    )
                 ].copy()
                 # Hard semantic dedup: exclude items sharing a semantic key with any item already in this meal
                 pool = _hard_semantic_distinct(pool)
@@ -6142,6 +6152,8 @@ class RecommenderService:
                 semantic_key = _row_semantic_key(best_row)
                 if semantic_key:
                     selected_semantic_keys.add(semantic_key)
+                    if semantic_key in _CROSS_MEAL_HARD_SEM:
+                        seen_cross_meal_semantic_keys.add(semantic_key)
                 # Track image URL to prevent duplicate images in this meal
                 _img_url = _row_image_url(best_row)
                 if _img_url and not _uses_verified_real_photo(best_row):
@@ -6491,6 +6503,8 @@ class RecommenderService:
                     semantic_key = _row_semantic_key(scaled_row)
                     if semantic_key:
                         selected_semantic_keys.add(semantic_key)
+                        if semantic_key in _CROSS_MEAL_HARD_SEM:
+                            seen_cross_meal_semantic_keys.add(semantic_key)
                     if _row_is_animal_protein(scaled_row):
                         animal_protein_count += 1
                     if _is_fat_or_healthy_gain_food(scaled_row):
@@ -6587,9 +6601,15 @@ class RecommenderService:
                         _fk = float(fr.get("calories_raw", 0) or fr.get("kcal_per_serving_clean", 0) or 0)
                         if _fk < _fill_min_kcal:
                             continue
-                    # Semantic dedup (bỏ khi relax_quality)
+                    # Semantic dedup — KHÔNG bao giờ relax cho tofu/đậu phụ và egg
+                    # vì đây là cùng thực phẩm dù khác tên/dạng chế biến
                     fsem = _row_semantic_key(fr)
-                    if not relax_quality and fsem and fsem in this_sem:
+                    _always_hard_sem = fsem in {"tofu", "egg", "rice", "potato", "sweet_potato", "chicken", "beef", "pork"}
+                    # Block nếu: (1) trùng trong bữa này, hoặc (2) trùng cross-meal với nhóm hard
+                    if fsem and (
+                        (fsem in this_sem and (not relax_quality or _always_hard_sem))
+                        or (_always_hard_sem and fsem in seen_cross_meal_semantic_keys)
+                    ):
                         continue
                     # Image dedup: skip placeholder images already used in this meal (bỏ khi relax_quality)
                     if not relax_quality and not _uses_verified_real_photo(fr):
@@ -6639,6 +6659,10 @@ class RecommenderService:
                 selected_rows.append(sf)
                 seen_food_ids.add(sf.get("food_id"))
                 seen_food_names.add(_row_name_key(sf))
+                # Track semantic key for cross-meal hard dedup
+                _sf_sem = _row_semantic_key(sf)
+                if _sf_sem and _sf_sem in _CROSS_MEAL_HARD_SEM:
+                    seen_cross_meal_semantic_keys.add(_sf_sem)
                 # Track image URL for optional fill items
                 _sf_img = _row_image_url(sf)
                 if _sf_img and not _uses_verified_real_photo(sf):
@@ -6750,23 +6774,34 @@ class RecommenderService:
             # calories_raw = slot_tgt chính xác → combo check luôn đúng
             def _v_scale_row_exact(raw_row: dict) -> dict:
                 _r = dict(raw_row)
-                # Lấy kcal gốc trước bất kỳ scale nào (ưu tiên kcal_per_100g_clean)
+                # Luôn dùng kcal_per_100g_clean * base_serving_grams làm base
+                # để tránh cycle từ calories_raw đã bị clamp trước đó
                 _p100 = float(_r.get("kcal_per_100g_clean", 0) or 0)
-                _bsg  = float(_r.get("base_serving_grams", _r.get("serving_grams", 100.0)) or 100.0)
-                if _p100 > 0:
+                _bsg  = float(_r.get("base_serving_grams", _r.get("quantity_g", 100.0)) or 100.0)
+                if _p100 > 0 and _bsg > 0:
                     _base_kcal = _p100 * _bsg / 100.0
                 else:
+                    # Fallback: dùng calories_raw gốc (chưa scale)
                     _base_kcal = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
                 _m = float(np.clip(_slot_tgt / max(_base_kcal, 1.0), 0.15, 8.0))
-                # Set calories_raw = slot_tgt (không clamp)
+                # Set calories_raw = slot_tgt (không clamp — đây là target validation)
                 _r["calories_raw"] = _slot_tgt
-                # Scale macros tỉ lệ
-                for _c in ("protein_raw", "fat_raw", "carbs_raw"):
-                    if _c in _r:
-                        _r[_c] = float(_r.get(_c, 0) or 0) * _m
+                # Tính serving_grams từ multiplier (không clamp để đảm bảo calories_raw đúng)
                 _pg = _m * _bsg
                 _r["serving_grams"]      = round(_pg, 0)
                 _r["serving_multiplier"] = _m
+                # Scale macros theo tỉ lệ multiplier
+                for _c in ("protein_raw", "fat_raw", "carbs_raw"):
+                    _per_col = {
+                        "protein_raw": "protein_per_100g_clean",
+                        "fat_raw":     "fat_per_100g_clean",
+                        "carbs_raw":   "carbs_per_100g_clean",
+                    }[_c]
+                    _per = float(_r.get(_per_col, 0) or 0)
+                    if _per > 0:
+                        _r[_c] = _per * _pg / 100.0
+                    elif _c in _r:
+                        _r[_c] = float(_r.get(_c, 0) or 0) * _m
                 return _r
 
             # Rescale đồng đều toàn bộ list (display mode — grams clamp)
@@ -6777,13 +6812,81 @@ class RecommenderService:
             # IMPORTANT: only CORE items (indices 0.._core_count-1) are rescaled to
             # hit the nutrition target.  Optional items keep their smaller portion.
             def _v_rescale_all_exact(rows: list) -> list:
-                result = []
+                """Rescale core items to hit meal_target_kcal.
+
+                Strategy:
+                1. Scale each core item to slot_tgt = meal_target_kcal / core_count.
+                2. Some items hit a serving-size clamp (max grams) and deliver less kcal.
+                3. Redistribute the deficit to the unclamped items so the total core
+                   kcal stays within ±15% of meal_target_kcal.
+                """
+                if not rows or _core_count <= 0:
+                    return rows
+
+                # First pass: scale each core item independently
+                first_pass = []
                 for _i, _r in enumerate(rows):
                     if _i < _core_count:
-                        result.append(_v_scale_row_exact(_r))
+                        first_pass.append(_v_scale_row_exact(_r))
                     else:
-                        # Optional: keep current scale (already set to _optional_slot_tgt)
-                        result.append(dict(_r) if not isinstance(_r, dict) else _r)
+                        first_pass.append(dict(_r) if not isinstance(_r, dict) else _r)
+
+                # Check if core total already meets target (within 5%)
+                _fp_core = sum(_v_row_kcal(r) for r in first_pass[:_core_count])
+                if abs(_fp_core - meal_target_kcal) / max(meal_target_kcal, 1.0) <= 0.05:
+                    return first_pass
+
+                # Second pass: redistribute deficit to unclamped items
+                # Detect which core items are clamped (their calories_raw < slot_tgt * 0.9)
+                _tgt_per = meal_target_kcal / _core_count
+                _clamped_kcal = 0.0
+                _unclamped_indices = []
+                for _i, _r in enumerate(first_pass[:_core_count]):
+                    _actual = _v_row_kcal(_r)
+                    if _actual < _tgt_per * 0.92:
+                        # This item is clamped — record its actual kcal
+                        _clamped_kcal += _actual
+                    else:
+                        _unclamped_indices.append(_i)
+
+                if not _unclamped_indices:
+                    # All items are clamped — can't redistribute, return first pass
+                    return first_pass
+
+                # Distribute remaining target evenly across unclamped items
+                _remaining_target = meal_target_kcal - _clamped_kcal
+                _tgt_unclamped = _remaining_target / len(_unclamped_indices)
+
+                result = list(first_pass)
+                for _ui in _unclamped_indices:
+                    _raw = rows[_ui]  # use original unscaled row
+                    _r = dict(_raw)
+                    # Use kcal_per_100g_clean * base_serving_grams as base — avoids clamped cycle
+                    _p100u = float(_r.get("kcal_per_100g_clean", 0) or 0)
+                    _bsgu  = float(_r.get("base_serving_grams", _r.get("quantity_g", 100.0)) or 100.0)
+                    if _p100u > 0 and _bsgu > 0:
+                        _base_u = _p100u * _bsgu / 100.0
+                    else:
+                        _base_u = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
+                    _mu = float(np.clip(_tgt_unclamped / max(_base_u, 1.0), 0.15, 8.0))
+                    # Do NOT clamp grams so calories_raw is exactly _tgt_unclamped
+                    _pgu = _mu * _bsgu
+                    _r["serving_grams"]      = round(_pgu, 0)
+                    _r["serving_multiplier"] = _mu
+                    _r["calories_raw"]       = _tgt_unclamped  # exact for validation
+                    for _c in ("protein_raw", "fat_raw", "carbs_raw"):
+                        _per_col = {
+                            "protein_raw": "protein_per_100g_clean",
+                            "fat_raw":     "fat_per_100g_clean",
+                            "carbs_raw":   "carbs_per_100g_clean",
+                        }[_c]
+                        _per = float(_r.get(_per_col, 0) or 0)
+                        if _per > 0:
+                            _r[_c] = _per * _pgu / 100.0
+                        elif _c in _r:
+                            _r[_c] = float(_r.get(_c, 0) or 0) * _mu
+                    result[_ui] = _r
+
                 return result
 
             # Fill đến đủ SUGGESTIONS_PER_MEAL món.
@@ -6794,10 +6897,12 @@ class RecommenderService:
             def _v_fill_to_8(rows: list) -> list:
                 _cur_ids   = {r.get("food_id") for r in rows}
                 _cur_names = {_row_name_key(r) for r in rows}
+                _cur_sem   = {_row_semantic_key(r) for r in rows if _row_semantic_key(r)}
                 _cur_imgs  = {
                     _row_image_url(r) for r in rows
                     if not _uses_verified_real_photo(r) and _row_image_url(r)
                 }
+                _HARD_SEM_KEYS = {"tofu", "egg", "rice", "potato", "sweet_potato", "chicken", "beef", "pork"}
                 for _, _xr in ranked.iterrows():
                     if len(rows) >= SUGGESTIONS_PER_MEAL:
                         break
@@ -6806,6 +6911,11 @@ class RecommenderService:
                     # Chỉ skip nếu đã có trong bữa này (không check cross-meal)
                     if _xid in _cur_ids or _xname in _cur_names:
                         continue
+                    # Semantic dedup: không cho trùng nhóm thực phẩm cùng loại (per-meal và cross-meal)
+                    _xsem = _row_semantic_key(_xr)
+                    if _xsem and _xsem in _HARD_SEM_KEYS:
+                        if _xsem in _cur_sem or _xsem in seen_cross_meal_semantic_keys:
+                            continue
                     # Skip placeholder images already used in this meal
                     if not _uses_verified_real_photo(_xr):
                         _ximg = _row_image_url(_xr)
@@ -6816,6 +6926,10 @@ class RecommenderService:
                     rows.append(_sr)
                     _cur_ids.add(_xid)
                     _cur_names.add(_xname)
+                    if _xsem:
+                        _cur_sem.add(_xsem)
+                        if _xsem in _HARD_SEM_KEYS:
+                            seen_cross_meal_semantic_keys.add(_xsem)
                     _ximg2 = _row_image_url(_sr)
                     if _ximg2 and not _uses_verified_real_photo(_xr):
                         _cur_imgs.add(_ximg2)

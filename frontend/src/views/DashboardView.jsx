@@ -4016,8 +4016,40 @@ function OverviewPage({
     }, 0);
   }, [meals, mealLog]);
 
+  // Số món user cài đặt mỗi bữa (3/4/5) — hoàn thành khi mỗi bữa đã tick đủ số này
+  const expectedPerMeal = expectedItemsPerMeal(profileSettings?.items_per_meal ?? profileSettings?.meal_complexity);
+
+  // Đếm số món đã tick theo từng bữa
+  const eatenPerMeal = useMemo(() => {
+    const counts = {};
+    (meals || []).forEach((meal) => {
+      const mealKey = getMealKey(meal);
+      counts[mealKey] = (meal.items || []).filter((item) => {
+        const entry = getMealLogEntry(mealLog, meal, item);
+        return isFoodMarkedEaten(item, entry);
+      }).length;
+    });
+    return counts;
+  }, [meals, mealLog]);
+
+  // Hoàn thành = mỗi bữa chính đã tick đủ số món cài đặt
+  const mainMealTypes = ["breakfast", "lunch", "dinner"];
+  const hasCompletedAllMeals = useMemo(() => {
+    if (!meals || meals.length === 0 || expectedPerMeal <= 0) return false;
+    const mainMeals = (meals || []).filter(m => mainMealTypes.includes(getMealKey(m)));
+    // Fallback: nếu không nhận dạng được bữa canonical, dùng tổng × 3
+    if (mainMeals.length < 3) {
+      const totalEaten = Object.values(eatenPerMeal).reduce((s, n) => s + n, 0);
+      return totalEaten >= expectedPerMeal * 3;
+    }
+    return mainMeals.every((meal) => {
+      const mealKey = getMealKey(meal);
+      return (eatenPerMeal[mealKey] || 0) >= expectedPerMeal;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eatenPerMeal, expectedPerMeal, meals]);
+
   const hasAnyEatenItem = eatenMealItems > 0;
-  const hasCompletedAllMeals = totalMealItems > 0 && eatenMealItems >= totalMealItems;
   
   const nextMeal = findNextMeal(meals, consumedNutrition);
   const planTotals = useMemo(
@@ -4102,7 +4134,7 @@ function OverviewPage({
                   ? "Bạn đã đánh dấu đủ các món trong thực đơn hôm nay."
                   : !hasAnyEatenItem
                     ? "Bắt đầu xem thực đơn và đánh dấu các món bạn đã ăn."
-                    : `Bạn đã đánh dấu ${eatenMealItems}/${totalMealItems} món. Kiểm tra thống kê để biết còn thiếu bao nhiêu kcal và protein.`}
+                    : `Bạn đã đánh dấu ${eatenMealItems} món. Kiểm tra thống kê để biết còn thiếu bao nhiêu kcal và protein.`}
             </p>
 
             {/* Mini Stats */}
@@ -4268,7 +4300,7 @@ function OverviewPage({
                         <div>
                           <div className="text-sm font-bold text-slate-900">Món đã ăn</div>
                           <div className="text-xs font-semibold text-slate-500">
-                            {hasCompletedAllMeals ? "Hoàn tất" : hasAnyEatenItem ? `${eatenMealItems}/${totalMealItems} món` : "Chưa xong"}
+                            {hasCompletedAllMeals ? "Hoàn tất" : hasAnyEatenItem ? `Đã đánh dấu ${eatenMealItems} món` : "Chưa xong"}
                           </div>
                         </div>
                       </div>

@@ -49,6 +49,13 @@ class GamificationService:
             else:
                 break
 
+        # Auto-recalculate achievements every time summary is fetched
+        # so badges unlock as soon as the user meets the criteria
+        try:
+            self.recalculate(db, user)
+        except Exception:
+            pass
+
         # achievements
         achievements = []
         rows = db.query(UserAchievement).filter(UserAchievement.user_id == user.id).order_by(UserAchievement.unlocked_at.desc()).limit(10).all()
@@ -233,6 +240,38 @@ class GamificationService:
             if balanced_count >= 3:
                 if not db.query(UserAchievement).filter(UserAchievement.user_id == uid, UserAchievement.achievement_key == "three_balanced_days_in_week").first():
                     ach = UserAchievement(user_id=uid, achievement_key="three_balanced_days_in_week", title="Duy trì nhẹ nhàng", description="Bạn đã có 3 ngày ăn đều trong tuần này.")
+                    db.add(ach)
+
+            # discipline_eater — ăn đủ 3 bữa liên tục 7 ngày (streak >= 7)
+            streak_count = 0
+            cursor = today
+            while True:
+                if self._completed_main_meals(db, uid, cursor):
+                    streak_count += 1
+                    cursor = cursor - timedelta(days=1)
+                else:
+                    break
+            if streak_count >= 7:
+                if not db.query(UserAchievement).filter(UserAchievement.user_id == uid, UserAchievement.achievement_key == "discipline_eater").first():
+                    ach = UserAchievement(user_id=uid, achievement_key="discipline_eater", title="Kỷ luật ăn uống", description="Bạn đã duy trì ăn đủ 3 bữa liên tục 7 ngày.")
+                    db.add(ach)
+
+            # diverse_menu — đã đánh dấu ăn ít nhất 5 ngày khác nhau
+            if active_days >= 5:
+                if not db.query(UserAchievement).filter(UserAchievement.user_id == uid, UserAchievement.achievement_key == "diverse_menu").first():
+                    ach = UserAchievement(user_id=uid, achievement_key="diverse_menu", title="Thực đơn đa dạng", description="Bạn đã quay lại ghi nhận bữa ăn trong 5 ngày.")
+                    db.add(ach)
+
+            # perfect_calories — đã có ít nhất 1 ngày ăn đủ cả 3 bữa chính (dùng lại first_complete_day điều kiện tương tự)
+            # trao khi đã ăn đủ 3 bữa ít nhất 3 ngày khác nhau
+            complete_day_count = 0
+            all_days = db.query(func.date(MealConsumptionLog.consumed_at)).filter(MealConsumptionLog.user_id == uid).distinct().all()
+            for d in all_days:
+                if self._completed_main_meals(db, uid, d[0]):
+                    complete_day_count += 1
+            if complete_day_count >= 3:
+                if not db.query(UserAchievement).filter(UserAchievement.user_id == uid, UserAchievement.achievement_key == "perfect_calories").first():
+                    ach = UserAchievement(user_id=uid, achievement_key="perfect_calories", title="Calories hoàn hảo", description="Bạn đã hoàn thành đủ 3 bữa chính trong 3 ngày.")
                     db.add(ach)
 
         db.commit()

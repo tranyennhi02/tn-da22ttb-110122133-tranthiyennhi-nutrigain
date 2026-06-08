@@ -174,6 +174,7 @@ export function loadGamificationStats() {
 /**
  * Record points earned from a meal tick session.
  * Called automatically by MealScoreInline on every tick — idempotent per meal+day.
+ * Mỗi ngày tối đa 3 bữa × 65 điểm (SS + diversity) = 195 điểm.
  *
  * @param {{ rank: string, points: number, mealType: string }} entry
  */
@@ -186,16 +187,28 @@ export function recordMealPoints({ rank, points, mealType }) {
   const key = `${today}__${mealType}`;
   const alreadyRecorded = stats.rankHistory.some((h) => h.key === key);
   if (alreadyRecorded) {
-    // Update if better rank achieved today
+    // Update if better rank achieved today (e.g. user improved meal)
     const existing = stats.rankHistory.find((h) => h.key === key);
     if (!existing || existing.points >= points) return;
-    // Revert old points, apply new
+    // Revert old points, apply new delta
     stats.totalPoints = Math.max(0, stats.totalPoints - existing.points + points);
     if (rank === "SS" && existing.rank !== "SS") stats.ssCount += 1;
     existing.rank   = rank;
     existing.points = points;
     existing.ts     = Date.now();
   } else {
+    // Kiểm tra tổng điểm đã cộng trong ngày hôm nay
+    const todayEntries = stats.rankHistory.filter((h) => h.date === today);
+    const todayMealTypes = new Set(todayEntries.map((h) => h.mealType));
+
+    // Mỗi ngày chỉ được cộng điểm từ tối đa 3 bữa (sáng/trưa/tối)
+    // Nếu mealType này đã cộng rồi thì bỏ qua (tránh cộng dồn khi sinh thực đơn mới)
+    const normalizedMealType = String(mealType).toLowerCase();
+    const alreadyHasThisMeal = todayEntries.some((h) =>
+      String(h.mealType || "").toLowerCase() === normalizedMealType
+    );
+    if (alreadyHasThisMeal) return;
+
     stats.totalPoints += points;
     if (rank === "SS") stats.ssCount += 1;
     stats.rankHistory.unshift({ key, rank, points, mealType, date: today, ts: Date.now() });
