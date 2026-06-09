@@ -1570,6 +1570,10 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     if (activeSection === "system" || activeSection === "settings") {
       setActiveSection("overview");
     }
+    // Refresh weight summary mỗi khi user chuyển về overview để đồng bộ "Cân nặng hôm nay"
+    if (activeSection === "overview") {
+      refreshWeightSummary().catch(() => {});
+    }
   }, [activeSection]);
 
   async function refreshWeightSummary() {
@@ -3957,7 +3961,7 @@ function OverviewPage({
       return latest.log_date || latest.date || latest.created_at || latest.updated_at || null;
     }
 
-    const points = summaryData?.chart_points || summaryData?.points || summaryData?.logs || [];
+    const points = summaryData?.chart_points || summaryData?.milestone_points || summaryData?.points || summaryData?.logs || [];
     if (Array.isArray(points) && points.length > 0) {
       const sorted = [...points].sort((a, b) => {
         const left = new Date(a.log_date || a.date || a.created_at || 0).getTime();
@@ -7795,6 +7799,9 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
       setIsFormOpen(false);
       setRefreshKey((value) => value + 1);
       await onProfileRefresh?.();
+      // Đồng bộ weightSummary để "Cân nặng hôm nay" cập nhật ngay
+      // DashboardView's onProfileRefresh already calls refreshWeightSummary internally
+      // so we don't need to call it here directly.
     } catch (error) {
       // Chỉ xử lý validation error trong modal, không chuyển trang
       const isValidationError = error?.status === 400 || error?.status === 422 || ["INVALID_WEIGHT", "INVALID_PROFILE", "INVALID_TARGET", "INVALID_HEIGHT"].includes(error?.code);

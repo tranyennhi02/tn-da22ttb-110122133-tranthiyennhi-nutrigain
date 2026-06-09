@@ -5749,36 +5749,52 @@ class RecommenderService:
             meal_ratio = _raw_ratios[meal] / ratio_sum
             meal_target_kcal = target_calories * meal_ratio
 
+            # ── Slot definitions cho 3 / 4 / 5 món ──────────────────────────
+            # Nguyên tắc: mỗi bữa đều phải có 1 slot starch + 1 slot protein.
+            # Khi có nhiều slot hơn, ưu tiên thêm rau/củ và protein phụ
+            # để đảm bảo đạt protein target hàng ngày.
             if requested_slots <= 3:
+                # 3 món: tinh bột + đạm + rau/trái cây
                 slots = [
-                    {"name": "starch", "cats": STARCH_CATEGORIES, "required": True},
-                    {"name": "protein", "cats": PROTEIN_CATEGORIES, "required": True},
-                    {"name": "vegetable_or_fruit", "cats": VEG_FRUIT_CATEGORIES, "required": True},
+                    {"name": "starch",             "cats": STARCH_CATEGORIES,   "required": True},
+                    {"name": "protein",            "cats": PROTEIN_CATEGORIES,  "required": True},
+                    {"name": "vegetable_or_fruit", "cats": VEG_FRUIT_CATEGORIES,"required": True},
                 ]
             elif requested_slots == 4:
+                # 4 món: tinh bột + đạm + rau/trái cây + thêm 1 rau hoặc đạm phụ
+                # Dùng MEAL_SLOT_ROLES để giữ đa dạng theo bữa nhưng đảm bảo đạm
                 slot_names = MEAL_SLOT_ROLES.get(meal, MEAL_SLOT_ROLES["lunch"])
                 slots = [
                     {
                         "name": slot_name,
                         "cats": SLOT_CATEGORY_RULES.get(slot_name, {"other"}),
-                        "required": slot_name != "extra",
+                        "required": True,  # tất cả required để đảm bảo đủ dinh dưỡng
                     }
                     for slot_name in slot_names
                 ]
             else:
-                # For 5+ items, create exactly requested_slots slots, all required
-                base_slots = [
-                    {"name": "starch", "cats": STARCH_CATEGORIES, "required": True},
-                    {"name": "protein", "cats": PROTEIN_CATEGORIES, "required": True},
-                    {"name": "vegetable", "cats": {"vegetable"}, "required": True},
-                ]
-                # Fill remaining slots with flexible categories
+                # 5+ món: tinh bột + đạm chính + rau + đạm phụ (dairy/plant/egg) + rau/trái cây
+                # Thêm protein slot thứ 2 thay vì "extra" thuần túy để đảm bảo protein target
+                if meal == "breakfast":
+                    base_slots = [
+                        {"name": "starch",          "cats": STARCH_CATEGORIES,                              "required": True},
+                        {"name": "protein",         "cats": PROTEIN_CATEGORIES,                             "required": True},
+                        {"name": "fruit_or_dairy",  "cats": {"fruit", "dairy"},                             "required": True},
+                        {"name": "protein_or_extra","cats": PROTEIN_CATEGORIES | EXTRA_CATEGORIES,          "required": True},
+                        {"name": "extra",           "cats": EXTRA_CATEGORIES | VEG_FRUIT_CATEGORIES,        "required": True},
+                    ]
+                else:
+                    base_slots = [
+                        {"name": "starch",          "cats": STARCH_CATEGORIES,                              "required": True},
+                        {"name": "protein",         "cats": PROTEIN_CATEGORIES,                             "required": True},
+                        {"name": "vegetable",       "cats": {"vegetable"},                                  "required": True},
+                        {"name": "protein_or_extra","cats": PROTEIN_CATEGORIES | EXTRA_CATEGORIES,          "required": True},
+                        {"name": "vegetable_or_fruit","cats": VEG_FRUIT_CATEGORIES | EXTRA_CATEGORIES,      "required": True},
+                    ]
+                # Nếu user cài > 5 món, thêm slot extra cho các món dư
                 remaining = requested_slots - len(base_slots)
-                for i in range(remaining):
-                    if i == 0:
-                        base_slots.append({"name": "fruit_or_extra", "cats": {"fruit"}.union(EXTRA_CATEGORIES), "required": True})
-                    else:
-                        base_slots.append({"name": "extra", "cats": EXTRA_CATEGORIES, "required": True})
+                for _ in range(remaining):
+                    base_slots.append({"name": "extra", "cats": EXTRA_CATEGORIES | VEG_FRUIT_CATEGORIES, "required": True})
                 slots = base_slots
             
             selected_rows = []

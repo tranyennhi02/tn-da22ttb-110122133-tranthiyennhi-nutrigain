@@ -46,9 +46,7 @@ export function clearAuthStorage() {
         key.startsWith("profile") ||
         key.startsWith("mealPlan") ||
         key.startsWith("weightSummary") ||
-        key.startsWith("nutritionProfile") ||
-        key.startsWith("nutrigain_gami_stats") ||
-        key.startsWith("nutrigain_goal_dialog_dismissed_")
+        key.startsWith("nutritionProfile")
       )) {
         keysToRemove.push(key);
       }

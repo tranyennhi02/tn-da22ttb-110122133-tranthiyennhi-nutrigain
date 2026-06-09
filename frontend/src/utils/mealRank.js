@@ -142,14 +142,25 @@ const STORAGE_KEY = "nutrigain_gami_stats";
 /**
  * Lấy key có scope theo email user hiện tại (nếu có).
  * Tránh nhiều tài khoản dùng chung điểm trên cùng trình duyệt.
+ * Email được cache riêng để không bị mất khi session hết hạn.
  */
 function getStorageKey() {
   try {
+    // Ưu tiên đọc từ session auth
     const raw = localStorage.getItem("nutrigain_auth");
     if (raw) {
       const session = JSON.parse(raw);
       const email = session?.email || session?.user?.email;
-      if (email) return `${STORAGE_KEY}_${email}`;
+      if (email) {
+        // Cache email riêng để dùng khi session hết hạn
+        localStorage.setItem("nutrigain_last_user_email", email);
+        return `${STORAGE_KEY}_${email}`;
+      }
+    }
+    // Fallback: dùng email đã cache từ lần đăng nhập trước
+    const cachedEmail = localStorage.getItem("nutrigain_last_user_email");
+    if (cachedEmail) {
+      return `${STORAGE_KEY}_${cachedEmail}`;
     }
   } catch { /* ignore */ }
   return STORAGE_KEY;
