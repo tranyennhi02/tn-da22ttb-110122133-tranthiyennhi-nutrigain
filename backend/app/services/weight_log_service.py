@@ -102,7 +102,7 @@ class WeightLogService:
     def save_log(self, db: Session, user: User, payload: WeightLogCreate) -> dict:
         weight_kg = float(payload.weight_kg)
         
-        # Chỉ kiểm tra range hợp lý, không validate tốc độ thay đổi
+        # Kiểm tra range hợp lý
         if weight_kg < 25 or weight_kg > 250:
             raise HTTPException(
                 status_code=422,
@@ -111,6 +111,34 @@ class WeightLogService:
                     "message": "Cân nặng này có vẻ chưa hợp lý. Vui lòng kiểm tra lại đơn vị kg và nhập lại."
                 }
             )
+        
+        # CRITICAL: Validate tốc độ thay đổi cân nặng
+        # Tìm log gần nhất trước ngày này
+        log_date = payload.log_date if payload.log_date else today_vn()
+        
+        previous_log = db.scalar(
+            select(WeightLog)
+            .where(
+                WeightLog.user_id == user.id,
+                WeightLog.log_date < log_date
+            )
+            .order_by(WeightLog.log_date.desc())
+            .limit(1)
+        )
+        
+        if previous_log:
+            days_diff = (log_date - previous_log.log_date).days
+            weight_diff = abs(weight_kg - float(previous_log.weight_kg))
+            
+            # Cho phép tối đa 2kg/ngày (rất khoan dung rồi)
+            if days_diff > 0 and weight_diff / days_diff > 2.0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "UNREALISTIC_WEIGHT_CHANGE",
+                        "message": f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Vui lòng kiểm tra lại."
+                    }
+                )
         
         return self.upsert_weight_log(db, user.id, weight_kg, payload.log_date, payload.note, source="quick_update")
 
@@ -368,6 +396,33 @@ class WeightLogService:
 
     def save_daily_log(self, db: Session, user: User, weight_kg: float, source: str = "weight_trend_update") -> dict:
         log_date = today_vn()
+        
+        # CRITICAL: Validate tốc độ thay đổi cân nặng
+        # Tìm log gần nhất trước hôm nay
+        previous_log = db.scalar(
+            select(WeightLog)
+            .where(
+                WeightLog.user_id == user.id,
+                WeightLog.log_date < log_date
+            )
+            .order_by(WeightLog.log_date.desc())
+            .limit(1)
+        )
+        
+        if previous_log:
+            days_diff = (log_date - previous_log.log_date).days
+            weight_diff = abs(weight_kg - float(previous_log.weight_kg))
+            
+            # Cho phép tối đa 2kg/ngày (rất khoan dung rồi)
+            if days_diff > 0 and weight_diff / days_diff > 2.0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "UNREALISTIC_WEIGHT_CHANGE",
+                        "message": f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Vui lòng kiểm tra lại."
+                    }
+                )
+        
         saved = self.upsert_weight_log(
             db,
             user_id=user.id,

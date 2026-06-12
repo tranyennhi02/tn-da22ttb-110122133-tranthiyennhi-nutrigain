@@ -963,6 +963,23 @@ INGREDIENT_ALIAS_GROUPS: dict[str, list[str]] = {
     "protein": ["thit", "protein"],
     "vegetables": ["rau", "rau cai", "rau cu", "vegetable", "vegetables"],
     "fruit": ["trai cay", "fruit"],
+    # ── Egg (trứng) – explicit group so "trung ga" maps here correctly ─────────
+    "egg": [
+        "trung", "egg", "trung ga", "trung ga chin", "trung luoc", "trung chien",
+        "trung cuon", "trung hap", "omelet", "omelette",
+    ],
+    # ── Chuối / Banana ────────────────────────────────────────────────────────
+    # Cho phép "chuối" match "chuối sứ", "chuối tiêu", "chuối già", "banana"
+    "banana": [
+        "chuoi", "chuoi su", "chuoi tieu", "chuoi gia", "chuoi mat", "chuoi cat",
+        "banana", "ripe banana", "fresh banana",
+    ],
+    # ── Sữa / Milk ────────────────────────────────────────────────────────────
+    # Cho phép "sữa" match "sữa tươi không đường", "sữa bò", "sữa tươi"
+    "milk": [
+        "sua", "sua tuoi", "sua bo", "sua nguyen chat", "sua tuoi khong duong",
+        "milk", "fresh milk", "cow milk", "whole milk", "sua nguyen kem",
+    ],
 }
 
 INGREDIENT_GROUP_ORDER = [
@@ -974,9 +991,12 @@ INGREDIENT_GROUP_ORDER = [
     "cua",
     "fish",
     "orange",
+    "egg",
     "protein",
     "vegetables",
     "fruit",
+    "banana",
+    "milk",
 ]
 
 INGREDIENT_GROUP_TO_MACRO: dict[str, str] = {
@@ -987,10 +1007,13 @@ INGREDIENT_GROUP_TO_MACRO: dict[str, str] = {
     "sausage": "protein",
     "cua": "protein",
     "fish": "protein",
+    "egg": "protein",
     "orange": "fruit",
     "protein": "protein",
     "vegetables": "vegetable",
     "fruit": "fruit",
+    "banana": "fruit",
+    "milk": "dairy",
 }
 
 INGREDIENT_GROUP_TO_PRIMARY_CATEGORY: dict[str, str] = {
@@ -1005,7 +1028,50 @@ INGREDIENT_GROUP_TO_PRIMARY_CATEGORY: dict[str, str] = {
     "protein": "protein_meat",
     "vegetables": "vegetable",
     "fruit": "fruit",
+    "banana": "fruit",
+    "milk": "dairy",
 }
+
+
+# ── Cooking-state suffixes appended to food names in the DB catalogue ──────────
+# e.g. "Ức gà (chín, ức, không xương)" → strip → "uc ga"
+_COOKING_STATE_TOKENS = frozenset({
+    # preparation states
+    "chin", "song", "luoc", "chien", "nuong", "hap", "xao",
+    "kho", "rang", "quay", "nau", "ap chao", "bam", "xay",
+    # bone / fat descriptors
+    "nac", "khong xuong", "khong da", "co xuong", "co da",
+    "it beo", "giam beo", "khong beo",
+    # cut / part names that are appended as qualifiers
+    "uc", "dui", "canh", "lung", "suon",
+    # packaging qualifiers
+    "dong lanh", "kho",
+})
+
+_COOKING_STATE_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(t) for t in sorted(_COOKING_STATE_TOKENS, key=len, reverse=True))
+    + r")\b"
+)
+
+
+def _strip_cooking_state_suffix(normalized: str) -> str:
+    """
+    Remove trailing cooking/preparation state tokens from a *already-normalized*
+    ingredient name so that look-ups against short stems work correctly.
+
+    Examples
+    --------
+    "uc ga chin uc"          → "uc ga"
+    "khoai lang chin luoc"   → "khoai lang"
+    "thit heo quay nac"      → "thit heo"
+    "ca hoi chin"            → "ca hoi"
+    "thit bo"                → "thit bo"  (no change)
+    """
+    cleaned = _COOKING_STATE_RE.sub(" ", normalized)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # Fall back to original if stripping removed everything
+    return cleaned if cleaned else normalized
 
 
 def _ingredient_alias_lookup() -> dict[str, str]:
@@ -1044,7 +1110,24 @@ def get_ingredient_group(raw_ingredient: object) -> str:
     if direct_group:
         return direct_group
 
-    return normalized
+    # Try again after stripping cooking-state suffixes (handles names like
+    # "uc ga chin uc", "thit heo quay nac", "khoai lang chin luoc", …)
+    stem = _strip_cooking_state_suffix(normalized)
+    if stem != normalized:
+        stem_group = INGREDIENT_ALIAS_LOOKUP.get(stem)
+        if stem_group:
+            return stem_group
+        # Try prefix tokens of the stem (≥2 tokens to avoid false matches like
+        # "ca" matching "ca rot" as fish)
+        tokens = stem.split()
+        for length in range(len(tokens) - 1, 1, -1):
+            prefix = " ".join(tokens[:length])
+            prefix_group = INGREDIENT_ALIAS_LOOKUP.get(prefix)
+            if prefix_group:
+                return prefix_group
+
+    # No group found — return the stem (shorter) so callers have a cleaner key
+    return stem if stem != normalized else normalized
 
 
 def is_specific_ingredient(raw_ingredient: object) -> bool:
@@ -1058,22 +1141,71 @@ def _ingredient_candidate_terms(raw_ingredient: object) -> list[str]:
     normalized = normalize_ingredient_name(raw_ingredient)
     if not normalized:
         return []
+    # Strip cooking-state suffixes so that "uc ga chin uc" → "uc ga" and finds
+    # the correct alias list below.  Fall back to original if stem is empty.
+    stem = _strip_cooking_state_suffix(normalized)
+
     extra_terms = {
         "trung": ["trung", "egg", "trung ga", "trung chinh", "trung chin", "trung luoc", "trung cuon", "trung chien", "trung hap", "omelet", "omelette", "scrambled egg", "fried egg", "boiled egg"],
         "egg": ["trung", "egg", "trung ga", "trung chinh", "trung chin", "trung luoc", "trung cuon", "trung chien", "trung hap", "omelet", "omelette", "scrambled egg", "fried egg", "boiled egg"],
+        # ── Bò (Beef) ─────────────────────────────────────────────────────────
+        "thit bo": ["thit bo", "bo", "beef", "thit boo", "steak", "bit tet", "bo kho", "bo nuong", "bo xao", "bo luoc", "thit bo chin", "thit bo chien", "thit bo nuong", "bo bap", "bap bo", "suon bo", "uc bo", "bo xay", "bo bam", "beefsteak"],
+        "bo": ["thit bo", "bo", "beef", "steak", "bit tet", "bo kho", "bo nuong", "bo xao", "bo luoc", "thit bo chin", "bo bap", "bap bo", "suon bo", "uc bo", "bo xay"],
+        "beef": ["thit bo", "bo", "beef", "steak", "bit tet", "bo kho", "bo nuong", "bo xao", "bo bap", "bap bo", "suon bo", "beefsteak"],
+        # ── Gà (Chicken) ──────────────────────────────────────────────────────
+        "thit ga": ["thit ga", "ga", "chicken", "uc ga", "duc ga", "ga nuong", "ga chien", "ga luoc", "ga xao", "ga kho", "ga hap", "thit ga chin", "thit ga chien", "thit ga nuong", "ga ta", "ga cong nghiep", "ga mo"],
+        "ga": ["thit ga", "ga", "chicken", "uc ga", "duc ga", "ga nuong", "ga chien", "ga luoc", "ga xao", "ga kho", "ga hap", "thit ga chin"],
+        "chicken": ["thit ga", "ga", "chicken", "uc ga", "duc ga", "ga nuong", "ga chien", "ga luoc"],
+        "uc ga": ["thit ga", "ga", "chicken", "uc ga", "duc ga", "ga nuong", "ga chien"],
+        # ── Heo / Lợn (Pork) ──────────────────────────────────────────────────
+        "thit lon": ["thit lon", "thit heo", "lon", "heo", "pork", "suon lon", "suon heo", "ba roi", "thit heo chin", "thit lon chin", "thit heo chien", "thit heo nuong", "thit heo luoc", "thit heo kho", "thit heo xao"],
+        "thit heo": ["thit lon", "thit heo", "lon", "heo", "pork", "suon lon", "suon heo", "ba roi", "thit heo chin", "thit lon chin", "thit heo chien", "thit heo nuong"],
+        "lon": ["thit lon", "thit heo", "lon", "heo", "pork", "suon lon", "suon heo", "thit heo chin"],
+        "heo": ["thit lon", "thit heo", "lon", "heo", "pork", "suon lon", "suon heo", "thit heo chin"],
+        "pork": ["thit lon", "thit heo", "lon", "heo", "pork", "suon lon", "suon heo"],
+        "suon": ["suon lon", "suon heo", "suon bo", "thit lon", "thit heo", "pork", "ribs"],
+        "ba roi": ["ba roi", "thit lon", "thit heo", "pork belly", "pork"],
+        # ── Cừu / Dê ──────────────────────────────────────────────────────────
         "thit cuu": ["thit cuu", "cuu", "lamb"],
         "cuu": ["thit cuu", "cuu", "lamb"],
         "lamb": ["thit cuu", "cuu", "lamb"],
+        # ── Hải sản ────────────────────────────────────────────────────────────
         "xuc xich": ["xuc xich", "sausage", "sausages", "frankfurter", "hot dog", "hotdog", "kielbasa", "bratwurst", "wiener", "chorizo", "salami", "pepperoni"],
         "sausage": ["xuc xich", "sausage", "sausages", "frankfurter", "hot dog", "hotdog", "kielbasa", "bratwurst", "wiener", "chorizo", "salami", "pepperoni"],
         "cua": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe", "stone crab", "blue crab"],
         "crab": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe", "stone crab", "blue crab"],
         "thit cua": ["cua", "crab", "thit cua", "cua bien", "cua dong", "ghe"],
+        # ── Cá / Tôm ──────────────────────────────────────────────────────────
         "tao": ["nuoc tao", "banh tao", "banh strudel tao", "banh sung bo tao"],
         "ca": ["ca hoi", "ca ngu", "ca thu", "ca trang", "ca bong", "ca loc"],
         "tom": ["shrimp", "prawn"],
+        # ── Chuối / Banana ────────────────────────────────────────────────────
+        # "bò" → "thịt bò", "gà" → "ức gà", "chuối" → "chuối sứ", "sữa" → "sữa tươi"
+        "chuoi": ["chuoi", "chuoi su", "chuoi tieu", "chuoi gia", "chuoi mat", "chuoi cat", "banana", "chuoi xanh", "chuoi chin"],
+        "banana": ["chuoi", "chuoi su", "chuoi tieu", "chuoi gia", "chuoi mat", "banana", "ripe banana"],
+        # ── Sữa / Milk ────────────────────────────────────────────────────────
+        # Chỉ match sữa tươi / sữa bò, KHÔNG match sữa chua (yogurt) hay đậu hũ
+        "sua": ["sua tuoi", "sua bo", "sua nguyen chat", "sua tuoi khong duong", "milk", "fresh milk", "cow milk", "whole milk", "sua nguyen kem", "sua"],
+        "sua tuoi": ["sua tuoi", "sua bo", "sua nguyen chat", "sua tuoi khong duong", "milk", "fresh milk", "cow milk", "whole milk"],
+        "milk": ["sua tuoi", "sua bo", "sua nguyen chat", "milk", "fresh milk", "cow milk", "whole milk", "sua"],
     }
-    terms = extra_terms.get(normalized, [normalized])
+    # Lookup: try exact normalized key first, then stem (without cooking suffixes),
+    # then progressively shorter prefix tokens of the stem.
+    terms = extra_terms.get(normalized)
+    if terms is None and stem != normalized:
+        terms = extra_terms.get(stem)
+    if terms is None and stem:
+        # Try prefix tokens: "uc ga chin uc" → stem "uc ga" → try "uc ga", then "uc"
+        # Only try prefixes with ≥2 tokens to avoid false matches (e.g. "ca" matching
+        # "ca rot" as fish because "ca" is a fish alias).
+        tokens = stem.split()
+        for length in range(len(tokens), 1, -1):
+            prefix = " ".join(tokens[:length])
+            if prefix in extra_terms:
+                terms = extra_terms[prefix]
+                break
+    if terms is None:
+        terms = [stem]
     seen: set[str] = set()
     result: list[str] = []
     for term in terms:
@@ -1248,8 +1380,9 @@ def is_primary_meat_name(food: object, ingredient: object) -> bool:
         return any(token in text for token in ("thit ga", "uc ga", "dui ga", "canh ga", "lung ga", "chicken", "ga"))
 
     if any(token in ingredient_key for token in ("thit bo", "bo", "beef")):
-        # Check for beef-related terms, but exclude "ca bo" (avocado) and "bo" (butter)
-        if any(negative in text for negative in ("ca bo", "avocado", "butter")):
+        # Check for beef-related terms, but exclude "ca bo" (avocado), "bo" (butter),
+        # "cuon bo" (peanut butter roll), and "bo dau phong" (peanut butter)
+        if any(negative in text for negative in ("ca bo", "avocado", "butter", "cuon bo", "bo dau phong", "bơ đậu phộng", "bơ lạt", "bơ mặn", "bơ thực vật")):
             return False
         return any(token in text for token in ("thit bo", "bo bap", "bap bo", "bit tet", "suon bo", "uc bo", "bo xay", "bo bam", "bo nuong", "bo xao", "beef"))
 
@@ -1768,22 +1901,35 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
         if specific_ingredient and not alias_hit:
             return 0.0
 
-        # Debug log for beef
+        # Debug log for beef — chỉ log khi alias_hit=True để tránh noise
         if ingredient_group == "beef":
-            print("[INGREDIENT MATCH QUALITY DEBUG - BEEF]", {
-                "ingredient": ingredient_key,
-                "ingredientGroup": ingredient_group,
-                "food": name,
-                "aliases": aliases,
-                "matchedAlias": matched_alias,
-                "aliasHit": alias_hit,
-                "coreMatch": core_match,
-                "haystack": haystack[:200],
-            }, flush=True)
+            # Early negative check: block foods that are clearly not beef
+            # (peanut butter rolls, spreads, etc. contain "bo" but are not beef)
+            _food_name_check = normalize_ingredient_name(name)
+            _beef_negatives = ("cuon bo", "bo dau phong", "bơ đậu phộng", "bo thuc vat", "bơ thực vật",
+                               "ca bo", "avocado", "butter")
+            if any(neg in _food_name_check for neg in _beef_negatives):
+                logger.debug(
+                    "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=0.0 reason=beef_negative_term",
+                    ingredient_key, name,
+                )
+                return 0.0
+            # Chỉ log khi DEBUG_RECOMMENDER bật hoặc khi có alias_hit
+            if _debug_recommender_enabled():
+                _debug_print("[INGREDIENT MATCH QUALITY DEBUG - BEEF]", {
+                    "ingredient": ingredient_key,
+                    "ingredientGroup": ingredient_group,
+                    "food": name,
+                    "aliases": aliases,
+                    "matchedAlias": matched_alias,
+                    "aliasHit": alias_hit,
+                    "coreMatch": core_match,
+                    "haystack": haystack[:200],
+                })
 
-        # Debug log for lamb
-        if ingredient_group == "lamb":
-            print("[INGREDIENT MATCH QUALITY DEBUG - LAMB]", {
+        # Debug log for lamb — chỉ log khi DEBUG_RECOMMENDER bật
+        if ingredient_group == "lamb" and _debug_recommender_enabled():
+            _debug_print("[INGREDIENT MATCH QUALITY DEBUG - LAMB]", {
                 "ingredient": ingredient_key,
                 "ingredientGroup": ingredient_group,
                 "food": name,
@@ -1792,15 +1938,52 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
                 "aliasHit": alias_hit,
                 "coreMatch": core_match,
                 "haystack": haystack[:200],
-            }, flush=True)
+            })
 
         if not alias_hit:
+            logger.debug(
+                "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=0.0 reason=no_alias_hit aliases=%s",
+                ingredient_key, name, aliases[:5],
+            )
             return 0.0
 
         normalized_haystack = normalize_ingredient_name(haystack)
-        if ingredient_group in {"milk_dairy", "milk", "dairy"}:
+        if ingredient_group in {"milk_dairy", "milk_dairy_group", "dairy"}:
             if any(term in normalized_haystack for term in ("sua chua", "yogurt", "yoghurt", "yaourt", "dau hu", "dau phu", "tofu", "tau hu")):
                 return 0.0
+        elif ingredient_group == "milk":
+            # Sữa tươi / milk: chỉ accept sữa tươi/bò, block sữa chua/đậu hũ
+            if any(term in normalized_haystack for term in ("sua chua", "yogurt", "yoghurt", "yaourt", "dau hu", "dau phu", "tofu", "tau hu", "dau nanh")):
+                logger.debug(
+                    "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=0.0 reason=blocked_by_yogurt_or_tofu",
+                    ingredient_key, name,
+                )
+                return 0.0
+            # Phải có ít nhất một trong các term sữa tươi
+            milk_positive = ("sua tuoi", "sua bo", "milk", "fresh milk", "cow milk", "whole milk", "sua nguyen", "sua")
+            if not any(term in normalized_haystack for term in milk_positive):
+                return 0.0
+            # Nếu pass: quality dựa trên mức độ cụ thể
+            if any(term in normalized_haystack for term in ("sua tuoi", "sua bo", "fresh milk", "cow milk", "whole milk", "sua nguyen")):
+                quality = 3.0 if core_match else 2.0
+            else:
+                quality = 2.0 if core_match else 1.0
+            logger.debug(
+                "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=%.1f reason=milk_match",
+                ingredient_key, name, quality,
+            )
+            return quality
+        elif ingredient_group == "banana":
+            # Chuối: chỉ accept chuối, không accept thứ khác có "chuoi" substring không liên quan
+            banana_positive = ("chuoi", "banana")
+            if not any(term in normalized_haystack for term in banana_positive):
+                return 0.0
+            quality = 3.0 if core_match else 2.0
+            logger.debug(
+                "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=%.1f reason=banana_match",
+                ingredient_key, name, quality,
+            )
+            return quality
         elif ingredient_group == "yogurt":
             if not any(term in normalized_haystack for term in ("sua chua", "yogurt", "yoghurt", "yaourt")):
                 return 0.0
@@ -1974,7 +2157,12 @@ def ingredient_match_quality(food: object, ingredient: object) -> float:
         if expected_group == "fruit" and candidate_category == "fruit" and core_match:
             return 3.0
 
-        return 2.0 if core_match else 1.0
+        final_quality = 2.0 if core_match else 1.0
+        logger.debug(
+            "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=%.1f group=%s expected_group=%s core_match=%s alias=%s",
+            ingredient_key, name, final_quality, ingredient_group, expected_group, core_match, matched_alias,
+        )
+        return final_quality
     except Exception:
         return 0.0
 
@@ -2697,6 +2885,10 @@ def find_best_candidate_for_required_ingredient(
             q = ingredient_match_quality(candidate, ingredient_key)
             if q <= 0:
                 continue
+            logger.debug(
+                "[INGREDIENT MATCH] ingredient=%s candidate=%s quality=%.1f",
+                ingredient_key, safe_name(candidate), q,
+            )
             candidate_food_id = safe_text(safe_get(candidate, "food_id", ""))
             candidate_name = normalize_text_vi(safe_name(candidate))
             if candidate_food_id and candidate_food_id in current_food_ids:
@@ -2897,6 +3089,43 @@ def find_best_replacement_slot(
                     "is_sole_cover": old_item_is_sole_cover,
                 }
 
+    if best_slot is not None:
+        return best_slot
+
+    # ── FALLBACK PASS: relax sole-cover guard to always find a slot ───────────
+    # If no slot was found (all candidates were sole-covers of other ingredients),
+    # do a second pass that accepts sole-cover slots too — user's required ingredient
+    # MUST get into the plan even at the cost of displacing another covered ingredient.
+    for meal_type, meal_df in plan.items():
+        if not isinstance(meal_df, pd.DataFrame) or meal_df.empty:
+            continue
+        for row_index, row in meal_df.iterrows():
+            old_food_id = safe_text(safe_get(row, "food_id", ""))
+            old_name = normalize_text_vi(safe_name(row))
+            if candidate_food_id and old_food_id == candidate_food_id:
+                continue
+            if candidate_name and old_name == candidate_name:
+                continue
+            # In the fallback pass, allow replacing sole-cover items too
+            old_macro = macro_group(safe_category(row) or safe_food_group(row))
+            macro_match = 1 if old_macro == candidate_macro and candidate_macro else 0
+            kcal_delta = abs(safe_calories(row) - candidate_kcal)
+            slot_score = (2.0 if macro_match else 0.0) - (kcal_delta / 100.0)
+            if best_slot is None or slot_score > best_score:
+                best_score = slot_score
+                best_slot = {
+                    "meal_type": str(meal_type),
+                    "row_index": row_index,
+                    "old_item": row,
+                    "old_macro": old_macro,
+                    "kcal_delta": kcal_delta,
+                    "is_duplicate": False,
+                    "is_sole_cover": True,
+                }
+                break  # Take the first acceptable slot in fallback mode
+        if best_slot is not None:
+            break
+
     return best_slot
 
 
@@ -2990,10 +3219,27 @@ def apply_required_ingredient_slots(
             "missing": missing,
         }, flush=True)
 
+        for ingredient in missing:
+            logger.info(
+                "[MISSING INGREDIENT] ingredient=%s total_missing=%d",
+                ingredient, len(missing),
+            )
+
         current_plan = plan
         for ingredient in missing:
             current_plan_items = flatten_plan_items(current_plan)
             has_strong_candidate = False
+            # Pre-scan fallback_source (full pool) to determine if a strong candidate exists
+            # This must happen before find_best_candidate_for_required_ingredient so the
+            # "weak candidate despite strong candidates" guard works correctly.
+            _prescan_source = ranked_full_source if ranked_full_source is not None else candidate_pool
+            for _pre in _iter_candidate_items(_prescan_source):
+                try:
+                    if ingredient_match_quality(_pre, ingredient) >= 2.0:
+                        has_strong_candidate = True
+                        break
+                except Exception:
+                    pass
             # Always debug for cua ingredient
             if _is_cua_ingredient(ingredient):
                 cua_debug: list[dict] = []
@@ -3010,6 +3256,27 @@ def apply_required_ingredient_slots(
                     "poolSize": len(list(_iter_candidate_items(candidate_pool))),
                     "qualityAboveZero": len(cua_debug),
                     "top10": cua_debug[:10],
+                }, flush=True)
+
+            # Always log candidate scan for pork/beef/chicken/lamb (meat ingredients)
+            _ing_group_debug = get_ingredient_group(normalize_ingredient_name(ingredient))
+            if _ing_group_debug in {"pork", "beef", "chicken", "lamb"}:
+                _meat_debug: list[dict] = []
+                for _dc in _iter_candidate_items(_prescan_source):
+                    try:
+                        _dq = ingredient_match_quality(_dc, ingredient)
+                        if _dq > 0:
+                            _meat_debug.append({"name": safe_name(_dc), "quality": _dq, "category": safe_category(_dc)})
+                    except Exception:
+                        pass
+                _meat_debug.sort(key=lambda x: x["quality"], reverse=True)
+                print("[MEAT CANDIDATE SCAN]", {
+                    "ingredient": ingredient,
+                    "ingredientGroup": _ing_group_debug,
+                    "has_strong_candidate": has_strong_candidate,
+                    "poolSize": len(list(_iter_candidate_items(_prescan_source))),
+                    "qualityAboveZero": len(_meat_debug),
+                    "top10": _meat_debug[:10],
                 }, flush=True)
             if _debug_recommender_enabled():
                 debug_candidates: list[dict[str, object]] = []
@@ -3038,7 +3305,7 @@ def apply_required_ingredient_slots(
             
             candidate = find_best_candidate_for_required_ingredient(
                 ingredient,
-                candidate_pool,
+                fallback_source,  # Use full source so required ingredients always find a candidate
                 current_plan_items=current_plan_items,
                 target_item_kcal=target_kcal / max(1, total_slots) if target_kcal else None,
                 fallback_full_source=fallback_source,
@@ -3081,11 +3348,28 @@ def apply_required_ingredient_slots(
                 normalized_ingredients,
             )
             if not slot:
+                # Log tại sao không tìm được slot — in ra plan items và lý do từng item bị skip
+                _slot_debug: list[dict] = []
+                for _mt, _mdf in current_plan.items():
+                    if not isinstance(_mdf, pd.DataFrame) or _mdf.empty:
+                        continue
+                    for _ri, _row in _mdf.iterrows():
+                        _covers_other = item_covers_any_required_ingredient(
+                            _row, normalized_ingredients, exclude_ingredient=ingredient
+                        )
+                        _slot_debug.append({
+                            "meal": str(_mt),
+                            "item": safe_name(_row),
+                            "macro": macro_group(safe_category(_row) or safe_food_group(_row)),
+                            "covers_other_required": _covers_other,
+                        })
                 print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
                     "ingredient": ingredient,
                     "candidate": safe_name(candidate),
+                    "candidateQuality": candidate_quality,
                     "reason": "no_safe_slot",
                     "action": "keep_plan",
+                    "planItemsDebug": _slot_debug,
                 }, flush=True)
                 continue
 
@@ -3116,42 +3400,71 @@ def apply_required_ingredient_slots(
                     "reason": "replace_duplicate_to_cover_missing",
                 }, flush=True)
 
-            new_plan = _replace_plan_item(current_plan, str(slot["meal_type"]), int(slot["row_index"]), candidate)
-            candidate_kcal_delta = abs(safe_calories(candidate) - safe_calories(slot["old_item"]))
-            # Skip kcal_delta check when candidate has no calorie data (0.0) — let nutrition_delta_is_safe decide
-            if safe_calories(candidate) > 0 and candidate_kcal_delta > MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA:
-                print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
-                    "ingredient": ingredient,
-                    "reason": "nutrition_delta_too_large",
-                    "kcal_delta": round(candidate_kcal_delta, 1),
-                    "max_allowed": MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA,
-                    "candidate_kcal": round(safe_calories(candidate), 1),
-                    "candidate_protein": round(safe_protein(candidate), 1),
-                    "candidate": safe_name(candidate),
-                    "action": "keep_plan",
-                }, flush=True)
-                continue
+            old_item_kcal = safe_calories(slot["old_item"])
+            scaled_candidate = (
+                _scale_row_to_target_kcal(candidate, old_item_kcal)
+                if old_item_kcal > 0
+                else candidate
+            )
+            new_plan = _replace_plan_item(
+                current_plan,
+                str(slot["meal_type"]),
+                int(slot["row_index"]),
+                scaled_candidate,
+            )
+            candidate_kcal_delta = abs(safe_calories(scaled_candidate) - old_item_kcal)
 
-            if nutrition_delta_is_safe(current_plan, new_plan, target_kcal):
+            # ── FORCE-INJECT: User-required ingredients MUST appear in the plan ──────
+            # Bypass all kcal-delta guards when the candidate covers the missing ingredient.
+            # The user explicitly requested this ingredient, so we must honour the request
+            # even if it causes a small caloric deviation.
+            _candidate_covers_missing = ingredient_is_covered_by_food(scaled_candidate, ingredient)
+            if _candidate_covers_missing:
+                # Always perform the replacement — ignore kcal_delta and nutrition_delta guards.
                 current_plan = new_plan
                 covered = get_covered_ingredients(flatten_plan_items(current_plan), normalized_ingredients)
-                # Always log replacement (not just when DEBUG_RECOMMENDER is enabled)
-                print("[REQUIRED INGREDIENT SLOT REPLACED]", {
+                print("[REQUIRED INGREDIENT FORCE-INJECTED]", {
                     "ingredient": ingredient,
                     "meal": slot["meal_type"],
                     "old_item": safe_name(slot["old_item"]),
-                    "new_item": safe_name(candidate),
+                    "new_item": safe_name(scaled_candidate),
                     "kcal_delta": round(candidate_kcal_delta, 1),
+                    "reason": "force_inject_user_required",
                 }, flush=True)
             else:
-                print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
-                    "ingredient": ingredient,
-                    "reason": "nutrition_delta_too_large",
-                    "candidate": safe_name(candidate),
-                    "candidate_kcal": round(safe_calories(candidate), 1),
-                    "candidate_protein": round(safe_protein(candidate), 1),
-                    "action": "keep_plan",
-                }, flush=True)
+                # Candidate does NOT cover the target ingredient (shouldn't happen, but guard it)
+                # Fall back to the old soft guards.
+                if safe_calories(scaled_candidate) > 0 and candidate_kcal_delta > MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA:
+                    print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
+                        "ingredient": ingredient,
+                        "reason": "nutrition_delta_too_large",
+                        "kcal_delta": round(candidate_kcal_delta, 1),
+                        "max_allowed": MAX_INGREDIENT_REPLACEMENT_KCAL_DELTA,
+                        "candidate_kcal": round(safe_calories(scaled_candidate), 1),
+                        "candidate": safe_name(scaled_candidate),
+                        "action": "keep_plan",
+                    }, flush=True)
+                    continue
+
+                if nutrition_delta_is_safe(current_plan, new_plan, target_kcal):
+                    current_plan = new_plan
+                    covered = get_covered_ingredients(flatten_plan_items(current_plan), normalized_ingredients)
+                    print("[REQUIRED INGREDIENT SLOT REPLACED]", {
+                        "ingredient": ingredient,
+                        "meal": slot["meal_type"],
+                        "old_item": safe_name(slot["old_item"]),
+                        "new_item": safe_name(scaled_candidate),
+                        "kcal_delta": round(candidate_kcal_delta, 1),
+                    }, flush=True)
+                else:
+                    print("[REQUIRED INGREDIENT SLOT SKIPPED]", {
+                        "ingredient": ingredient,
+                        "reason": "nutrition_delta_too_large",
+                        "candidate": safe_name(candidate),
+                        "candidate_kcal": round(safe_calories(candidate), 1),
+                        "action": "keep_plan",
+                    }, flush=True)
+
 
         final_covered = sorted(get_covered_ingredients(flatten_plan_items(current_plan), normalized_ingredients))
         final_missing = [ingredient for ingredient in normalized_ingredients if ingredient not in final_covered]
@@ -3212,6 +3525,19 @@ def apply_required_ingredient_slots(
             "itemCoverageLabels": final_items_with_coverage,
             "duplicateIngredientItems": duplicate_ingredient_items,
         }, flush=True)
+
+        # Structured coverage success/failure logging
+        for ingredient in normalized_ingredients:
+            if ingredient in final_covered:
+                logger.info(
+                    "[COVERAGE SUCCESS] ingredient=%s covered_by_plan=True",
+                    ingredient,
+                )
+            else:
+                logger.warning(
+                    "[COVERAGE FAILED] ingredient=%s covered_by_plan=False reason=check_logs",
+                    ingredient,
+                )
         
         # Special logging for orange coverage failure
         if "Cam" in final_missing or any(normalize_ingredient_name(ing) in {"cam", "qua cam"} for ing in final_missing):
@@ -3963,30 +4289,141 @@ def _serving_limits(category: object, name: object = "") -> tuple[float | None, 
     if "oil" in text or "olive" in text or "spread" in text or "butter" in text or "margarine" in text or "bo thuc vat" in text or "dau olive" in text:
         return 5.0, 20.0
     if "vegetable" in text or "rau" in text:
-        return 80.0, 250.0
+        return 80.0, 350.0
     if "dessert_sweets" in text or "sweet_spread" in text or "dessert" in text or "banh ngot" in text or "kem " in f"{text} ":
-        return 50.0, 120.0
+        return 50.0, 150.0
     if "fruit" in text or "trai cay" in text or "chuoi" in text or "banana" in text or "apple" in text or "tao" in text:
-        return 80.0, 200.0
+        return 80.0, 350.0
     if "yogurt" in text or "sua chua" in text:
-        return 100.0, 200.0
-    if "milk" in text or "sua" in text or "dairy" in text:
-        return 180.0, 300.0
-    if "plant_protein" in text or "protein_plant" in text or "tofu" in text or "dau hu" in text or "dau phu" in text:
-        return 80.0, 220.0
-    if "starch_grain" in text or "grain" in text or "rice" in text or "com" in text or "oat" in text:
-        return 100.0, 250.0
-    if "starch_tuber" in text or "potato" in text or "khoai" in text:
         return 100.0, 300.0
+    if "milk" in text or "sua" in text or "dairy" in text:
+        return 180.0, 500.0
+    if "plant_protein" in text or "protein_plant" in text or "tofu" in text or "dau hu" in text or "dau phu" in text:
+        return 80.0, 350.0
+    if "starch_grain" in text or "grain" in text or "rice" in text or "com" in text or "oat" in text:
+        return 100.0, 450.0
+    if "starch_tuber" in text or "potato" in text or "khoai" in text:
+        return 100.0, 450.0
     if "protein_meat" in text or "meat" in text or "chicken" in text or "thit" in text:
-        return 70.0, 160.0
+        return 70.0, 300.0
     if "protein_seafood" in text or "seafood" in text or "fish" in text or " ca " in f" {text} ":
-        return 70.0, 160.0
+        return 70.0, 300.0
     if "egg" in text or "trung" in text:
-        return 50.0, 120.0
+        return 50.0, 200.0
     if "healthy_fat_nuts" in text or "fats_good" in text or "healthy_fat" in text or "nuts" in text or "hat" in text:
-        return 10.0, 40.0
+        return 10.0, 100.0
     return None, None
+
+
+def _scale_row_to_target_kcal(row: object, target_kcal: float, max_multiplier: float = 8.0) -> object:
+    """Scale a candidate row (Series/dict) so calories_raw is approximately target_kcal."""
+    if target_kcal <= 0:
+        return row
+
+    is_series = isinstance(row, pd.Series)
+    data = row.to_dict() if is_series else dict(row)
+
+    current_kcal = safe_calories(data)
+    if current_kcal <= 0:
+        kcal100 = float(safe_get(data, "kcal_per_100g_clean", 0) or 0)
+        bsg = float(
+            safe_get(data, "base_serving_grams", 0)
+            or safe_get(data, "serving_grams", 0)
+            or safe_get(data, "quantity_g", 0)
+            or 100.0
+        )
+        if kcal100 > 0:
+            current_kcal = kcal100 * bsg / 100.0
+
+    if current_kcal <= 0:
+        return row
+
+    multiplier = float(np.clip(target_kcal / current_kcal, 0.15, max_multiplier))
+    for col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
+        val = safe_get(data, col, None)
+        if val is not None:
+            data[col] = float(val or 0) * multiplier
+
+    bsg = float(
+        safe_get(data, "base_serving_grams", 0)
+        or safe_get(data, "serving_grams", 0)
+        or safe_get(data, "quantity_g", 0)
+        or 100.0
+    )
+    pg = multiplier * bsg
+    mn, mx = _serving_limits(safe_get(data, "clean_category", ""), safe_name(data))
+    if mx is not None:
+        pg = float(np.clip(pg, mn or 0.0, mx * 2.0))
+        multiplier = pg / bsg if bsg > 0 else multiplier
+        kcal100 = float(safe_get(data, "kcal_per_100g_clean", 0) or 0)
+        if kcal100 > 0:
+            data["calories_raw"] = kcal100 * pg / 100.0
+            for col, per_col in (
+                ("protein_raw", "protein_per_100g_clean"),
+                ("fat_raw", "fat_per_100g_clean"),
+                ("carbs_raw", "carbs_per_100g_clean"),
+            ):
+                per = float(safe_get(data, per_col, 0) or 0)
+                if per > 0:
+                    data[col] = per * pg / 100.0
+        else:
+            data["calories_raw"] = current_kcal * multiplier
+
+    data["serving_grams"] = round(pg, 0)
+    data["serving_multiplier"] = multiplier
+
+    if is_series:
+        return pd.Series(data)
+    return data
+
+
+def _scale_item_dict_to_target_kcal(item: dict, target_kcal: float) -> dict:
+    """Scale a meal-plan item dict (API payload format) to approximately target_kcal."""
+    if target_kcal <= 0:
+        return item
+
+    scaled = dict(item)
+    current_kcal = float(scaled.get("calories") or scaled.get("kcal") or 0.0)
+    if current_kcal <= 0:
+        return scaled
+
+    multiplier = float(np.clip(target_kcal / current_kcal, 0.15, 8.0))
+    quantity_g = float(scaled.get("serving_grams") or scaled.get("quantity_g") or 100.0)
+    new_q = quantity_g * multiplier
+    mn, mx = _serving_limits(scaled.get("category", ""), scaled.get("name", ""))
+    if mx is not None:
+        new_q = float(np.clip(new_q, mn or 0.0, mx * 2.0))
+        multiplier = new_q / quantity_g if quantity_g > 0 else multiplier
+
+    scaled["serving_grams"] = round(new_q, 0)
+    scaled["quantity_g"] = scaled["serving_grams"]
+    for field in ("calories", "kcal", "protein", "fat", "carbs"):
+        scaled[field] = float(scaled.get(field) or 0.0) * multiplier
+    return scaled
+
+
+def _rescale_meals_core_to_targets(meals: list[dict]) -> None:
+    """Proportionally scale core items in each meal to approach target_kcal (in-place)."""
+    for meal in meals:
+        if not isinstance(meal, dict):
+            continue
+        target = float(meal.get("target_kcal") or 0.0)
+        if target <= 0:
+            continue
+        items = meal.get("items") or []
+        core_items = [item for item in items if isinstance(item, dict) and item.get("is_core", True)]
+        if not core_items:
+            continue
+        current = sum(float(item.get("calories") or item.get("kcal") or 0.0) for item in core_items)
+        if current <= 0 or current >= target * 0.92:
+            continue
+        scale = min(target / current, 3.0)
+        for item in core_items:
+            old_kcal = float(item.get("calories") or item.get("kcal") or 0.0)
+            if old_kcal <= 0:
+                continue
+            new_item = _scale_item_dict_to_target_kcal(item, old_kcal * scale)
+            item.update(new_item)
 
 
 from app.core.config import settings
@@ -5748,6 +6185,9 @@ class RecommenderService:
         for meal, requested_slots in meal_structure.items():
             meal_ratio = _raw_ratios[meal] / ratio_sum
             meal_target_kcal = target_calories * meal_ratio
+            
+            remaining_meal_kcal = meal_target_kcal
+            remaining_slots = requested_slots
 
             # ── Slot definitions cho 3 / 4 / 5 món ──────────────────────────
             # Nguyên tắc: mỗi bữa đều phải có 1 slot starch + 1 slot protein.
@@ -6078,7 +6518,7 @@ class RecommenderService:
                 # để tránh tình huống không thể đạt target dù scale tối đa (8×).
                 # Ngưỡng: kcal_raw tối thiểu = slot_target_kcal / 8.0
                 # ──────────────────────────────────────────────────────────────
-                _slot_target_preview = meal_target_kcal / max(1, requested_slots)
+                _slot_target_preview = remaining_meal_kcal / max(1, remaining_slots)
                 _min_kcal_raw = _slot_target_preview / 8.0  # tương ứng multiplier tối đa
                 if _min_kcal_raw > 5.0 and len(sorted_pool) > 1:
                     _high_kcal_pool = sorted_pool[
@@ -6134,8 +6574,8 @@ class RecommenderService:
                     meal_priority_ingredient_count[meal] = meal_priority_ingredient_count.get(meal, 0) + 1
                 # ──────────────────────────────────────────────────────────────
                 
-                # Scale mỗi item theo 1/requested_slots để tổng requested_slots món ≈ meal_target_kcal
-                slot_target_kcal = meal_target_kcal / max(1, requested_slots)
+                # Scale mỗi item động dựa trên kcal còn lại để bù trừ nếu món trước quá ít kcal
+                slot_target_kcal = remaining_meal_kcal / max(1, remaining_slots)
                 base_calories = max(float(best_row.get("calories_raw", 1.0) or 1.0), 1.0)
                 serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                 for nutrient_col in ("calories_raw", "protein_raw", "fat_raw", "carbs_raw"):
@@ -6162,6 +6602,12 @@ class RecommenderService:
                 best_row["culinary_role"] = slot_name
                 
                 selected_rows.append(best_row)
+                
+                # --- Update dynamic kcal allocation ---
+                actual_cal = float(best_row.get("calories_raw", 0.0) or 0.0)
+                remaining_meal_kcal = max(0.0, remaining_meal_kcal - actual_cal)
+                remaining_slots -= 1
+                
                 current_day_protein += float(best_row.get("protein_raw", 0.0) or 0.0)
                 seen_food_ids.add(best_row["food_id"])
                 seen_food_names.add(_row_name_key(best_row))
@@ -6486,7 +6932,10 @@ class RecommenderService:
                             
                 if found_fb is not None:
                     scaled_row = found_fb.copy()
-                    slot_target_kcal = meal_target_kcal / max(1, requested_slots)
+                    _cur_kcal = sum(float(r.get("calories_raw", 0)) for r in selected_rows)
+                    _rem_kcal = max(0.0, meal_target_kcal - _cur_kcal)
+                    _rem_slots = max(1, requested_slots - len(selected_rows))
+                    slot_target_kcal = _rem_kcal / _rem_slots
                     base_calories = max(float(scaled_row.get("calories_raw", scaled_row.get("calories", 1.0)) or 1.0), 1.0)
                     serving_multiplier = float(np.clip(slot_target_kcal / base_calories, 0.15, 8.0))
                     
@@ -6564,9 +7013,13 @@ class RecommenderService:
             # so their individual portions look realistic but their combined
             # kcal does NOT compete with — or inflate — the core total.
             # ──────────────────────────────────────────────────────────────────
-            # Core items were already scaled to: meal_target_kcal / requested_slots
+            # Core items were already scaled to: remaining_meal_kcal / remaining_slots
             # Optional items are scaled to a proportionally smaller portion:
-            _fill_slot_target = meal_target_kcal / max(1, SUGGESTIONS_PER_MEAL)
+            _core_kcal = sum(float(r.get("calories_raw", 0)) for r in selected_rows)
+            _shortfall = max(0.0, meal_target_kcal - _core_kcal)
+            _fill_slots_count = max(1, SUGGESTIONS_PER_MEAL - len(selected_rows))
+            # Optional items get a baseline plus a share of the shortfall so they can make up the difference if chosen
+            _fill_slot_target = (meal_target_kcal / max(1, SUGGESTIONS_PER_MEAL)) + (_shortfall / _fill_slots_count)
             _fill_min_kcal    = _fill_slot_target / 8.0
 
             def _scale_fill_row(raw_row: pd.Series) -> pd.Series:
@@ -6800,12 +7253,25 @@ class RecommenderService:
                     # Fallback: dùng calories_raw gốc (chưa scale)
                     _base_kcal = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
                 _m = float(np.clip(_slot_tgt / max(_base_kcal, 1.0), 0.15, 8.0))
-                # Set calories_raw = slot_tgt (không clamp — đây là target validation)
-                _r["calories_raw"] = _slot_tgt
-                # Tính serving_grams từ multiplier (không clamp để đảm bảo calories_raw đúng)
+                
+                # Tính serving_grams từ multiplier
                 _pg = _m * _bsg
+                
+                # Bắt buộc clamp số grams để phản ánh thực tế
+                _mn, _mx = _serving_limits(_r.get("clean_category", ""), _r.get("name", ""))
+                if _mx is not None:
+                    _pg = float(np.clip(_pg, _mn, _mx))
+                    _m  = _pg / _bsg if _bsg > 0 else _m
+                
                 _r["serving_grams"]      = round(_pg, 0)
                 _r["serving_multiplier"] = _m
+                
+                # Set calories_raw DỰA TRÊN THỰC TẾ đã clamp (không set mù quáng = _slot_tgt)
+                if _p100 > 0:
+                    _r["calories_raw"] = _p100 * _pg / 100.0
+                else:
+                    _r["calories_raw"] = _base_kcal * _m
+
                 # Scale macros theo tỉ lệ multiplier
                 for _c in ("protein_raw", "fat_raw", "carbs_raw"):
                     _per_col = {
@@ -6866,7 +7332,43 @@ class RecommenderService:
                         _unclamped_indices.append(_i)
 
                 if not _unclamped_indices:
-                    # All items are clamped — can't redistribute, return first pass
+                    # All items are clamped — can't redistribute via multiplier alone.
+                    # Strategy: find the highest-kcal item from ranked that is not yet in
+                    # this meal and inject it as an extra CORE item to absorb the deficit.
+                    _deficit = meal_target_kcal - sum(_v_row_kcal(r) for r in first_pass[:_core_count])
+                    if _deficit > meal_target_kcal * 0.05:  # only act if deficit is meaningful (>5%)
+                        _cur_ids_all   = {r.get("food_id") for r in first_pass}
+                        _cur_names_all = {_row_name_key(r) for r in first_pass}
+                        for _, _boost_cand in ranked.sort_values("score", ascending=False).iterrows():
+                            _bid   = _boost_cand.get("food_id")
+                            _bname = _row_name_key(_boost_cand)
+                            if _bid in _cur_ids_all or _bname in _cur_names_all:
+                                continue
+                            _b_kcal_raw = float(_boost_cand.get("calories_raw", 0) or _boost_cand.get("kcal_per_serving_clean", 0) or 0)
+                            if _b_kcal_raw < 30:
+                                continue  # skip items with near-zero kcal
+                            # Scale the booster to exactly cover the deficit
+                            _boost_row = dict(_boost_cand)
+                            _p100b = float(_boost_row.get("kcal_per_100g_clean", 0) or 0)
+                            _bsgb  = float(_boost_row.get("base_serving_grams", _boost_row.get("quantity_g", 100.0)) or 100.0)
+                            if _p100b > 0:
+                                _target_g = _deficit / _p100b * 100.0
+                                _target_g = float(np.clip(_target_g, 50.0, 500.0))
+                                _boost_row["serving_grams"]       = round(_target_g, 0)
+                                _boost_row["serving_multiplier"]  = _target_g / _bsgb
+                                _boost_row["calories_raw"]        = _p100b * _target_g / 100.0
+                                for _c in ("protein_raw", "fat_raw", "carbs_raw"):
+                                    _pc = {"protein_raw": "protein_per_100g_clean", "fat_raw": "fat_per_100g_clean", "carbs_raw": "carbs_per_100g_clean"}.get(_c)
+                                    _pv = float(_boost_row.get(_pc, 0) or 0) if _pc else 0
+                                    if _pv > 0:
+                                        _boost_row[_c] = _pv * _target_g / 100.0
+                                _boost_row["culinary_role"] = "extra"
+                                _boost_row["_is_core"]          = True
+                                _boost_row["_is_default_selected"] = True
+                                first_pass.insert(_core_count, _boost_row)  # insert as last core item
+                                seen_food_ids.add(_bid)
+                                seen_food_names.add(_bname)
+                            break
                     return first_pass
 
                 # Distribute remaining target evenly across unclamped items
@@ -6884,12 +7386,22 @@ class RecommenderService:
                         _base_u = _p100u * _bsgu / 100.0
                     else:
                         _base_u = max(float(_r.get("calories_raw", 0) or _r.get("calories", 0) or 1.0), 1.0)
-                    _mu = float(np.clip(_tgt_unclamped / max(_base_u, 1.0), 0.15, 8.0))
-                    # Do NOT clamp grams so calories_raw is exactly _tgt_unclamped
+                    # Use unlimited multiplier (no 8x cap) when we must hit a target
+                    _mu = _tgt_unclamped / max(_base_u, 1.0)
+                    # But cap at a reasonable serving size via grams limit
                     _pgu = _mu * _bsgu
+                    _mn_u, _mx_u = _serving_limits(_r.get("clean_category", ""), _r.get("name", ""))
+                    # For unclamped items in rescale, allow up to 2x normal max grams to absorb deficit
+                    if _mx_u is not None:
+                        _pgu = float(min(_pgu, _mx_u * 2.0))
+                        _mu  = _pgu / _bsgu if _bsgu > 0 else _mu
                     _r["serving_grams"]      = round(_pgu, 0)
                     _r["serving_multiplier"] = _mu
-                    _r["calories_raw"]       = _tgt_unclamped  # exact for validation
+                    # Set calories_raw based on actual grams achieved
+                    if _p100u > 0:
+                        _r["calories_raw"] = _p100u * _pgu / 100.0
+                    else:
+                        _r["calories_raw"] = _tgt_unclamped
                     for _c in ("protein_raw", "fat_raw", "carbs_raw"):
                         _per_col = {
                             "protein_raw": "protein_per_100g_clean",
@@ -6975,9 +7487,9 @@ class RecommenderService:
                     # Bỏ qua nếu đã có trong bữa này
                     if _cid in _cur_ids or _cname in _cur_names:
                         continue
-                    # Ứng viên phải có đủ kcal để scale lên _slot_tgt
+                    # Candidate must have enough kcal density to scale reasonably
                     _cbase = float(_cand.get("calories_raw", _cand.get("calories", 0)) or 0)
-                    if _cbase < _slot_tgt * 0.8:
+                    if _cbase < _slot_tgt * 0.3:  # relaxed from 0.8 — allows more candidates
                         continue
                     _cscaled = _v_scale_row_exact(dict(_cand))
                     _cscaled["culinary_role"] = "extra"
@@ -7039,6 +7551,12 @@ class RecommenderService:
 
                 # Bước 5a: rescale CORE items only to hit target
                 selected_rows = _v_rescale_all_exact(selected_rows)
+                # _v_rescale_all_exact may have injected a booster item at index _core_count
+                # If so, update _core_count so validation includes the booster
+                for _ri_b, _rb in enumerate(selected_rows):
+                    _rb_is_core = _rb.get("_is_core") if not isinstance(_rb, pd.Series) else bool(_rb.get("_is_core"))
+                    if _rb_is_core and _ri_b >= _core_count:
+                        _core_count = _ri_b + 1
 
                 # Validate lại sau rescale
                 _cond2 = _v_core_ok(selected_rows)
@@ -7070,6 +7588,50 @@ class RecommenderService:
                     meal, _MAX_RETRIES, _v_core_kcal(_best_rows), meal_target_kcal, _fc,
                 )
                 selected_rows = _best_rows
+
+            # ── FINAL CALORIE RESCUE: Inject supplement if core kcal still < 80% of target ──
+            # This is the ultimate safeguard when all retry logic fails (e.g. all ingredients
+            # are low-density vegetables/tofu that hit serving limits before reaching kcal target).
+            _final_core_kcal = sum(_v_row_kcal(r) for r in selected_rows[:_core_count])
+            if _final_core_kcal < meal_target_kcal * 0.80:
+                _rescue_deficit = meal_target_kcal - _final_core_kcal
+                _rescue_ids   = {r.get("food_id") for r in selected_rows}
+                _rescue_names = {_row_name_key(r) for r in selected_rows}
+                # Prefer high-density foods: healthy_fat_nuts, starch_grain, protein_meat
+                _RESCUE_PRIORITY_CATS = {"healthy_fat_nuts", "starch_grain", "starch_tuber", "protein_meat", "protein_seafood", "egg", "dairy"}
+                for _, _rc in ranked.iterrows():
+                    if _rc.get("food_id") in _rescue_ids or _row_name_key(_rc) in _rescue_names:
+                        continue
+                    _rc_kcal100 = float(_rc.get("kcal_per_100g_clean", 0) or 0)
+                    if _rc_kcal100 < 50:  # only use calorically dense foods for rescue
+                        continue
+                    _rc_cat = _row_clean_category(_rc)
+                    if _rc_cat not in _RESCUE_PRIORITY_CATS:
+                        continue
+                    _rr = dict(_rc)
+                    _rr_bsg = float(_rr.get("base_serving_grams", _rr.get("quantity_g", 100.0)) or 100.0)
+                    _rr_tgt_g = _rescue_deficit / _rc_kcal100 * 100.0
+                    _rr_tgt_g = float(np.clip(_rr_tgt_g, 30.0, 600.0))
+                    _rr["serving_grams"]       = round(_rr_tgt_g, 0)
+                    _rr["serving_multiplier"]  = _rr_tgt_g / _rr_bsg
+                    _rr["calories_raw"]        = _rc_kcal100 * _rr_tgt_g / 100.0
+                    for _c in ("protein_raw", "fat_raw", "carbs_raw"):
+                        _pc = {"protein_raw": "protein_per_100g_clean", "fat_raw": "fat_per_100g_clean", "carbs_raw": "carbs_per_100g_clean"}.get(_c)
+                        _pv = float(_rr.get(_pc, 0) or 0) if _pc else 0
+                        if _pv > 0:
+                            _rr[_c] = _pv * _rr_tgt_g / 100.0
+                    _rr["culinary_role"]           = "extra"
+                    _rr["_is_core"]                = True
+                    _rr["_is_default_selected"]    = True
+                    selected_rows.insert(_core_count, _rr)
+                    _core_count += 1
+                    seen_food_ids.add(_rc.get("food_id"))
+                    seen_food_names.add(_row_name_key(_rc))
+                    logger.info(
+                        "[CALORIE_RESCUE] meal=%s injected supplement=%s kcal=%.1f deficit_was=%.1f",
+                        meal, _rr.get("name", "?"), _rr["calories_raw"], _rescue_deficit,
+                    )
+                    break
 
             # ── Tag core vs optional items ─────────────────────────────────────
             # First _core_count items = CORE (default selected, validated for nutrition)
@@ -8097,6 +8659,19 @@ class RecommenderService:
         self._hydrate_payload_from_saved_profile(payload, saved_profile)
         profile_goal, profile_surplus = self._profile_goal_and_surplus(payload)
         available_ingredients = get_required_ingredient_list(payload)
+        
+        # Normalize available_ingredients for consistent use throughout the function
+        # This variable is used by nested functions (macro adjustment, coverage checks, etc.)
+        normalized_available_ingredients = list(
+            dict.fromkeys(
+                [
+                    str(item).strip()
+                    for item in (available_ingredients or [])
+                    if str(item).strip()
+                ]
+            )
+        )
+        
         print("[RECOMMENDER INGREDIENT PREFERENCES]", available_ingredients, flush=True)
         print("[REQUIRED INGREDIENT INPUT NORMALIZED]", {
             "raw_required_ingredients": getattr(payload, "required_ingredients", None),
@@ -8438,6 +9013,7 @@ class RecommenderService:
             axis=1
         )
         ranked = ranked[~outlier_mask].copy()
+        ranked_full_for_required_ingredients = ranked.copy()  # Save full pool before limiting for required ingredient injection
         ranked = _limit_ranked_candidate_pool(ranked, meal_slots, payload.top_n, available_ingredients)
 
         ml_metadata = ml_food_eligibility_service.get_metadata()
@@ -8668,7 +9244,7 @@ class RecommenderService:
                 ranked,
                 nutrition_targets=nutrition_target,
                 user_profile=user,
-                ranked_full_source=ranked,
+                ranked_full_source=ranked_full_for_required_ingredients,
             )
         except Exception as exc:
             logger.warning("[REQUIRED INGREDIENT SLOT FALLBACK] %s", repr(exc))
@@ -8765,8 +9341,8 @@ class RecommenderService:
             "itemCount": len(meal_items_for_db),
         })
         
-        # Only rebalance if CORE items deficit is significant (> 8% or below 92% of target)
-        if target_kcal > 0 and core_kcal < target_kcal * 0.92:
+        # Only rebalance if CORE items deficit is significant (> 12% or below 88% of target)
+        if target_kcal > 0 and core_kcal < target_kcal * 0.88:
             deficit = target_kcal - core_kcal
             logger.info("[MEAL_CALORIE_TOP_UP_START] %s", {
                 "deficit": round(deficit),
@@ -8795,12 +9371,12 @@ class RecommenderService:
                     if item_category not in energy_booster_categories:
                         continue
                         
-                    # Increase portion by up to 30%
+                    # Increase portion by up to 50%
                     old_kcal = float(item.get("calories", 0))
                     old_serving = float(item.get("serving_grams", 100))
                     
                     # Calculate how much to increase
-                    increase_factor = min(1.3, 1 + (deficit / max(old_kcal, 1)) * 0.5)
+                    increase_factor = min(1.5, 1 + (deficit / max(old_kcal, 1)) * 0.5)
                     new_serving = old_serving * increase_factor
                     
                     # Apply serving limits
@@ -9152,22 +9728,66 @@ class RecommenderService:
                     missing_before_injection = [ingredient for ingredient in selected_ingredients if ingredient not in final_covered_before]
 
 
+                    catalog_unavailable_ingredients: set[str] = set()
                     injected_items: list[str] = []
                     selected_injected_items: list[dict[str, object]] = []
                     for ingredient in missing_before_injection:
+                        logger.info("[INGREDIENT INJECTION START] ingredient=%s", ingredient)
+                        
+                        # Step 1: Try find in candidate_source
                         best_candidate = find_best_candidate_for_required_ingredient(
                             ingredient,
                             candidate_source,
                             current_plan_items=current_plan_items,
                             target_item_kcal=target_kcal / max(1, len(meal_plan_payload)) if target_kcal else None,
                         )
+                        
+                        # Step 2: Fallback to pre-ranked candidates
                         if best_candidate is None:
                             candidate_list = candidate_objects_by_ingredient.get(str(ingredient), [])
                             best_candidate = candidate_list[0] if candidate_list else None
+                            if best_candidate is not None:
+                                logger.info("[INGREDIENT FALLBACK STEP 2] ingredient=%s, found_in_pre_ranked=True, candidate=%s", 
+                                           ingredient, safe_name(best_candidate))
+                        
+                        # Step 3: Fallback to full ranked catalog
                         if best_candidate is None:
+                            best_candidate = find_best_candidate_for_required_ingredient(
+                                ingredient,
+                                candidate_source,
+                                current_plan_items=current_plan_items,
+                                target_item_kcal=target_kcal / max(1, len(meal_plan_payload)) if target_kcal else None,
+                                fallback_full_source=ranked,
+                            )
+                            if best_candidate is not None:
+                                logger.info("[INGREDIENT FALLBACK STEP 3] ingredient=%s, found_in_full_catalog=True, candidate=%s", 
+                                           ingredient, safe_name(best_candidate))
+                        
+                        # Step 4: Last resort - search entire catalog with relaxed quality (>= 1.0)
+                        if best_candidate is None:
+                            logger.warning("[INGREDIENT FALLBACK STEP 4] ingredient=%s, searching_entire_catalog=True", ingredient)
+                            for candidate in _iter_candidate_items(ranked):
+                                try:
+                                    quality = ingredient_match_quality(candidate, ingredient)
+                                    if quality >= 1.0:  # Relaxed threshold
+                                        best_candidate = candidate
+                                        logger.info("[INGREDIENT FALLBACK STEP 4] ingredient=%s, found_with_relaxed_quality=True, quality=%.1f, candidate=%s", 
+                                                   ingredient, quality, safe_name(candidate))
+                                        break
+                                except Exception:
+                                    continue
+                        
+                        # If still no candidate found after all fallbacks, mark as unavailable
+                        if best_candidate is None:
+                            logger.error("[INGREDIENT NOT FOUND IN CATALOG] ingredient=%s - exhausted all fallback strategies", ingredient)
+                            catalog_unavailable_ingredients.add(str(ingredient))
                             continue
+                        
+                        logger.info("[INGREDIENT CANDIDATE FOUND] ingredient=%s, candidate=%s", ingredient, safe_name(best_candidate))
 
                         injected_item = self._to_food_item_payload(best_candidate)
+                        
+                        # Find target meal to inject into
                         target_candidates = sorted(
                             (meal for meal in meal_plan_payload if isinstance(meal, dict)),
                             key=lambda meal: (
@@ -9197,10 +9817,13 @@ class RecommenderService:
                         if target_meal is None:
                             target_meal = {"meal_type": "dinner", "actual_kcal": 0, "items": []}
                             meal_plan_payload.append(target_meal)
+                        
                         target_items = target_meal.setdefault("items", [])
                         if not isinstance(target_items, list):
                             target_items = []
                             target_meal["items"] = target_items
+                        
+                        # Find swap position (non-required item to replace)
                         swap_index = next(
                             (
                                 idx
@@ -9210,13 +9833,52 @@ class RecommenderService:
                             ),
                             None,
                         )
+                        
+                        meal_slot_target = float(
+                            target_meal.get("target_kcal")
+                            or (target_kcal / max(1, len(meal_plan_payload)))
+                            or 0.0
+                        )
+                        slot_kcal = meal_slot_target / max(
+                            1,
+                            _expected_slots_for_meal(str(target_meal.get("meal_type") or "meal").lower()),
+                        )
+                        
+                        # CRITICAL FIX: Always inject, never skip
                         if swap_index is None:
-                            if len(target_items) < _expected_slots_for_meal(str(target_meal.get("meal_type") or "meal").lower()):
+                            meal_type = str(target_meal.get("meal_type") or "meal").lower()
+                            expected_slots = _expected_slots_for_meal(meal_type)
+                            
+                            if len(target_items) < expected_slots:
+                                # Slot available - append normally
+                                if slot_kcal > 0:
+                                    injected_item = _scale_item_dict_to_target_kcal(injected_item, slot_kcal)
+                                injected_item["is_core"] = True
+                                injected_item["is_default_selected"] = True
                                 target_items.append(injected_item)
+                                logger.info("[INGREDIENT INJECTED - APPEND TO AVAILABLE SLOT] ingredient=%s, meal=%s, candidate=%s", 
+                                           ingredient, meal_type, safe_name(injected_item))
                             else:
-                                continue
+                                # All slots full - FORCE APPEND as extra slot (NEVER SKIP)
+                                if slot_kcal > 0:
+                                    injected_item = _scale_item_dict_to_target_kcal(injected_item, slot_kcal)
+                                injected_item["is_core"] = True
+                                injected_item["is_default_selected"] = True
+                                target_items.append(injected_item)
+                                logger.warning("[INGREDIENT FORCE-APPENDED - ALL SLOTS FULL] ingredient=%s, meal=%s, slot_count=%d/%d, candidate=%s", 
+                                              ingredient, meal_type, len(target_items), expected_slots, safe_name(injected_item))
                         else:
+                            # Replace non-required item
+                            old_item = target_items[swap_index]
+                            old_kcal = float(old_item.get("calories") or old_item.get("kcal") or 0.0)
+                            preserve_kcal = old_kcal if old_kcal > 0 else slot_kcal
+                            if preserve_kcal > 0:
+                                injected_item = _scale_item_dict_to_target_kcal(injected_item, preserve_kcal)
+                            injected_item["is_core"] = old_item.get("is_core", True)
+                            injected_item["is_default_selected"] = injected_item["is_core"]
                             target_items[swap_index] = injected_item
+                            logger.info("[INGREDIENT INJECTED - REPLACED NON-REQUIRED ITEM] ingredient=%s, meal=%s, replaced=%s, candidate=%s", 
+                                       ingredient, target_meal.get("meal_type"), safe_name(old_item), safe_name(injected_item))
                         selected_injected_items.append(copy.deepcopy(injected_item))
                         injected_items.append(str(injected_item.get("name") or injected_item.get("food_name") or injected_item.get("food_id") or ingredient))
 
@@ -9226,6 +9888,7 @@ class RecommenderService:
                             for idx, item in enumerate(meal.get("items", []))
                         ]
 
+                    # Post-injection validation
                     final_covered_after = sorted(get_covered_ingredients(current_plan_items, selected_ingredients, required_quality_map))
                     missing_after_injection = [ingredient for ingredient in selected_ingredients if ingredient not in final_covered_after]
                     final_meal_items = [
@@ -9234,20 +9897,52 @@ class RecommenderService:
                         for item in meal.get("items", [])
                         if item
                     ]
+                    
+                    logger.info("[INGREDIENT INJECTION SUMMARY] total_selected=%d, covered_after=%d, missing_after=%d, catalog_unavailable=%d", 
+                               len(selected_ingredients), len(final_covered_after), len(missing_after_injection), len(catalog_unavailable_ingredients))
 
-                    unavailable_ingredients = []
                     if isinstance(missing_after_injection, list) and len(missing_after_injection) > 0:
-                        unavailable_ingredients = [
+                        # Split missing_after_injection into two categories
+                        unavailable_in_catalog = [
                             ingredient
                             for ingredient in missing_after_injection
-                            if not candidates_by_ingredient.get(str(ingredient))
+                            if ingredient in catalog_unavailable_ingredients
                         ]
+                        skipped_by_pipeline = [
+                            ingredient
+                            for ingredient in missing_after_injection
+                            if ingredient not in catalog_unavailable_ingredients
+                        ]
+                        
+                        # Log detailed info for each category
+                        if unavailable_in_catalog:
+                            logger.warning(
+                                "[INGREDIENT TRULY UNAVAILABLE] These ingredients do not exist in the food catalog",
+                                {
+                                    "unavailable_ingredients": unavailable_in_catalog,
+                                },
+                            )
+                        
+                        # Pipeline bug: these exist in catalog but were not injected
+                        if skipped_by_pipeline:
+                            logger.error(
+                                "[INGREDIENT PIPELINE BUG] Ingredients exist in catalog but were not injected by pipeline - THIS SHOULD NOT HAPPEN",
+                                {
+                                    "skipped_by_pipeline": skipped_by_pipeline,
+                                    "catalog_unavailable_ingredients": list(catalog_unavailable_ingredients),
+                                    "missing_after_injection": missing_after_injection,
+                                    "meal_items": final_meal_items[:20],
+                                },
+                            )
+                        
+                        # Set user-facing warning only for truly unavailable ingredients
                         ingredient_warning_data = {
-                            "missingIngredients": list(missing_after_injection),
-                            "unavailableIngredients": unavailable_ingredients,
-                            "message": "Chưa tìm thấy món phù hợp cho một số nguyên liệu đã chọn.",
+                            "missingIngredients": unavailable_in_catalog,
+                            "unavailableIngredients": unavailable_in_catalog,
+                            "message": "Chưa tìm thấy món phù hợp cho một số nguyên liệu đã chọn." if unavailable_in_catalog else "",
                         }
                     else:
+                        logger.info("[INGREDIENT INJECTION SUCCESS] All selected ingredients covered")
                         ingredient_warning_data = {
                             "missingIngredients": [],
                             "unavailableIngredients": [],
@@ -9376,6 +10071,8 @@ class RecommenderService:
                             "image_url": item.get("image_url"),
                             "image_badge": item.get("image_badge"),
                             "score": float(item.get("score") or 0.0),
+                            "is_core": item.get("is_core", True),
+                            "meal_role": item.get("meal_role", ""),
                         }
                     )
                 meal["actual_kcal"] = round(meal_kcal)
@@ -9613,6 +10310,14 @@ class RecommenderService:
                 for item in meal.get("items", [])
                 if item.get("food_id") is not None
             }
+            # Build set of food_ids that cover required ingredients — protect them from replacement
+            _required_cover_ids: set[str] = set()
+            if normalized_available_ingredients:
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        fid = str(item.get("food_id") or "")
+                        if fid and ingredient_match_count(item, normalized_available_ingredients) > 0:
+                            _required_cover_ids.add(fid)
             added = 0
             added_kcal = 0.0
 
@@ -9665,6 +10370,9 @@ class RecommenderService:
                     for idx, current in enumerate(items):
                         if not _is_optional_item(current):
                             continue
+                        # Bảo vệ items cover required ingredients khỏi bị replace
+                        if _required_cover_ids and str(current.get("food_id") or "") in _required_cover_ids:
+                            continue
                         gain = float(candidate_item.get("calories") or 0.0) - float(current.get("calories") or current.get("kcal") or 0.0)
                         if gain > best_gain:
                             best_gain = gain
@@ -9700,6 +10408,14 @@ class RecommenderService:
                 for item in meal.get("items", [])
                 if item.get("food_id") is not None
             }
+            # Build set of food_ids that cover required ingredients — protect them
+            _required_cover_ids_c: set[str] = set()
+            if normalized_available_ingredients:
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        fid = str(item.get("food_id") or "")
+                        if fid and ingredient_match_count(item, normalized_available_ingredients) > 0:
+                            _required_cover_ids_c.add(fid)
             replacements = 0
 
             for meal in meal_plan_payload:
@@ -9783,6 +10499,14 @@ class RecommenderService:
                 for item in meal.get("items", [])
                 if item.get("food_id") is not None
             }
+            # Build set of food_ids that cover required ingredients — protect them from replacement
+            _required_cover_ids_p: set[str] = set()
+            if normalized_available_ingredients:
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        fid = str(item.get("food_id") or "")
+                        if fid and ingredient_match_count(item, normalized_available_ingredients) > 0:
+                            _required_cover_ids_p.add(fid)
             replacements = 0
             added_protein = 0.0
 
@@ -9795,6 +10519,8 @@ class RecommenderService:
                     if _is_optional_item(item)
                     and not _is_primary_starch_item(item)
                     and float(item.get("protein") or 0.0) < 7.0
+                    # Bảo vệ items cover required ingredients
+                    and str(item.get("food_id") or "") not in _required_cover_ids_p
                 ]
                 if not target_indexes:
                     continue
@@ -9890,6 +10616,16 @@ class RecommenderService:
             nonlocal preserved_item_count_note
             replacements = 0
 
+            # Build set of food_ids that cover required ingredients — protect them from replacement
+            _required_cover_ids_ep: set[str] = set()
+            if normalized_available_ingredients:
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        fid = str(item.get("food_id") or "")
+                        if fid and ingredient_match_count(item, normalized_available_ingredients) > 0:
+                            _required_cover_ids_ep.add(fid)
+                logger.info("[EXCESS PROTEIN PROTECTION] Protected food_ids covering required ingredients: %s", sorted(_required_cover_ids_ep))
+
             while replacements < max_changes and _protein_is_above_target(1.15):
                 existing_ids = {
                     str(item.get("food_id"))
@@ -9900,6 +10636,11 @@ class RecommenderService:
                 target_candidates: list[tuple[int, float, dict, int, dict]] = []
                 for meal in meal_plan_payload:
                     for idx, item in enumerate(meal.get("items", [])):
+                        # CRITICAL: Skip items that cover required ingredients
+                        item_food_id = str(item.get("food_id") or "")
+                        if item_food_id in _required_cover_ids_ep:
+                            continue
+                        
                         if not _is_protein_limited_food(item):
                             continue
                         protein_value = float(item.get("protein") or 0.0)
@@ -9997,6 +10738,17 @@ class RecommenderService:
                 for item in meal.get("items", [])
                 if item.get("food_id") is not None
             }
+            
+            # CRITICAL: Build set of food_ids that cover required ingredients — protect them from replacement
+            _required_cover_ids_lq: set[str] = set()
+            if normalized_available_ingredients:
+                for meal in meal_plan_payload:
+                    for item in meal.get("items", []):
+                        fid = str(item.get("food_id") or "")
+                        if fid and ingredient_match_count(item, normalized_available_ingredients) > 0:
+                            _required_cover_ids_lq.add(fid)
+                logger.info("[LOW QUALITY REPLACEMENT PROTECTION] Protected food_ids covering required ingredients: %s", sorted(_required_cover_ids_lq))
+            
             replacements = 0
 
             for meal in meal_plan_payload:
@@ -10006,6 +10758,12 @@ class RecommenderService:
                 for idx, target_item in enumerate(list(items)):
                     if replacements >= max_changes:
                         break
+                    
+                    # CRITICAL: Skip items that cover required ingredients
+                    item_food_id = str(target_item.get("food_id") or "")
+                    if item_food_id in _required_cover_ids_lq:
+                        continue
+                    
                     target_is_processed = _is_processed_meat_row(target_item)
                     target_is_sweet = _is_dessert_or_sweet_item(target_item)
                     target_is_low_fat_dairy = _is_low_fat_dairy_row(target_item) and _should_replace_low_fat_dairy()
@@ -10470,6 +11228,8 @@ class RecommenderService:
 
         meal_types_present = {str(meal.get("meal_type", "")).lower() for meal in meal_plan_payload}
 
+        if available_ingredients:
+            _rescale_meals_core_to_targets(meal_plan_payload)
 
         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
         core_kcal, core_protein = _recompute_core_totals()
@@ -10948,6 +11708,55 @@ class RecommenderService:
                         if best_choice is None or choice[0] < best_choice[0]:
                             best_choice = choice
 
+                if best_choice is not None:
+                    return best_choice
+
+                # ── FALLBACK PASS: nới lỏng constraint ──────────────────────────────
+                # Nếu không tìm được slot vì mọi item đều cover một required ingredient,
+                # thử replace item cover ingredient đã được cover bởi item khác (duplicate cover).
+                # Điều này cho phép thêm nguyên liệu người dùng yêu cầu dù plan đã đầy.
+                current_covered_set = _current_covered_ingredients()
+                for meal_index, meal in enumerate(meal_plan_payload):
+                    items = meal.get("items", [])
+                    meal_type = str(meal.get("meal_type") or "meal").lower()
+                    priority_base = float(meal_priority.get(meal_type, 4))
+                    for item_index, current_item in enumerate(items):
+                        covered_by_item = [
+                            ing for ing in requested_ingredients
+                            if ingredient_match_count(current_item, [ing]) > 0
+                        ]
+                        if not covered_by_item:
+                            continue
+                        # Item này cover nguyên liệu đã yêu cầu, nhưng nếu nguyên liệu đó
+                        # có nhiều hơn 1 item cover → đây là duplicate → an toàn để replace
+                        can_replace = False
+                        for covered_ing in covered_by_item:
+                            # Đếm bao nhiêu item trong plan cover ing này
+                            cover_count = sum(
+                                1 for m in meal_plan_payload
+                                for it in m.get("items", [])
+                                if ingredient_match_count(it, [covered_ing]) > 0
+                            )
+                            if cover_count > 1:
+                                can_replace = True
+                                break
+                        if not can_replace:
+                            continue
+                        current_group = macro_group(current_item.get("category") or current_item.get("clean_category") or "")
+                        if current_group == "starch":
+                            meal_group_counts = {}
+                            for existing in items:
+                                eg = macro_group(existing.get("category") or existing.get("clean_category") or "")
+                                meal_group_counts[eg] = meal_group_counts.get(eg, 0) + 1
+                            if meal_group_counts.get("starch", 0) <= 1:
+                                continue
+                        current_kcal = float(current_item.get("calories") or current_item.get("kcal") or 0.0)
+                        candidate_kcal = float(candidate_item.get("calories") or candidate_item.get("kcal") or 0.0)
+                        replace_score = (priority_base, abs(candidate_kcal - current_kcal))
+                        choice = (replace_score, meal_index, item_index)
+                        if best_choice is None or choice[0] < best_choice[0]:
+                            best_choice = choice
+
                 return best_choice
 
             candidate_map_start = time.perf_counter()
@@ -11003,6 +11812,31 @@ class RecommenderService:
 
                 candidate_rows = coverage_candidate_map.get(ingredient, [])
                 if not candidate_rows:
+                    # Thêm logging rõ ràng để debug: tại sao không có candidate
+                    _ing_group_hard = get_ingredient_group(normalize_ingredient_name(ingredient))
+                    logger.warning(
+                        "[HARD COVERAGE NO CANDIDATE] ingredient=%s group=%s ranked_size=%s",
+                        ingredient, _ing_group_hard, len(ranked),
+                    )
+                    # Fallback: scan full ranked for any match quality > 0
+                    _fallback_rows = []
+                    for _, _row in ranked.iterrows():
+                        try:
+                            _q = ingredient_match_quality(_row, ingredient)
+                            if _q >= 2.0:
+                                _fallback_rows.append({
+                                    "name": safe_name(_row),
+                                    "quality": _q,
+                                    "category": safe_category(_row),
+                                })
+                                if len(_fallback_rows) >= 5:
+                                    break
+                        except Exception:
+                            pass
+                    logger.warning(
+                        "[HARD COVERAGE NO CANDIDATE FALLBACK SCAN] ingredient=%s top5_quality_matches=%s",
+                        ingredient, _fallback_rows,
+                    )
                     _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                         "ingredient": ingredient,
                         "reason": "no_candidate",
@@ -11045,16 +11879,40 @@ class RecommenderService:
                             "candidate": candidate_item.get("name"),
                             "reason": "no_safe_slot",
                         })
+                        # Log chi tiết khi không tìm được slot — quan trọng để debug pork/beef
+                        logger.warning(
+                            "[HARD COVERAGE NO SLOT] ingredient=%s candidate=%s group=%s quality=%.1f meal_plan_items=%s",
+                            ingredient,
+                            candidate_item.get("name"),
+                            candidate_group,
+                            candidate_quality,
+                            [(m.get("meal_type"), len(m.get("items", []))) for m in meal_plan_payload],
+                        )
                         continue
 
                     _, meal_index, target_index = target_choice
                     target_meal = meal_plan_payload[meal_index]
                     if target_index is None:
+                        meal_tgt = float(target_meal.get("target_kcal") or 0.0)
+                        slot_kcal = meal_tgt / max(
+                            1,
+                            _expected_slots_for_meal(str(target_meal.get("meal_type") or "meal").lower()),
+                        )
+                        if slot_kcal > 0:
+                            candidate_item = _scale_item_dict_to_target_kcal(candidate_item, slot_kcal)
+                        candidate_item["is_core"] = True
+                        candidate_item["is_default_selected"] = True
                         target_meal.setdefault("items", []).append(candidate_item)
                         action = "append"
                         target_name = None
                     else:
-                        target_name = str(target_meal.get("items", [])[target_index].get("name") or "")
+                        old_item = target_meal.get("items", [])[target_index]
+                        target_name = str(old_item.get("name") or "")
+                        old_kcal = float(old_item.get("calories") or old_item.get("kcal") or 0.0)
+                        if old_kcal > 0:
+                            candidate_item = _scale_item_dict_to_target_kcal(candidate_item, old_kcal)
+                        candidate_item["is_core"] = old_item.get("is_core", True)
+                        candidate_item["is_default_selected"] = candidate_item["is_core"]
                         target_meal["items"][target_index] = candidate_item
                         action = "replace"
                         preserved_item_count_note = True
@@ -11100,6 +11958,10 @@ class RecommenderService:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
                         core_kcal, core_protein = _recompute_core_totals()
+                        logger.warning(
+                            "[HARD COVERAGE REJECTED] ingredient=%s candidate=%s reason=would_break_kcal_balance core_kcal=%.0f min_kcal=%.0f",
+                            ingredient, candidate_item.get("name"), core_kcal, min_kcal,
+                        )
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -11111,6 +11973,10 @@ class RecommenderService:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
                         core_kcal, core_protein = _recompute_core_totals()
+                        logger.warning(
+                            "[HARD COVERAGE REJECTED] ingredient=%s candidate=%s reason=would_break_protein_balance protein=%.0f target=%.0f",
+                            ingredient, candidate_item.get("name"), total_protein, target_protein,
+                        )
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -11122,6 +11988,10 @@ class RecommenderService:
                         meal_plan_payload[:] = before_snapshot
                         meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
                         core_kcal, core_protein = _recompute_core_totals()
+                        logger.warning(
+                            "[HARD COVERAGE REJECTED] ingredient=%s candidate=%s reason=would_make_kcal_worse core_kcal=%.0f before=%.0f",
+                            ingredient, candidate_item.get("name"), core_kcal, before_totals[0],
+                        )
                         _debug_print("[HARD INGREDIENT COVERAGE SKIPPED]", {
                             "ingredient": ingredient,
                             "candidate": candidate_item.get("name"),
@@ -11675,15 +12545,7 @@ class RecommenderService:
 
         _record_timing(timing, "nutrition_balance_ms", nutrition_balance_start)
 
-        normalized_available_ingredients = list(
-            dict.fromkeys(
-                [
-                    str(item).strip()
-                    for item in (available_ingredients or selected_ingredients or [])
-                    if str(item).strip()
-                ]
-            )
-        )
+        # normalized_available_ingredients was already defined at function start (after line 8663)
         logger.info("[RECOMMENDER FINAL AVAILABLE INGREDIENTS] %s", {
             "available_ingredients": normalized_available_ingredients,
         })
@@ -11726,21 +12588,26 @@ class RecommenderService:
         # ═══════════════════════════════════════════════════════════════════════════
         # FINAL INGREDIENT COVERAGE VALIDATION BEFORE DB SAVE
         # ═══════════════════════════════════════════════════════════════════════════
+        # NOTE: This check verifies coverage in meal_plan_payload (the source of truth)
+        # and only sets warnings for ingredients that truly don't exist in catalog.
+        # The main injection logic happens earlier in the pipeline.
         if REQUIRED_INGREDIENT_COVERAGE and normalized_available_ingredients:
+            # Recompute meal_items_for_db from latest meal_plan_payload to ensure sync
+            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
+            
             final_coverage_before_save = {
                 "selected": list(normalized_available_ingredients),
-                "meal_names_before": [
+                "meal_names": [
                     str(item.get("name") or "")
                     for item in meal_items_for_db
                     if item.get("name")
                 ],
-                "missing_before": [],
-                "injected": [],
-                "meal_names_after": [],
-                "missing_after": [],
+                "covered": [],
+                "missing": [],
             }
 
-            # Compute which ingredients are missing from final meal_items_for_db
+            # Compute which ingredients are covered in final meal_items_for_db
             covered_ingredients = set()
             for item in meal_items_for_db:
                 for ingredient in normalized_available_ingredients:
@@ -11752,199 +12619,244 @@ class RecommenderService:
                 for ingredient in normalized_available_ingredients
                 if ingredient not in covered_ingredients
             ]
-            final_coverage_before_save["missing_before"] = list(missing_ingredients)
+            
+            final_coverage_before_save["covered"] = sorted(covered_ingredients)
+            final_coverage_before_save["missing"] = list(missing_ingredients)
 
-            # Try to inject missing ingredients
+            # Log coverage status
             if missing_ingredients:
                 logger.warning(
-                    "[INGREDIENT COVERAGE BEFORE SAVE] user_id=%s selected=%s missing=%s",
+                    "[INGREDIENT COVERAGE BEFORE SAVE] user_id=%s selected=%s missing=%s covered=%s",
                     user.id,
                     normalized_available_ingredients,
                     missing_ingredients,
+                    sorted(covered_ingredients),
                 )
 
+                # ═══════════════════════════════════════════════════════════════════
+                # CRITICAL FIX: FORCE-INJECT MISSING INGREDIENTS
+                # ═══════════════════════════════════════════════════════════════════
+                # If ingredients are missing at this point, it means:
+                # 1. They weren't injected during apply_required_ingredient_slots, OR
+                # 2. They were injected but later removed by macro adjustment functions
+                #
+                # Solution: Force-replace lowest-score non-required items with missing ingredients
+                # This ensures selected_ingredients ALWAYS appear in the final menu
+                
+                catalog_unavailable = []
+                successfully_injected = []
+                
                 for ingredient in missing_ingredients:
-                    # Find best candidate for this ingredient
+                    # Check if ingredient exists in catalog by searching ranked
+                    exists_in_catalog = False
                     best_candidate = None
-                    best_score = None
                     
                     for _, row in ranked.iterrows():
-                        if ingredient_match_quality(row, ingredient) < 2.0:
-                            continue
-                        
-                        # Check if already in meal plan
-                        row_id = str(row.get("food_id", ""))
-                        if any(str(item.get("food_id")) == row_id for item in meal_items_for_db):
-                            continue
-                        
-                        # Score candidate
                         quality = ingredient_match_quality(row, ingredient)
-                        specificity = _required_ingredient_specificity_score(row, ingredient)
-                        score_val = float(row.get("score") or 0.0)
-                        kcal = float(row.get("kcal_per_serving_clean") or row.get("calories_raw") or 0.0)
-                        
-                        candidate_score = (
-                            -quality,  # Higher quality is better (negative for sorting)
-                            -specificity,  # Higher specificity is better
-                            -score_val,  # Higher score is better
-                            abs(kcal - (target_kcal / max(1, len(meal_plan_payload)))),  # Closer to target meal kcal
-                        )
-                        
-                        if best_score is None or candidate_score < best_score:
-                            best_score = candidate_score
-                            best_candidate = row
+                        if quality >= 2.0:
+                            exists_in_catalog = True
+                            if best_candidate is None:
+                                best_candidate = row
+                            break
                     
-                    if best_candidate is None:
-                        logger.warning(
-                            "[INGREDIENT COVERAGE FAILED] user_id=%s ingredient=%s reason=no_candidate",
+                    if not exists_in_catalog:
+                        catalog_unavailable.append(ingredient)
+                        logger.error(
+                            "[INGREDIENT NOT IN CATALOG] user_id=%s ingredient=%s - no food items match this ingredient",
                             user.id,
                             ingredient,
                         )
                         continue
                     
-                    # Convert to item payload
-                    candidate_item = self._to_food_item_payload(best_candidate)
-                    candidate_kcal = float(candidate_item.get("calories") or 0.0)
+                    # Ingredient exists in catalog but wasn't included - FORCE-INJECT IT
+                    logger.warning(
+                        "[FORCE-INJECT MISSING INGREDIENT] user_id=%s ingredient=%s - forcing injection",
+                        user.id,
+                        ingredient,
+                    )
                     
-                    # Find best meal to inject into (prefer replacing non-required items)
-                    best_meal_type = None
-                    best_replace_index = None
-                    best_replace_score = None
+                    # Find lowest-score item that does NOT cover any required ingredient
+                    target_meal_idx = None
+                    target_item_idx = None
+                    lowest_score = float('inf')
+                    target_item = None
                     
-                    # Group meal_items_for_db by meal_type
-                    meals_by_type = {}
-                    for idx, item in enumerate(meal_items_for_db):
-                        meal_type = str(item.get("meal_type", "dinner"))
-                        if meal_type not in meals_by_type:
-                            meals_by_type[meal_type] = []
-                        meals_by_type[meal_type].append((idx, item))
-                    
-                    # Try to find a non-required item to replace
-                    for meal_type, items in meals_by_type.items():
-                        for idx, item in items:
-                            # Skip items that match required ingredients
-                            if any(
+                    for meal_idx, meal in enumerate(meal_plan_payload):
+                        items = meal.get("items", [])
+                        for item_idx, item in enumerate(items):
+                            # Check if this item covers any required ingredient
+                            covers_required = any(
                                 ingredient_match_quality(item, req_ing) >= 2.0
                                 for req_ing in normalized_available_ingredients
-                            ):
-                                continue
-                            
-                            item_kcal = float(item.get("calories") or 0.0)
-                            kcal_delta = abs(candidate_kcal - item_kcal)
-                            
-                            # Prefer replacing optional items with similar calories
-                            is_optional = _is_optional_item(item)
-                            replace_score = (
-                                0 if is_optional else 1,
-                                kcal_delta,
-                                idx,  # Prefer later items
                             )
                             
-                            if best_replace_score is None or replace_score < best_replace_score:
-                                best_replace_score = replace_score
-                                best_meal_type = meal_type
-                                best_replace_index = idx
+                            if not covers_required:
+                                item_score = float(item.get("score") or 0.0)
+                                if item_score < lowest_score:
+                                    lowest_score = item_score
+                                    target_meal_idx = meal_idx
+                                    target_item_idx = item_idx
+                                    target_item = item
                     
-                    # If no good replacement found, try to append to a meal with fewer items
-                    if best_replace_index is None:
-                        meal_counts = {
-                            meal_type: len(items)
-                            for meal_type, items in meals_by_type.items()
-                        }
-                        if meal_counts:
-                            best_meal_type = min(meal_counts, key=meal_counts.get)
-                    
-                    # Inject the candidate
-                    if best_replace_index is not None:
-                        # Replace existing item
-                        replaced_name = meal_items_for_db[best_replace_index].get("name", "")
-                        meal_items_for_db[best_replace_index] = {
-                            "meal_type": best_meal_type,
-                            "food_id": candidate_item["food_id"],
-                            "name": candidate_item["name"],
-                            "category": candidate_item["category"],
-                            "serving_grams": candidate_item.get("serving_grams"),
-                            "serving_display": candidate_item.get("serving_display") or candidate_item.get("portion_display"),
-                            "calories": candidate_item["calories"],
-                            "protein": candidate_item["protein"],
-                            "fat": candidate_item["fat"],
-                            "carbs": candidate_item["carbs"],
-                            "reason": candidate_item.get("name"),
-                            "image_url": candidate_item.get("image_url"),
-                            "image_badge": candidate_item.get("image_badge"),
-                            "score": candidate_item["score"],
-                        }
-                        logger.info(
-                            "[INGREDIENT COVERAGE INJECTED] user_id=%s ingredient=%s replaced=%s with=%s meal=%s",
+                    if target_meal_idx is None or target_item_idx is None:
+                        logger.error(
+                            "[FORCE-INJECT FAILED] user_id=%s ingredient=%s - no replacement target found (all items cover required ingredients)",
                             user.id,
                             ingredient,
-                            replaced_name,
-                            candidate_item["name"],
-                            best_meal_type,
                         )
-                        final_coverage_before_save["injected"].append(candidate_item["name"])
-                    elif best_meal_type is not None:
-                        # Append to meal
-                        meal_items_for_db.append({
-                            "meal_type": best_meal_type,
-                            "food_id": candidate_item["food_id"],
-                            "name": candidate_item["name"],
-                            "category": candidate_item["category"],
-                            "serving_grams": candidate_item.get("serving_grams"),
-                            "serving_display": candidate_item.get("serving_display") or candidate_item.get("portion_display"),
-                            "calories": candidate_item["calories"],
-                            "protein": candidate_item["protein"],
-                            "fat": candidate_item["fat"],
-                            "carbs": candidate_item["carbs"],
-                            "reason": candidate_item.get("name"),
-                            "image_url": candidate_item.get("image_url"),
-                            "image_badge": candidate_item.get("image_badge"),
-                            "score": candidate_item["score"],
-                            # Ingredient-injected items are core by definition
-                            "is_core": candidate_item.get("is_core", True),
-                            "meal_role": candidate_item.get("meal_role", ""),
-                        })
-                        logger.info(
-                            "[INGREDIENT COVERAGE INJECTED] user_id=%s ingredient=%s appended=%s meal=%s",
-                            user.id,
-                            ingredient,
-                            candidate_item["name"],
-                            best_meal_type,
-                        )
-                        final_coverage_before_save["injected"].append(candidate_item["name"])
+                        continue
+                    
+                    # Create replacement item from best_candidate
+                    replacement_item = self._to_food_item_payload(best_candidate)
+                    
+                    # Scale replacement to match target item's calories
+                    target_kcal = float(target_item.get("calories") or target_item.get("kcal") or 0.0)
+                    if target_kcal > 0:
+                        replacement_kcal = float(replacement_item.get("calories") or replacement_item.get("kcal") or 0.0)
+                        if replacement_kcal > 0:
+                            scale = target_kcal / replacement_kcal
+                            scale = float(np.clip(scale, 0.60, 1.80))
+                            
+                            replacement_item["calories"] = replacement_kcal * scale
+                            replacement_item["kcal"] = replacement_item["calories"]
+                            replacement_item["protein"] = float(replacement_item.get("protein") or 0.0) * scale
+                            replacement_item["fat"] = float(replacement_item.get("fat") or 0.0) * scale
+                            replacement_item["carbs"] = float(replacement_item.get("carbs") or 0.0) * scale
+                            
+                            if replacement_item.get("serving_grams"):
+                                replacement_item["serving_grams"] = float(replacement_item.get("serving_grams")) * scale
+                                replacement_item["quantity_g"] = replacement_item["serving_grams"]
+                    
+                    # Replace the target item
+                    old_item_name = str(target_item.get("name") or "")
+                    new_item_name = str(replacement_item.get("name") or "")
+                    
+                    meal_plan_payload[target_meal_idx]["items"][target_item_idx] = replacement_item
+                    successfully_injected.append(ingredient)
+                    
+                    logger.warning(
+                        "[FORCE-INJECT SUCCESS] user_id=%s ingredient=%s meal=%s replaced_item=%s (score=%.2f) with=%s",
+                        user.id,
+                        ingredient,
+                        meal_plan_payload[target_meal_idx].get("meal_type"),
+                        old_item_name,
+                        lowest_score,
+                        new_item_name,
+                    )
                 
-                # Recompute coverage after injection
-                covered_after = set()
-                for item in meal_items_for_db:
-                    for ingredient in normalized_available_ingredients:
-                        if ingredient_match_quality(item, ingredient) >= 2.0:
-                            covered_after.add(ingredient)
+                # Recompute coverage after force-injection
+                if successfully_injected:
+                    meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                    core_kcal, core_protein = _recompute_core_totals()
+                    
+                    # Re-check coverage
+                    covered_ingredients = set()
+                    for item in meal_items_for_db:
+                        for ingredient in normalized_available_ingredients:
+                            if ingredient_match_quality(item, ingredient) >= 2.0:
+                                covered_ingredients.add(ingredient)
+                    
+                    missing_ingredients = [
+                        ingredient
+                        for ingredient in normalized_available_ingredients
+                        if ingredient not in covered_ingredients
+                    ]
+                    
+                    logger.info(
+                        "[FORCE-INJECT SUMMARY] user_id=%s successfully_injected=%s still_missing=%s",
+                        user.id,
+                        successfully_injected,
+                        missing_ingredients,
+                    )
+                    
+                    final_coverage_before_save["covered"] = sorted(covered_ingredients)
+                    final_coverage_before_save["missing"] = list(missing_ingredients)
                 
-                missing_after = [
-                    ingredient
-                    for ingredient in normalized_available_ingredients
-                    if ingredient not in covered_after
-                ]
-                
-                final_coverage_before_save["meal_names_after"] = [
-                    str(item.get("name") or "")
-                    for item in meal_items_for_db
-                    if item.get("name")
-                ]
-                final_coverage_before_save["missing_after"] = list(missing_after)
-                
-                # Update ingredient warning data
-                if missing_after:
+                # Update ingredient warning data only for truly unavailable ingredients
+                if catalog_unavailable:
                     if ingredient_warning_data is None:
                         ingredient_warning_data = {}
-                    ingredient_warning_data["missingIngredients"] = missing_after
+                    ingredient_warning_data["missingIngredients"] = catalog_unavailable
                     ingredient_warning_data["message"] = "Chưa tìm thấy món phù hợp cho một số nguyên liệu đã chọn."
                     response_payload["ingredientWarnings"] = ingredient_warning_data
-                
+                    logger.warning(
+                        "[INGREDIENT COVERAGE UNAVAILABLE] user_id=%s catalog_unavailable=%s",
+                        user.id,
+                        catalog_unavailable,
+                    )
+            else:
                 logger.info(
-                    "[INGREDIENT COVERAGE BEFORE SAVE] %s",
-                    final_coverage_before_save,
+                    "[INGREDIENT COVERAGE COMPLETE] user_id=%s all_ingredients_covered=True covered=%s",
+                    user.id,
+                    sorted(covered_ingredients),
                 )
+            
+            logger.info(
+                "[INGREDIENT COVERAGE BEFORE SAVE SUMMARY] %s",
+                final_coverage_before_save,
+            )
+            
+            # CRITICAL FIX: Force-injection may have reduced core_kcal significantly
+            # Always rescale to target regardless of how far off we are
+            meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+            core_kcal, core_protein = _recompute_core_totals()
+
+            current_core_kcal = core_kcal
+            if current_core_kcal > 0 and target_kcal > 0:
+                catchup_scale = target_kcal / current_core_kcal
+                # Always rescale if not within 2% of target
+                if abs(catchup_scale - 1.0) > 0.02:
+                    capped_scale = float(np.clip(catchup_scale, 0.75, 2.5))
+                    for meal in meal_plan_payload:
+                        for item in meal.get("items", []):
+                            if not item.get("is_core", True):
+                                continue
+                            item["calories"] = float(item.get("calories") or 0.0) * capped_scale
+                            item["kcal"] = item["calories"]
+                            item["protein"] = float(item.get("protein") or 0.0) * capped_scale
+                            item["fat"] = float(item.get("fat") or 0.0) * capped_scale
+                            item["carbs"] = float(item.get("carbs") or 0.0) * capped_scale
+                            if item.get("serving_grams"):
+                                item["serving_grams"] = float(item.get("serving_grams")) * capped_scale
+                                item["quantity_g"] = item["serving_grams"]
+                    meal_items_for_db, total_kcal, total_protein, total_fat, total_carbs = _recompute_plan_totals()
+                    core_kcal, core_protein = _recompute_core_totals()
+                    
+                    # Final check: if still significantly below target, log error
+                    final_catchup_scale = target_kcal / core_kcal if core_kcal > 0 else 1.0
+                    if final_catchup_scale > 1.10:
+                        logger.warning(
+                            "[KCAL DEFICIT AFTER RESCALE] user_id=%s core_kcal=%s target_kcal=%s deficit_pct=%.1f%%",
+                            user.id,
+                            round(core_kcal),
+                            round(target_kcal),
+                            (final_catchup_scale - 1.0) * 100,
+                        )
+                    
+                    response_payload["meal_plan"]["core_kcal"] = round(core_kcal)
+                    response_payload["meal_plan"]["core_protein_g"] = round(core_protein)
+                    response_payload["meal_plan"]["total_kcal"] = round(total_kcal)
+                    response_payload["meal_plan"]["total_protein_g"] = round(total_protein)
+                    response_payload["meal_plan"]["total_fat_g"] = round(total_fat)
+                    response_payload["meal_plan"]["total_carbs_g"] = round(total_carbs)
+                    response_payload["meal_plan"]["meals"] = meal_plan_payload
+                    validation_result = self._validate_generated_plan(
+                        total_kcal=core_kcal,
+                        total_protein=core_protein,
+                        total_fat=total_fat,
+                        total_carbs=total_carbs,
+                        target=nutrition_target,
+                        errors=errors,
+                        warnings=warnings,
+                        infos=infos,
+                    )
+                    validation_result["meal_item_count_summary"] = meal_item_count_summary
+                    validation_result["meal_fill_debug"] = meal_fill_debug
+                    validation_result["recommendation_explanations"] = recommendation_explanations
+                    validation_result["ml_enabled"] = bool(ml_metadata.get("ml_enabled"))
+                    validation_result["ml_score_used"] = bool(ml_score_used)
+                    validation_result["ml_score_weight"] = ML_SCORE_WEIGHT
+                    response_payload["validation"] = validation_result
 
         if persist and meal_items_for_db:
             repository = RecommendationRepository(db)
@@ -11986,6 +12898,16 @@ class RecommenderService:
                     **response_payload.get("meal_plan", {}),
                     **(persisted_today.get("meal_plan") or {}),
                     "meals": persisted_today.get("meals") or response_payload.get("meal_plan", {}).get("meals", []),
+                    # Preserve available_ingredients và ingredient_coverage sau DB write để frontend hiển thị đúng coverage
+                    "available_ingredients": (
+                        response_payload.get("meal_plan", {}).get("available_ingredients")
+                        or (persisted_today.get("meal_plan") or {}).get("available_ingredients")
+                        or []
+                    ),
+                    "ingredient_coverage": (
+                        response_payload.get("meal_plan", {}).get("ingredient_coverage")
+                        or (persisted_today.get("meal_plan") or {}).get("ingredient_coverage")
+                    ),
                 }
                 response_payload["validation"] = persisted_today.get("validation") or response_payload.get("validation", {})
                 response_payload["meals"] = persisted_today.get("meals") or response_payload.get("meals", [])
@@ -12694,10 +13616,34 @@ class RecommenderService:
         }
         response_meal_names = _flatten_meal_names(response_payload["meal_plan"]["meals"])
         final_meal_names = _flatten_meal_names(meals_after_injection)
+
+        def _response_meals_cover_ingredient(ingredient: str, meals: list[dict]) -> bool:
+            """
+            Check if any food item in meals covers the ingredient using ingredient_is_covered_by_food.
+            Falls back to substring check for simple cases.
+            This replaces the naive substring check that misses "Ức gà (chín)" for ingredient "Thịt gà".
+            """
+            for meal in meals:
+                for item in meal.get("items", []):
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        if ingredient_is_covered_by_food(item, ingredient):
+                            return True
+                    except Exception:
+                        pass
+                    # Fallback: substring check for safety
+                    item_name = normalize_ingredient_name(
+                        item.get("name") or item.get("vi_name") or item.get("food_name") or ""
+                    )
+                    if item_name and normalize_ingredient_name(ingredient) in item_name:
+                        return True
+            return False
+
         missing_selected_in_response = [
             ingredient
             for ingredient in selected_ingredients
-            if not any(normalize_ingredient_name(ingredient) in normalize_ingredient_name(response_name) for response_name in response_meal_names)
+            if not _response_meals_cover_ingredient(ingredient, response_payload["meal_plan"]["meals"])
         ]
         missing_injected_in_response = [
             name
@@ -12715,11 +13661,10 @@ class RecommenderService:
             
             # First attempt: repair with existing injected items
             response_payload["meal_plan"]["meals"] = _repair_missing_injected_items(response_payload["meal_plan"]["meals"], selected_injected_items)
-            response_meal_names = _flatten_meal_names(response_payload["meal_plan"]["meals"])
             missing_selected_in_response = [
                 ingredient
                 for ingredient in selected_ingredients
-                if not any(normalize_ingredient_name(ingredient) in normalize_ingredient_name(response_name) for response_name in response_meal_names)
+                if not _response_meals_cover_ingredient(ingredient, response_payload["meal_plan"]["meals"])
             ]
             
             # Second attempt: try to find and inject candidates for still-missing ingredients
@@ -12730,6 +13675,8 @@ class RecommenderService:
                 
                 newly_injected = []
                 for missing_ingredient in missing_selected_in_response:
+                    logger.info("[FINAL COVERAGE CHECK] searching for: %s", missing_ingredient)
+                    
                     # Find best candidate for this ingredient
                     current_plan_items = [
                         (meal.get("meal_type"), idx, item)
@@ -12747,27 +13694,67 @@ class RecommenderService:
                     if candidate is not None:
                         candidate_payload = self._to_food_item_payload(candidate)
                         newly_injected.append(candidate_payload)
-                        logger.info("[INGREDIENT COVERAGE] found candidate for missing ingredient", {
-                            "ingredient": missing_ingredient,
-                            "candidate": safe_name(candidate),
-                        })
+                        logger.info("[FINAL COVERAGE CHECK] found candidate for missing ingredient: ingredient=%s, candidate=%s", 
+                                   missing_ingredient, safe_name(candidate))
+                    else:
+                        logger.error("[FINAL COVERAGE CHECK] NO CANDIDATE FOUND even in full catalog: ingredient=%s", missing_ingredient)
                 
-                # Inject newly found candidates
+                # Force-inject newly found candidates by replacing lowest-score non-required items
                 if newly_injected:
-                    response_payload["meal_plan"]["meals"] = _repair_missing_injected_items(
-                        response_payload["meal_plan"]["meals"], 
-                        newly_injected
-                    )
-                    response_meal_names = _flatten_meal_names(response_payload["meal_plan"]["meals"])
+                    logger.info("[FINAL COVERAGE CHECK] force-injecting %d missing ingredients", len(newly_injected))
+                    
+                    for new_item in newly_injected:
+                        # Find meal with lowest-score non-required item to replace
+                        best_replacement_target = None
+                        best_replacement_meal_idx = -1
+                        best_replacement_item_idx = -1
+                        lowest_score = float('inf')
+                        
+                        for meal_idx, meal in enumerate(response_payload["meal_plan"]["meals"]):
+                            if not isinstance(meal, dict):
+                                continue
+                            items = meal.get("items", [])
+                            if not isinstance(items, list):
+                                continue
+                            
+                            for item_idx, item in enumerate(items):
+                                if not isinstance(item, dict):
+                                    continue
+                                
+                                # Check if this item is NOT covering any selected ingredient
+                                is_required = any(
+                                    ingredient_match_quality(item, ing) >= 2.0
+                                    for ing in selected_ingredients
+                                )
+                                
+                                if not is_required:
+                                    item_score = float(item.get("score") or item.get("_score") or 0.0)
+                                    if item_score < lowest_score:
+                                        lowest_score = item_score
+                                        best_replacement_target = item
+                                        best_replacement_meal_idx = meal_idx
+                                        best_replacement_item_idx = item_idx
+                        
+                        # Replace lowest-score non-required item or append if no replacement found
+                        if best_replacement_target is not None:
+                            old_name = safe_name(best_replacement_target)
+                            response_payload["meal_plan"]["meals"][best_replacement_meal_idx]["items"][best_replacement_item_idx] = new_item
+                            logger.info("[FINAL COVERAGE CHECK] REPLACED low-score item: old=%s (score=%.2f), new=%s", 
+                                       old_name, lowest_score, safe_name(new_item))
+                        else:
+                            # No non-required item found - append to first meal
+                            if response_payload["meal_plan"]["meals"]:
+                                response_payload["meal_plan"]["meals"][0]["items"].append(new_item)
+                                logger.warning("[FINAL COVERAGE CHECK] APPENDED to first meal (no replacement target): new=%s", 
+                                             safe_name(new_item))
+                    
+                    # Re-check coverage after force-injection
                     missing_selected_in_response = [
                         ingredient
                         for ingredient in selected_ingredients
-                        if not any(normalize_ingredient_name(ingredient) in normalize_ingredient_name(response_name) for response_name in response_meal_names)
+                        if not _response_meals_cover_ingredient(ingredient, response_payload["meal_plan"]["meals"])
                     ]
-                    logger.info("[INGREDIENT COVERAGE] after injecting new candidates", {
-                        "newly_injected_count": len(newly_injected),
-                        "still_missing": missing_selected_in_response,
-                    })
+                    logger.info("[FINAL COVERAGE CHECK] after force-injection: still_missing=%d", len(missing_selected_in_response))
             
             # Final check: if still missing, add warning to response instead of crashing
             if missing_selected_in_response:
@@ -12777,12 +13764,41 @@ class RecommenderService:
                     "final_item_names": response_meal_names[:20],
                 })
                 
-                # Add warning to response instead of raising exception
-                if "ingredientWarnings" not in response_payload:
-                    response_payload["ingredientWarnings"] = {}
+                # 3.1 Split missing_selected_in_response: check catalog availability via ingredient_warning_data
+                _unavailable_in_warning = set(ingredient_warning_data.get("unavailableIngredients", []))
                 
-                response_payload["ingredientWarnings"]["missingIngredients"] = missing_selected_in_response
-                response_payload["ingredientWarnings"]["message"] = f"Chưa tìm được món phù hợp cho: {', '.join(missing_selected_in_response)}"
+                # An ingredient is "unavailable" if it IS in the unavailableIngredients list (not found in catalog)
+                # An ingredient is "pipeline-skipped" if it is NOT in that list (exists in catalog but missed)
+                final_unavailable = [
+                    ingredient
+                    for ingredient in missing_selected_in_response
+                    if ingredient in _unavailable_in_warning or not candidates_by_ingredient.get(str(ingredient))
+                ]
+                final_pipeline_skipped = [
+                    ingredient
+                    for ingredient in missing_selected_in_response
+                    if ingredient not in final_unavailable
+                ]
+                
+                # 3.3 For ingredients that exist in catalog but are still missing: log ERROR, do NOT write ingredientWarnings
+                if final_pipeline_skipped:
+                    logger.error(
+                        "[INGREDIENT PIPELINE BUG] final coverage check: ingredients exist in catalog but missing from response",
+                        {
+                            "final_pipeline_skipped": final_pipeline_skipped,
+                            "selected_ingredients": selected_ingredients,
+                            "final_item_names": response_meal_names[:20],
+                        },
+                    )
+                
+                # 3.2 Only write ingredientWarnings for ingredients with no catalog match
+                # 3.5 If final_unavailable is empty but final_pipeline_skipped is non-empty: log ERROR but do NOT write ingredientWarnings
+                if final_unavailable:
+                    if "ingredientWarnings" not in response_payload:
+                        response_payload["ingredientWarnings"] = {}
+                    
+                    response_payload["ingredientWarnings"]["missingIngredients"] = final_unavailable
+                    response_payload["ingredientWarnings"]["message"] = f"Chưa tìm được món phù hợp cho: {', '.join(final_unavailable)}"
         
         # Handle missing injected items (non-selected ingredients)
         if missing_injected_in_response:
@@ -12806,12 +13822,11 @@ class RecommenderService:
         if egg_trace_enabled:
             logger.warning("[EGG TRACE RESPONSE] %s", _egg_trace_meals(response_payload["meal_plan"]["meals"]))
         
-        # Final logging for ingredient coverage
-        final_response_meal_names = _flatten_meal_names(response_payload["meal_plan"]["meals"])
+        # Final logging for ingredient coverage — dùng ingredient_is_covered_by_food thay vì substring
         final_missing = [
             ingredient
             for ingredient in selected_ingredients
-            if not any(normalize_ingredient_name(ingredient) in normalize_ingredient_name(response_name) for response_name in final_response_meal_names)
+            if not _response_meals_cover_ingredient(ingredient, response_payload["meal_plan"]["meals"])
         ]
         
         # Build item-level coverage map
@@ -12841,15 +13856,23 @@ class RecommenderService:
                 if covered_by_item:
                     item_coverage_labels[item_name] = covered_by_item
         
+        # CRITICAL: Log comprehensive final coverage status
+        covered_ingredients = [ing for ing in selected_ingredients if ing not in final_missing]
         logger.info("[INGREDIENT COVERAGE FINAL] %s", {
             "selectedIngredients": selected_ingredients,
-            "coveredIngredients": [ing for ing in selected_ingredients if ing not in final_missing],
+            "coveredIngredients": covered_ingredients,
+            "coveredCount": len(covered_ingredients),
             "missingIngredients": final_missing,
+            "missingCount": len(final_missing),
+            "coveragePercentage": f"{100.0 * len(covered_ingredients) / len(selected_ingredients):.1f}%" if selected_ingredients else "N/A",
             "itemCoverageLabels": item_coverage_labels,
-            "final_item_names": final_response_meal_names[:20],
             "has_ingredient_warnings": "ingredientWarnings" in response_payload,
             "ingredient_warnings": response_payload.get("ingredientWarnings"),
         })
+        
+        # CRITICAL: If any ingredient is still missing, log it prominently
+        if final_missing:
+            logger.error("[INGREDIENT COVERAGE FAILURE] Some selected ingredients are missing from final menu: %s", final_missing)
         
         return response_payload
 

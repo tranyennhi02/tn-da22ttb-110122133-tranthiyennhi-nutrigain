@@ -101,10 +101,12 @@ const DEFAULT_TEST_FORM = {
   height: 167,
   weight: 48,
   target_weight: 58,
+  target_duration_value: 3,
+  target_duration_unit: "month",
   activity: "moderate",
   diet_type: "balanced",
   budget_level: "standard",
-  items_per_meal: 5,
+  items_per_meal: 3,
   favorite_foods: "",
   disliked_foods: "",
 };
@@ -409,7 +411,7 @@ class AdminErrorBoundary extends Component {
       return (
         <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
           <AdminSectionCard title="Không thể hiển thị trang Admin" description="Một thành phần giao diện bị lỗi khi đọc dữ liệu. Hãy tải lại trang để thử lại.">
-            <pre className="max-h-40 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-red-100">{String(this.state.error || "")}</pre>
+            <pre className="max-h-40 overflow-auto rounded-2xl bg-[#081832] p-4 text-xs text-red-100">{String(this.state.error || "")}</pre>
             <AdminButton className="mt-4" icon="refresh" onClick={() => window.location.reload()}>
               Tải lại trang
             </AdminButton>
@@ -480,7 +482,7 @@ function OverviewPage({ onNavigate, refreshKey }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[24px] bg-slate-950 p-6 text-white shadow-[0_18px_50px_rgba(15,23,42,0.18)]">
+      <div className="rounded-[24px] bg-[#081832] p-6 text-white shadow-[0_18px_50px_rgba(15,23,42,0.18)]">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-2xl">
             <p className="text-sm font-semibold text-sky-200">NutriGain Admin</p>
@@ -516,7 +518,7 @@ function OverviewPage({ onNavigate, refreshKey }) {
               <QualityBar label="Tỷ lệ món được gợi ý" value={eligibleRate} />
               <QualityBar label="Tài khoản đang hoạt động" value={activeRate} />
               <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-sm font-bold text-slate-900">Phân bố valid/minor/major</p>
+                <p className="text-sm font-bold text-[#081832]">Phân bố valid/minor/major</p>
                 <p className="mt-1 text-sm leading-6 text-slate-500">Chưa có endpoint tổng hợp phân bố trạng thái thực đơn, nên khu vực này chỉ hiển thị khi backend có dữ liệu.</p>
               </div>
             </div>
@@ -539,7 +541,7 @@ function AttentionRow({ title, value, tone, action }) {
   return (
     <button type="button" onClick={action} className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-4 text-left transition hover:border-slate-200 hover:bg-white">
       <span className="min-w-0">
-        <span className="block truncate text-sm font-bold text-slate-900">{title}</span>
+        <span className="block truncate text-sm font-bold text-[#081832]">{title}</span>
         <span className="mt-1 block text-[13px] text-slate-500">Mở chi tiết</span>
       </span>
       <span className={cx("min-w-12 rounded-full px-3 py-2 text-center text-lg font-extrabold leading-none", toneClass)}>{value}</span>
@@ -553,7 +555,7 @@ function QualityBar({ label, value }) {
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <p className="text-sm font-extrabold text-slate-950">{value}%</p>
+        <p className="text-sm font-extrabold text-[#081832]">{value}%</p>
       </div>
       <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
         <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
@@ -671,7 +673,7 @@ function UsersPage({ refreshKey }) {
                   {String(user.full_name || user.email || "U").slice(0, 1).toUpperCase()}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-bold text-slate-900" title={user.full_name || user.email}>{user.full_name || "Chưa có tên"}</span>
+                  <span className="block truncate text-sm font-bold text-[#081832]" title={user.full_name || user.email}>{user.full_name || "Chưa có tên"}</span>
                   <span className="block max-w-[260px] truncate text-[13px] text-slate-500" title={user.email}>{user.email || `ID #${user.id}`}</span>
                 </span>
               </button>
@@ -681,7 +683,7 @@ function UsersPage({ refreshKey }) {
             <td className="px-5 py-3.5">
               {user.bmi ? (
                 <div>
-                  <p className="text-sm font-bold text-slate-900">BMI {formatNumber(user.bmi)}</p>
+                  <p className="text-sm font-bold text-[#081832]">BMI {formatNumber(user.bmi)}</p>
                   <p className="text-[13px] text-slate-500">{user.bmi_label || user.bmi_category || "Đã có profile"}</p>
                 </div>
               ) : (
@@ -960,7 +962,7 @@ function FoodsPage({ refreshKey }) {
                 <div className="flex min-w-0 items-center gap-3">
                   <FoodThumb food={food} />
                   <div className="min-w-0">
-                    <button type="button" onClick={() => setSelected(food)} className="block max-w-[320px] truncate text-left text-sm font-bold text-slate-900 hover:text-blue-700" title={food.name}>
+                    <button type="button" onClick={() => setSelected(food)} className="block max-w-[320px] truncate text-left text-sm font-bold text-[#081832] hover:text-blue-700" title={food.name}>
                       {food.name || "Chưa có tên"}
                     </button>
                     <p className="text-[13px] text-slate-500">{CATEGORY_MAP[food.category] || food.category || "Chưa phân nhóm"}</p>
@@ -968,7 +970,7 @@ function FoodsPage({ refreshKey }) {
                 </div>
               </td>
               <td className="px-5 py-3.5">
-                <p className="text-lg font-extrabold leading-none text-slate-950">{formatNumber(food.calories)} kcal</p>
+                <p className="text-lg font-extrabold leading-none text-[#081832]">{formatNumber(food.calories)} kcal</p>
                 <p className="mt-1 text-[13px] font-medium text-slate-500">{formatNumber(food.protein, "g")} protein</p>
               </td>
               <td className="px-5 py-3.5">
@@ -1298,7 +1300,7 @@ function FoodImagesPage({ refreshKey }) {
                 <FoodThumb food={food} size="preview" />
                 <div className="space-y-4 p-5">
                   <div className="min-w-0">
-                    <h3 className="line-clamp-2 min-h-[40px] text-sm font-extrabold leading-5 text-slate-950" title={food.name}>{food.name}</h3>
+                    <h3 className="line-clamp-2 min-h-[40px] text-sm font-extrabold leading-5 text-[#081832]" title={food.name}>{food.name}</h3>
                     <p className="mt-1 truncate text-[13px] text-slate-500" title={food.image_url || ""}>{food.image_source_type || "placeholder"}</p>
                   </div>
                   <div className="flex items-center justify-between gap-3">
@@ -1553,7 +1555,7 @@ function FoodImagesPage({ refreshKey }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-4">
-      <button type="button" aria-label="Đóng" className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
+      <button type="button" aria-label="Đóng" className="absolute inset-0 bg-[#081832]/40 backdrop-blur-sm" onClick={onClose} />
       <section className="relative flex w-[min(820px,calc(100vw-32px))] max-h-[82vh] flex-col overflow-hidden rounded-[24px] bg-white shadow-2xl">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[#e5edf0] px-[22px] py-[18px] bg-white">
           <div className="min-w-0">
@@ -1801,6 +1803,8 @@ function RecommendationTestPage({ refreshKey }) {
         weight: toNumberOrUndefined(form.weight),
         height: toNumberOrUndefined(form.height),
         target_weight: toNumberOrUndefined(form.target_weight),
+        target_duration_value: toNumberOrUndefined(form.target_duration_value),
+        target_duration_unit: form.target_duration_unit,
         age: toNumberOrUndefined(form.age),
         sex: form.sex,
         activity: form.activity,
@@ -1837,10 +1841,26 @@ function RecommendationTestPage({ refreshKey }) {
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Giới tính"><SelectInput value={form.sex} onChange={(value) => update("sex", value)}><option value="male">Nam</option><option value="female">Nữ</option></SelectInput></FormField>
             <FormField label="Tuổi"><input className="admin-input" type="number" value={form.age} onChange={(event) => update("age", event.target.value)} /></FormField>
-            <FormField label="Chiều cao"><input className="admin-input" type="number" value={form.height} onChange={(event) => update("height", event.target.value)} /></FormField>
-            <FormField label="Cân nặng"><input className="admin-input" type="number" value={form.weight} onChange={(event) => update("weight", event.target.value)} /></FormField>
-            <FormField label="Cân nặng mục tiêu"><input className="admin-input" type="number" value={form.target_weight} onChange={(event) => update("target_weight", event.target.value)} /></FormField>
-            <FormField label="Số món mỗi bữa"><input className="admin-input" type="number" min="1" max="10" value={form.items_per_meal} onChange={(event) => update("items_per_meal", event.target.value)} /></FormField>
+            <FormField label="Chiều cao (cm)"><input className="admin-input" type="number" value={form.height} onChange={(event) => update("height", event.target.value)} /></FormField>
+            <FormField label="Cân nặng (kg)"><input className="admin-input" type="number" value={form.weight} onChange={(event) => update("weight", event.target.value)} /></FormField>
+            <FormField label="Mục tiêu (kg)"><input className="admin-input" type="number" value={form.target_weight} onChange={(event) => update("target_weight", event.target.value)} /></FormField>
+            <FormField label="Số món mỗi bữa">
+              <SelectInput value={form.items_per_meal} onChange={(value) => update("items_per_meal", value)}>
+                <option value={3}>3 món</option>
+                <option value={4}>4 món</option>
+                <option value={5}>5 món</option>
+              </SelectInput>
+            </FormField>
+            <FormField label="Tốc độ tăng">
+              <div className="flex gap-2">
+                <input className="admin-input w-16 px-2 text-center" type="number" value={form.target_duration_value} onChange={(event) => update("target_duration_value", event.target.value)} />
+                <SelectInput className="flex-1" value={form.target_duration_unit} onChange={(value) => update("target_duration_unit", value)}>
+                  <option value="week">Tuần</option>
+                  <option value="month">Tháng</option>
+                  <option value="year">Năm</option>
+                </SelectInput>
+              </div>
+            </FormField>
           </div>
           <FormField label="Mức vận động">
             <SelectInput value={form.activity} onChange={(value) => update("activity", value)}>
@@ -1910,7 +1930,7 @@ function RecommendationTestPage({ refreshKey }) {
                 {meals.map((meal) => (
                   <div key={meal.meal_type} className="rounded-2xl bg-slate-50 p-4">
                     <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-extrabold text-slate-900">{meal.meal_type}</h3>
+                      <h3 className="text-sm font-extrabold text-[#081832]">{meal.meal_type}</h3>
                       <AdminBadge tone="blue">{formatNumber(meal.actual_kcal || meal.total_kcal)} kcal</AdminBadge>
                     </div>
                     <div className="space-y-2">
@@ -1927,7 +1947,7 @@ function RecommendationTestPage({ refreshKey }) {
             </AdminSectionCard>
 
             <AdminSectionCard title="Dữ liệu kỹ thuật">
-              <details className="rounded-2xl bg-slate-950 p-4 text-slate-100">
+              <details className="rounded-2xl bg-[#081832] p-4 text-slate-100">
                 <summary className="cursor-pointer text-sm font-bold">Xem JSON raw</summary>
                 <pre className="mt-4 max-h-[420px] overflow-auto text-xs leading-5">{JSON.stringify(result, null, 2)}</pre>
               </details>
@@ -2017,11 +2037,11 @@ function MealPlansPage({ refreshKey }) {
         {asArray(data.items).map((plan) => (
           <tr key={plan.id} className="h-16 transition hover:bg-slate-50">
             <td className="px-5 py-3.5">
-              <p className="truncate text-sm font-bold text-slate-900" title={plan.user_email}>{plan.user_email || `User #${plan.user_id}`}</p>
+              <p className="truncate text-sm font-bold text-[#081832]" title={plan.user_email}>{plan.user_email || `User #${plan.user_id}`}</p>
               <p className="text-[13px] text-slate-500">Plan #{plan.id}</p>
             </td>
             <td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(plan.created_at || plan.plan_date)}</td>
-            <td className="px-5 py-3.5 text-lg font-extrabold text-slate-950">{formatNumber(plan.total_kcal || plan.target_kcal)}</td>
+            <td className="px-5 py-3.5 text-lg font-extrabold text-[#081832]">{formatNumber(plan.total_kcal || plan.target_kcal)}</td>
             <td className="px-5 py-3.5 text-sm font-semibold text-slate-500">{plan.total_protein_g ? formatNumber(plan.total_protein_g, "g") : "-"}</td>
             <td className="px-5 py-3.5"><AdminStatusPill status={plan.status}>{getStatusLabel(plan.status)}</AdminStatusPill></td>
             <td className="px-5 py-3.5 text-right"><AdminButton variant="subtle" className="h-9 px-3 text-xs" onClick={() => openDetail(plan)}>Mở</AdminButton></td>
@@ -2054,7 +2074,7 @@ function MealPlanDrawer({ plan, loading, open, onClose }) {
                 <div className="space-y-2">
                   {asArray(meal.items).map((item) => (
                     <div key={item.id || item.food_id} className="rounded-2xl bg-slate-50 p-4">
-                      <p className="truncate text-sm font-bold text-slate-900" title={item.name}>{item.name || item.food_id}</p>
+                      <p className="truncate text-sm font-bold text-[#081832]" title={item.name}>{item.name || item.food_id}</p>
                       <p className="mt-1 text-xs text-slate-500">{formatNumber(item.kcal)} kcal - {formatNumber(item.protein, "g")} protein - {item.serving_display || "khẩu phần chưa rõ"}</p>
                     </div>
                   ))}
@@ -2134,7 +2154,7 @@ function SystemErrorsPage({ refreshKey }) {
           return (
             <tr key={item.id} className="h-16 transition hover:bg-slate-50">
               <td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(item.time)}</td>
-              <td className="max-w-[260px] px-5 py-3.5"><p className="truncate text-sm font-bold text-slate-900" title={item.endpoint}>{item.endpoint || "-"}</p></td>
+              <td className="max-w-[260px] px-5 py-3.5"><p className="truncate text-sm font-bold text-[#081832]" title={item.endpoint}>{item.endpoint || "-"}</p></td>
               <td className="max-w-[220px] px-5 py-3.5"><p className="truncate text-sm text-slate-600" title={item.user_email}>{item.user_email || "-"}</p></td>
               <td className="px-5 py-3.5"><AdminStatusPill status={severity}>{severity}</AdminStatusPill></td>
               <td className="px-5 py-3.5"><AdminStatusPill status={item.status}>{item.status || "OPEN"}</AdminStatusPill></td>
@@ -2194,7 +2214,7 @@ function SettingsPage({ refreshKey }) {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {asArray(data.items).map((item) => (
             <div key={item.category} className="rounded-2xl bg-slate-50 p-4">
-              <p className="truncate text-sm font-bold text-slate-900">{CATEGORY_MAP[item.category] || item.category}</p>
+              <p className="truncate text-sm font-bold text-[#081832]">{CATEGORY_MAP[item.category] || item.category}</p>
               <p className="mt-2 text-2xl font-extrabold text-blue-600">{formatNumber(item.count)}</p>
             </div>
           ))}
@@ -2242,7 +2262,7 @@ function MiniInfo({ label, value }) {
   return (
     <div className="rounded-2xl border border-slate-100 bg-[#F8FAFC] p-4">
       <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <div className="mt-2 text-sm font-bold text-slate-950">{value}</div>
+      <div className="mt-2 text-sm font-bold text-[#081832]">{value}</div>
     </div>
   );
 }
@@ -2251,7 +2271,7 @@ function MiniLine({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-100 bg-[#F8FAFC] px-4 py-3">
       <span className="text-sm font-medium text-slate-500">{label}</span>
-      <span className="min-w-0 truncate text-right text-sm font-bold text-slate-950" title={typeof value === "string" ? value : undefined}>{value}</span>
+      <span className="min-w-0 truncate text-right text-sm font-bold text-[#081832]" title={typeof value === "string" ? value : undefined}>{value}</span>
     </div>
   );
 }
@@ -2338,7 +2358,7 @@ function AdminShell({ user, onLogout }) {
   });
 
   return (
-    <div className="min-h-screen bg-[#F6F8FB] text-slate-900">
+    <div className="min-h-screen bg-[#F6F8FB] text-[#081832]">
       <style>{`
         .admin-input {
           height: 48px;
@@ -2367,7 +2387,7 @@ function AdminShell({ user, onLogout }) {
               Menu
             </button>
             <div className="hidden min-w-0 lg:block">
-              <p className="truncate text-sm font-bold text-slate-900">{meta.title}</p>
+              <p className="truncate text-sm font-bold text-[#081832]">{meta.title}</p>
               <p className="truncate text-xs font-medium text-slate-500">{todayLabel}</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
@@ -2377,7 +2397,7 @@ function AdminShell({ user, onLogout }) {
                   {String(user?.email || "A").slice(0, 1).toUpperCase()}
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold text-slate-900">{user?.full_name || "Admin"}</p>
+                  <p className="truncate text-sm font-bold text-[#081832]">{user?.full_name || "Admin"}</p>
                   <p className="truncate text-xs text-slate-500">{user?.email || "admin@nutrigain.com"}</p>
                 </div>
               </div>
@@ -2404,9 +2424,9 @@ function AdminSidebar({ activeKey, onNavigate, onLogout, user, mobileOpen, onClo
     <aside className="flex h-full w-[260px] flex-col border-r border-slate-200/80 bg-white p-4">
       <div className="mb-7 flex items-center justify-between gap-3 px-2">
         <button type="button" onClick={() => onNavigate("overview")} className="flex min-w-0 items-center gap-3 text-left">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-lg font-extrabold text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)]">N</span>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#081832] text-lg font-extrabold text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)]">N</span>
           <span className="min-w-0">
-            <span className="block truncate text-base font-extrabold tracking-tight text-slate-950">NutriGain</span>
+            <span className="block truncate text-base font-extrabold tracking-tight text-[#081832]">NutriGain</span>
             <span className="block truncate text-xs font-semibold text-slate-500">Admin workspace</span>
           </span>
         </button>
@@ -2425,7 +2445,7 @@ function AdminSidebar({ activeKey, onNavigate, onLogout, user, mobileOpen, onClo
               onClick={() => onNavigate(item.key)}
               className={cx(
                 "relative flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold transition",
-                active ? "bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.12)]" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                active ? "bg-[#081832] text-white shadow-[0_10px_22px_rgba(15,23,42,0.12)]" : "text-slate-600 hover:bg-slate-50 hover:text-[#081832]"
               )}
             >
               {active ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-sky-400" /> : null}
@@ -2442,7 +2462,7 @@ function AdminSidebar({ activeKey, onNavigate, onLogout, user, mobileOpen, onClo
             {String(user?.email || "A").slice(0, 1).toUpperCase()}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-slate-900">{user?.full_name || "Admin"}</p>
+            <p className="truncate text-sm font-bold text-[#081832]">{user?.full_name || "Admin"}</p>
             <p className="truncate text-xs text-slate-500">{user?.email || "admin@nutrigain.com"}</p>
           </div>
         </div>

@@ -722,6 +722,19 @@ function evaluateIngredientMatch(food, ingredient) {
     };
   }
 
+  if (detectedGroup === "chicken" && isChickenMatch(food)) {
+    return {
+      selectedIngredient,
+      normalizedSelectedIngredient,
+      detectedGroup,
+      candidateName,
+      normalizedCandidateName,
+      matchReason: "chicken-specific matcher",
+      rejectedReason,
+      matched: true,
+    };
+  }
+
   if (detectedGroup === "tofu") {
     if (!isTofuMatch(food)) {
       rejectedReason = "tofu specific matcher missing";
@@ -935,6 +948,32 @@ function isChickenMatch(item) {
     "co ga tay",
     "ga tay xay",
     "turkey",
+    // Các món gà phổ biến chưa có trong list
+    "ga rang",
+    "ga kho",
+    "ga xao",
+    "ga luoc",
+    "ga hap",
+    "ga bung",
+    "ga om",
+    "ga sot",
+    "ga cuon",
+    "ga lac",
+    "ga ta",
+    "ga cong nghiep",
+    "ga mo",
+    "ga vien",
+    "com ga",
+    "chao ga",
+    "bun ga",
+    "pho ga",
+    "banh mi ga",
+    "ga sa ot",
+    "ga sa te",
+    "ga gung",
+    "ga tieu xanh",
+    "ga nau",
+    "ga xot",
   ];
 
   const negative = [
@@ -949,7 +988,23 @@ function isChickenMatch(item) {
     return false;
   }
 
-  return positive.some((alias) => text.includes(alias));
+  if (positive.some((alias) => text.includes(alias))) {
+    return true;
+  }
+
+  // Fallback: text chứa token "ga" và category/food_group là protein_meat / chicken
+  if (typeof item !== "string") {
+    const rawText = buildSearchableText(item).toLowerCase();
+    const tokens = rawText.match(/[\p{L}\p{N}]+/gu) || [];
+    if (tokens.includes("ga")) {
+      const category = normalizeText(String(item?.category || item?.food_group || item?.clean_category || ""));
+      if (category.includes("protein") || category.includes("meat") || category.includes("thit") || category.includes("ga")) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function isPorkMatch(item) {
@@ -960,6 +1015,11 @@ function isPorkMatch(item) {
     "thit lon",
     "thit heo",
     "dui heo",
+    "suon heo",
+    "suon lon",
+    "ba chi",
+    "ba roi",
+    "nac heo",
     "giam bong heo",
     "xuc xich thit lon",
     "xuc xich heo",
@@ -993,7 +1053,15 @@ function isBeefMatch(item) {
     "bit tet",
     "suon bo",
     "uc bo",
-    "beef"
+    "bo bap",
+    "bap bo",
+    "bo nuong",
+    "bo xao",
+    "bo luoc",
+    "bo kho",
+    "beef",
+    "steak",
+    "beefsteak",
   ];
 
   const negative = [
@@ -1219,7 +1287,7 @@ function doesItemMatchRequiredIngredient(requiredIngredient, item) {
     normalizedRequired.includes("thit ga") ||
     normalizedRequired === "ga"
   ) {
-    return isChickenMatch(item);
+    return isChickenMatch(item) || foodMatchesIngredient(item, requiredIngredient);
   }
 
   if (
@@ -1575,6 +1643,20 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
       refreshWeightSummary().catch(() => {});
     }
   }, [activeSection]);
+
+  function patchWeightSummaryWithSavedLog(savedLog) {
+    const logDate = savedLog?.log_date;
+    if (!logDate) return;
+    const weightKg = Number(savedLog?.weight_kg);
+    setWeightSummary((current) => ({
+      ...(current && typeof current === "object" ? current : {}),
+      last_log_date: logDate,
+      latest_log_date: logDate,
+      ...(Number.isFinite(weightKg) && weightKg > 0
+        ? { current_weight: weightKg, latest_log_weight: weightKg }
+        : {}),
+    }));
+  }
 
   async function refreshWeightSummary() {
     try {
@@ -2495,10 +2577,19 @@ function DashboardView({ userEmail, onLogout, initialFormState, initialResult, i
     setDrawerOpen(false);
   }
 
-  async function refreshProfileFromBackend() {
+  async function refreshProfileFromBackend(savedLog) {
+    if (savedLog?.log_date) {
+      patchWeightSummaryWithSavedLog(savedLog);
+    }
+
+    try {
+      await refreshWeightSummary();
+    } catch (error) {
+      console.warn("[WEIGHT SUMMARY REFRESH FAILED]", error);
+    }
+
     try {
       const currentUser = await fetchCurrentUser();
-      await refreshWeightSummary();
       if (currentUser && typeof onProfileUpdate === "function") {
         onProfileUpdate(currentUser);
       }
@@ -3813,6 +3904,7 @@ function DashboardContent({
           summary={summary}
           validation={validation}
           nutritionTarget={nutritionTarget}
+          profileSettings={profileSettings}
           mealLog={mealLog}
           onMealLogChange={onMealLogChange}
           onEatingDayCompleted={onEatingDayCompleted}
@@ -3934,47 +4026,6 @@ function OverviewPage({
 }) {
   const [isExporting, setIsExporting] = useState(false);
 
-  function isSameVietnamDate(value, targetDate = new Date()) {
-    if (!value) return false;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return false;
-
-    const formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Ho_Chi_Minh",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-
-    return formatter.format(date) === formatter.format(targetDate);
-  }
-
-  function getLatestWeightLogDate(summaryData) {
-    const latest =
-      summaryData?.latest_log ||
-      summaryData?.latestLog ||
-      summaryData?.current_log ||
-      summaryData?.last_log ||
-      null;
-
-    if (latest) {
-      return latest.log_date || latest.date || latest.created_at || latest.updated_at || null;
-    }
-
-    const points = summaryData?.chart_points || summaryData?.milestone_points || summaryData?.points || summaryData?.logs || [];
-    if (Array.isArray(points) && points.length > 0) {
-      const sorted = [...points].sort((a, b) => {
-        const left = new Date(a.log_date || a.date || a.created_at || 0).getTime();
-        const right = new Date(b.log_date || b.date || b.created_at || 0).getTime();
-        return right - left;
-      });
-
-      return sorted[0]?.log_date || sorted[0]?.date || sorted[0]?.created_at || sorted[0]?.updated_at || null;
-    }
-
-    return summaryData?.latest_log_date || summaryData?.current_log_date || null;
-  }
-
   async function handleExportReport() {
     setIsExporting(true);
     try {
@@ -3997,12 +4048,13 @@ function OverviewPage({
   }
 
   const [showDetails, setShowDetails] = useState(false);
-  const latestWeightLogDate = getLatestWeightLogDate(weightSummary);
-  const weightUpdatedToday = isSameVietnamDate(latestWeightLogDate);
+  const weightUpdatedToday = hasWeightLogToday(weightSummary);
 
   console.log("[OVERVIEW WEIGHT STATUS]", {
     weightSummary,
-    latestWeightLogDate,
+    last_log_date: weightSummary?.last_log_date,
+    latest_log_date: weightSummary?.latest_log_date,
+    current_weight: weightSummary?.current_weight,
     weightUpdatedToday,
   });
   
@@ -4836,6 +4888,45 @@ function getHistoryRecordGroups(record) {
 // Helper: Format time to Vietnam timezone
 const VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh";
 
+function vietnamCalendarDateKey(targetDate = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: VIETNAM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(targetDate);
+}
+
+function normalizeWeightLogDateKey(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return vietnamCalendarDateKey(date);
+}
+
+function isVietnamCalendarDateToday(value, targetDate = new Date()) {
+  const dateKey = normalizeWeightLogDateKey(value);
+  return Boolean(dateKey) && dateKey === vietnamCalendarDateKey(targetDate);
+}
+
+function hasWeightLogToday(summaryData) {
+  if (!summaryData) return false;
+
+  const summaryDate = summaryData.last_log_date || summaryData.latest_log_date;
+  if (isVietnamCalendarDateToday(summaryDate)) return true;
+
+  const points = summaryData.chart_points || summaryData.milestone_points || [];
+  if (!Array.isArray(points)) return false;
+
+  return points.some((point) => isVietnamCalendarDateToday(
+    point?.log_date || point?.date || point?.source_log_date,
+  ));
+}
+
 function formatVietnamTime(value) {
   if (!value) return "";
   const raw = String(value);
@@ -5449,7 +5540,89 @@ function HistoryDayCard({ date, rows, isOpen, onToggle }) {
   );
 }
 
-function JournalPage({ result, meals, summary, validation, nutritionTarget, mealLog, onMealLogChange, onEatingDayCompleted, eatingHistoryRefreshKey, onEditProfile, onNavigate }) {
+const JOURNAL_MAIN_MEAL_TYPES = ["breakfast", "lunch", "dinner"];
+
+function computePlanAdherenceFromDayPlan(plan, expectedPerMeal) {
+  if (!plan?.meals || expectedPerMeal <= 0) return 0;
+
+  const expectedTotal = expectedPerMeal * JOURNAL_MAIN_MEAL_TYPES.length;
+  const eatenCredits = JOURNAL_MAIN_MEAL_TYPES.reduce((sum, mealType) => {
+    const eatenInMeal = Array.isArray(plan.meals[mealType]) ? plan.meals[mealType].length : 0;
+    return sum + Math.min(eatenInMeal, expectedPerMeal);
+  }, 0);
+
+  if (expectedTotal <= 0) return 0;
+  return Math.min(100, Math.round((eatenCredits / expectedTotal) * 100));
+}
+
+function computeLivePlanAdherence(meals, mealLog, expectedPerMeal) {
+  if (!Array.isArray(meals) || meals.length === 0 || expectedPerMeal <= 0) return 0;
+
+  const mainMeals = meals.filter((meal) => JOURNAL_MAIN_MEAL_TYPES.includes(getMealKey(meal)));
+  const expectedTotal = expectedPerMeal * Math.max(mainMeals.length, JOURNAL_MAIN_MEAL_TYPES.length);
+  const eatenCredits = mainMeals.reduce((sum, meal) => {
+    const eatenInMeal = (meal.items || []).filter((item) => {
+      const entry = getMealLogEntry(mealLog, meal, item);
+      return isFoodMarkedEaten(item, entry);
+    }).length;
+    return sum + Math.min(eatenInMeal, expectedPerMeal);
+  }, 0);
+
+  if (expectedTotal <= 0) return 0;
+  return Math.min(100, Math.round((eatenCredits / expectedTotal) * 100));
+}
+
+function computePlanAdherencePct({
+  periodMode,
+  selectedDate,
+  selectedMonth,
+  selectedYear,
+  historyGrouped,
+  meals,
+  mealLog,
+  expectedPerMeal,
+}) {
+  if (expectedPerMeal <= 0) return 0;
+
+  if (periodMode === "day") {
+    const dayData = historyGrouped.find((day) => day.date === selectedDate);
+    if (dayData?.plans?.length > 0) {
+      const activePlan = dayData.plans.find((plan) => plan.isCurrent) || dayData.plans[0];
+      return computePlanAdherenceFromDayPlan(activePlan, expectedPerMeal);
+    }
+
+    if (selectedDate === todayInputValue()) {
+      return computeLivePlanAdherence(meals, mealLog, expectedPerMeal);
+    }
+
+    return 0;
+  }
+
+  const relevantDays = historyGrouped.filter((day) => {
+    if (periodMode === "month") return day.date?.startsWith(selectedMonth);
+    return day.date?.startsWith(`${selectedYear}-`);
+  });
+
+  if (relevantDays.length === 0) {
+    if (periodMode === "month" && selectedMonth === todayInputValue().slice(0, 7)) {
+      return computeLivePlanAdherence(meals, mealLog, expectedPerMeal);
+    }
+    return 0;
+  }
+
+  const dailyPercentages = relevantDays
+    .map((day) => {
+      const activePlan = day.plans?.find((plan) => plan.isCurrent) || day.plans?.[0];
+      if (!activePlan) return null;
+      return computePlanAdherenceFromDayPlan(activePlan, expectedPerMeal);
+    })
+    .filter((value) => value !== null);
+
+  if (dailyPercentages.length === 0) return 0;
+  return Math.round(dailyPercentages.reduce((sum, value) => sum + value, 0) / dailyPercentages.length);
+}
+
+function JournalPage({ result, meals, summary, validation, nutritionTarget, profileSettings, mealLog, onMealLogChange, onEatingDayCompleted, eatingHistoryRefreshKey, onEditProfile, onNavigate }) {
   const entries = mealLog?.entries || {};
   const manualItems = mealLog?.manualItems || [];
   const [historyRows, setHistoryRows] = useState([]);
@@ -5681,20 +5854,35 @@ function JournalPage({ result, meals, summary, validation, nutritionTarget, meal
     });
   }, [entries, meals, periodMode, selectedDate, historyRows, fallbackRows, rowsForPeriod, filteredRows, historyTotals, historyError]);
 
-  const actualTotals = historyTotals || sumItems(filteredRows);
-  // planTotals should reflect only core/default-selected items — optional items
-  // are for swapping only and must not inflate the "plan" benchmark.
-  const planTotals = sumItems(
-    meals.flatMap((meal) => meal.items || []).filter((item) => {
-      if (item.is_default_selected !== undefined) return Boolean(item.is_default_selected);
-      if (item.is_core !== undefined) return Boolean(item.is_core);
-      return true;
-    })
+  // Đồng bộ với Tổng quan: khi đang xem hôm nay ở chế độ ngày,
+  // dùng cùng nguồn calculateConsumedNutrition(meals, mealLog) như OverviewPage
+  // thay vì historyTotals từ API (có thể lag so với state client)
+  const isViewingToday = periodMode === "day" && selectedDate === todayInputValue();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const liveConsumedNutrition = useMemo(
+    () => calculateConsumedNutrition(meals, mealLog),
+    [meals, mealLog]
   );
-  const planKcalPct = Math.min(Math.round((planTotals.calories / Math.max(nutritionTarget.targetCalories, 1)) * 100), 100);
+  const actualTotals = isViewingToday ? liveConsumedNutrition : (historyTotals || sumItems(filteredRows));
   const targetCalories = Number(nutritionTarget?.targetCalories || summary?.targetCalories || 0);
   const eatenCalories = Number(actualTotals.calories || 0);
   const progressPercent = Math.round((eatenCalories / Math.max(targetCalories, 1)) * 100);
+
+  const planAdherencePct = useMemo(() => {
+    if (periodMode === "day") {
+      return Math.min(100, progressPercent);
+    }
+    
+    let relevantDaysCount = 1;
+    if (periodMode === "month") {
+      relevantDaysCount = Math.max(1, historyGrouped.filter((day) => day.date?.startsWith(selectedMonth)).length);
+    } else if (periodMode === "year") {
+      relevantDaysCount = Math.max(1, historyGrouped.filter((day) => day.date?.startsWith(`${selectedYear}-`)).length);
+    }
+    
+    const periodTargetCalories = Math.max(targetCalories * relevantDaysCount, 1);
+    return Math.min(100, Math.round((eatenCalories / periodTargetCalories) * 100));
+  }, [periodMode, progressPercent, historyGrouped, selectedMonth, selectedYear, targetCalories, eatenCalories]);
 
   const nextStepCard = useMemo(() => {
     // Always show "Go to Weight Tracking" as the next step
@@ -5837,8 +6025,8 @@ function JournalPage({ result, meals, summary, validation, nutritionTarget, meal
           
           <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-100 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Thực đơn gợi ý</p>
-            <p className={`mt-2 text-3xl font-black ${planKcalPct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
-              {planKcalPct}%
+            <p className={`mt-2 text-3xl font-black ${planAdherencePct >= 90 ? "text-[#10B981]" : "text-[#FB923C]"}`}>
+              {planAdherencePct}%
             </p>
           </div>
         </div>
@@ -6170,6 +6358,12 @@ function MealsPage({
   const hasAnyEatenItem = displayMeals.some((meal) =>
     (meal.items || []).some((item) => isMealItemEaten(meal, item, mealLog)),
   );
+  const currentMealPlanId =
+    result?.meal_plan?.id ||
+    result?.meal_plan?.meal_plan_id ||
+    result?.id ||
+    result?.meal_plan_id ||
+    null;
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [restoreRecords, setRestoreRecords] = useState([]);
   const [restoreLoading, setRestoreLoading] = useState(false);
@@ -6548,6 +6742,7 @@ function MealsPage({
                 key={meal.title}
                 mealName={meal.title}
                 meal={meal}
+                mealPlanId={currentMealPlanId}
                 totalKcal={totals.calories}
                 mealTargetKcal={mealTargetKcal}
                 itemCount={meal.items.length}
@@ -6954,7 +7149,7 @@ const RANK_RING_CLASSES = {
   D:  "ring-red-200",
 };
 
-function MealScoreInline({ eatenItems, selectedKcal, targetKcalMeal, mealType }) {
+function MealScoreInline({ eatenItems, selectedKcal, targetKcalMeal, mealType, mealPlanId }) {
   const rankResult   = computeMealRank(selectedKcal, targetKcalMeal);
   const almostResult = computeAlmostPerfect(selectedKcal, targetKcalMeal);
   const diversity    = computeDiversity(eatenItems);
@@ -6965,8 +7160,13 @@ function MealScoreInline({ eatenItems, selectedKcal, targetKcalMeal, mealType })
   // Persist points to localStorage whenever rank/points change (debounced via stable deps)
   useEffect(() => {
     if (!rankResult || points <= 0 || !mealType) return;
-    recordMealPoints({ rank: rankResult.rank, points, mealType: String(mealType) });
-  }, [rankResult?.rank, points, mealType]); // eslint-disable-line react-hooks/exhaustive-deps
+    recordMealPoints({
+      rank: rankResult.rank,
+      points,
+      mealType: String(mealType),
+      mealPlanId,
+    });
+  }, [rankResult?.rank, points, mealType, mealPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasSelection = eatenItems.length > 0;
   const badgeCls = rankResult ? RANK_BADGE_CLASSES[rankResult.rank] : "bg-slate-200 text-slate-500";
@@ -7036,7 +7236,7 @@ function MealScoreInline({ eatenItems, selectedKcal, targetKcalMeal, mealType })
   );
 }
 
-function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, expectedCount, status, items, totals, balance, accent, mealLog = {}, onToggleFood }) {
+function MealSection({ mealName, meal, mealPlanId, totalKcal, mealTargetKcal, itemCount, expectedCount, status, items, totals, balance, accent, mealLog = {}, onToggleFood }) {
   const expected = Number(expectedCount || 0);
   const isShort = expected > 0 && itemCount < expected;
   const mealForLog = meal || mealName;
@@ -7047,18 +7247,14 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
   // ── Core / Optional split ─────────────────────────────────────────────────
   // Items with is_core=true (or is_default_selected=true) are "Đề xuất"
   // Items with is_core=false are "Tuỳ chọn" — shown in a separate sub-section
-  const coreItems = items.filter((item) => {
+  const resolveIsCoreItem = (item) => {
     if (item.is_core !== undefined) return Boolean(item.is_core);
     if (item.is_default_selected !== undefined) return Boolean(item.is_default_selected);
     if (item.meal_role_display) return item.meal_role_display === "core";
     return true; // legacy items default to core
-  });
-  const optionalItems = items.filter((item) => {
-    if (item.is_core !== undefined) return !item.is_core;
-    if (item.is_default_selected !== undefined) return !item.is_default_selected;
-    if (item.meal_role_display) return item.meal_role_display === "optional";
-    return false;
-  });
+  };
+  const coreItems = items.filter(resolveIsCoreItem);
+  const optionalItems = items.filter((item) => !resolveIsCoreItem(item));
   const hasSplit = optionalItems.length > 0;
 
   // ── Per-meal kcal evaluation (dựa trên các món đã tick) ──────────────────
@@ -7092,8 +7288,22 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
     }
   }
 
-  // Giới hạn tick: nếu đã tick đủ expected món, không cho tick thêm
-  const maxTickReached = expected > 0 && eatenCount >= expected;
+  // Giới hạn tick: đúng theo "Số món mỗi bữa" (3/4/5). Món tuỳ chọn chỉ mở sau khi
+  // đã tick đủ món core VÀ bữa ăn vẫn thiếu < 85% kcal mục tiêu.
+  const tickLimit = Math.max(1, expected || 4);
+  const eatenCoreCount = eatenItems.filter(resolveIsCoreItem).length;
+  const eatenOptionalCount = eatenCount - eatenCoreCount;
+  const needsMoreKcal = targetKcalMeal > 0 && selectedKcal < targetKcalMeal * 0.85;
+
+  const isTickDisabled = (item, isEaten) => {
+    if (isEaten) return false;
+    if (resolveIsCoreItem(item)) {
+      return eatenCoreCount >= tickLimit;
+    }
+    if (eatenCoreCount < tickLimit) return true;
+    if (!needsMoreKcal) return true;
+    return eatenOptionalCount >= optionalItems.length;
+  };
   // ─────────────────────────────────────────────────────────────────────────
 
   function renderItemGrid(itemList, label) {
@@ -7110,7 +7320,7 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
             const entryKey = getMealLogEntryKey(mealForLog, item);
             const entry = getMealLogEntry(mealLog, mealForLog, item);
             const isEaten = isFoodMarkedEaten(item, entry);
-            const isDisabled = !isEaten && maxTickReached;
+            const isDisabled = isTickDisabled(item, isEaten);
             const isItemCore = label === "core";
             return (
               <MealFoodCard
@@ -7180,7 +7390,15 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
 
 
       {/* ── Bữa Ăn Hoàn Hảo — Gamification Score Panel ─────────────────── */}
-      {targetKcalMeal > 0 && <MealScoreInline eatenItems={eatenItems} selectedKcal={selectedKcal} targetKcalMeal={targetKcalMeal} mealType={mealName} />}
+      {targetKcalMeal > 0 && (
+        <MealScoreInline
+          eatenItems={eatenItems}
+          selectedKcal={selectedKcal}
+          targetKcalMeal={targetKcalMeal}
+          mealType={getCanonicalMealType(meal)}
+          mealPlanId={mealPlanId}
+        />
+      )}
 
       {/* ── Food cards: core first, then optional ───────────────────────── */}
       {hasSplit ? (
@@ -7202,7 +7420,7 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
             const entryKey = getMealLogEntryKey(mealForLog, item);
             const entry = getMealLogEntry(mealLog, mealForLog, item);
             const isEaten = isFoodMarkedEaten(item, entry);
-            const isDisabled = !isEaten && maxTickReached;
+            const isDisabled = isTickDisabled(item, isEaten);
             return (
               <MealFoodCard
                 key={entryKey}
@@ -7216,7 +7434,7 @@ function MealSection({ mealName, meal, totalKcal, mealTargetKcal, itemCount, exp
                 compact={useHorizontalLayout}
                 isEaten={isEaten}
                 disabled={isDisabled}
-                isCore={true}
+                isCore={resolveIsCoreItem(item)}
                 onToggleEaten={isDisabled ? undefined : () => onToggleFood?.(mealForLog, item)}
               />
             );
@@ -7790,7 +8008,7 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
     setIsSaving(true);
     setSaveError("");
     try {
-      await saveWeightLog({
+      const savedLog = await saveWeightLog({
         weight_kg: weight,
         log_date: draft.log_date || undefined,
         note: draft.note?.trim() || null,
@@ -7798,10 +8016,7 @@ function ChartsPage({ profileSettings, onProfileRefresh, onEditProfile = () => {
       // Chỉ đóng modal và refresh khi thành công
       setIsFormOpen(false);
       setRefreshKey((value) => value + 1);
-      await onProfileRefresh?.();
-      // Đồng bộ weightSummary để "Cân nặng hôm nay" cập nhật ngay
-      // DashboardView's onProfileRefresh already calls refreshWeightSummary internally
-      // so we don't need to call it here directly.
+      await onProfileRefresh?.(savedLog);
     } catch (error) {
       // Chỉ xử lý validation error trong modal, không chuyển trang
       const isValidationError = error?.status === 400 || error?.status === 422 || ["INVALID_WEIGHT", "INVALID_PROFILE", "INVALID_TARGET", "INVALID_HEIGHT"].includes(error?.code);
@@ -12114,10 +12329,13 @@ function summarizeIngredientCoverageFromMeals(meals = [], selectedIngredients = 
   const notCovered = [];
   const finalMealNames = sourceFoods.map((item) => item?.name || item?.vi_name || item?.title || item?.displayName || item?.food_name || item?.ingredient_name || "").filter(Boolean);
 
+  console.log("[COVERAGE DEBUG] sourceFoods count:", sourceFoods.length, "finalMealNames:", finalMealNames.slice(0, 10));
+
   for (const ingredient of selected) {
     const matchedFoods = sourceFoods.filter((item) => doesItemMatchRequiredIngredient(ingredient, item));
 
     const displayLabel = displayIngredientLabel(ingredient);
+    console.log("[COVERAGE DEBUG] ingredient:", ingredient, "matchedFoods count:", matchedFoods.length, "matched names:", matchedFoods.map(f => f?.name).slice(0, 3));
     if (matchedFoods.length > 0) {
       covered.push(ingredient);
     } else {

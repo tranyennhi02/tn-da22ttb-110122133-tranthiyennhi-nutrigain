@@ -340,12 +340,16 @@ function StepBody({ data, update, errors, onLogout }) {
   const bmiCategory = classifyAsianBMI(bmi);
   const isOutOfScope = Number.isFinite(bmi) && bmi >= 25.0;
 
+  // Tính cân nặng tối đa để BMI < 25 (theo chuẩn Châu Á)
+  const heightVal = safeNum(data.height);
+  const maxWeightForNormal = heightVal > 0 ? Math.floor((24.9 * ((heightVal / 100) ** 2)) * 10) / 10 : null;
+
   let outOfScopeMessage = "";
   if (isOutOfScope) {
     if (bmiCategory === "overweight") {
-      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân theo chuẩn BMI Châu Á (BMI ≥ 23). NutriGain được thiết kế dành riêng cho người thiếu cân hoặc muốn tăng cân lành mạnh đến ngưỡng bình thường. Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người thừa cân.";
     } else if (bmiCategory === "obese") {
-      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì. NutriGain được thiết kế riêng cho người thiếu cân cần tăng cân lành mạnh, nên hiện chưa phù hợp để tạo thực đơn tăng cân cho hồ sơ này.";
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì theo chuẩn BMI Châu Á (BMI ≥ 25). NutriGain được thiết kế dành riêng cho người thiếu cân hoặc muốn tăng cân lành mạnh đến ngưỡng bình thường. Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người béo phì.";
     }
   }
 
@@ -360,22 +364,26 @@ function StepBody({ data, update, errors, onLogout }) {
       </div>
       {Number.isFinite(bmi) && (
         isOutOfScope ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-[#92400E] animate-fade-in sm:col-span-2">
-            <p className="text-xl font-black">BMI {bmi.toFixed(1)}</p>
-            <p className="mt-3 text-sm font-semibold leading-relaxed">
-              {outOfScopeMessage}
-            </p>
-            <p className="mt-3 text-sm font-semibold leading-relaxed">
-              Bạn có thể đăng xuất khỏi hệ thống. Cảm ơn bạn đã quan tâm đến NutriGain.
-            </p>
-            <div className="mt-5">
-              <button
-                type="button"
-                onClick={onLogout}
-                className="h-11 rounded-xl bg-amber-600 px-6 text-sm font-black text-white shadow-md hover:bg-amber-700 transition"
-              >
-                Đăng xuất
-              </button>
+          <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 sm:col-span-2">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex-shrink-0 text-2xl">⚠️</span>
+              <div className="min-w-0">
+                <p className="text-base font-black text-amber-800">BMI {bmi.toFixed(1)} — Ngoài phạm vi hỗ trợ</p>
+                <p className="mt-2 text-sm font-semibold leading-relaxed text-amber-700">
+                  {outOfScopeMessage}
+                </p>
+                {maxWeightForNormal && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-white/70 px-4 py-3">
+                    <p className="text-sm font-bold text-amber-800">💡 Hướng dẫn nhập lại:</p>
+                    <p className="mt-1 text-sm font-semibold text-amber-700">
+                      Với chiều cao <strong>{heightVal}cm</strong>, cân nặng nằm trong vùng BMI bình thường là tối đa <strong>{maxWeightForNormal}kg</strong>.
+                    </p>
+                    <p className="mt-1 text-sm text-amber-600">
+                      Nếu cân nặng của bạn thực sự là {data.weight}kg, NutriGain hiện chưa phù hợp với hồ sơ này. Bạn có thể kiểm tra lại số liệu hoặc liên hệ chuyên gia dinh dưỡng để được tư vấn phù hợp.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -793,8 +801,8 @@ function validateStep(stepName, data) {
     } else if (height > 0) {
       const targetBmi = target / ((height / 100) ** 2);
       if (targetBmi >= 25.0) {
-        const maxNormal = (24.9 * ((height / 100) ** 2)).toFixed(1);
-        errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
+        const maxNormal = Math.floor(24.9 * ((height / 100) ** 2) * 10) / 10;
+        errs.target_weight = `Cân nặng mục tiêu ${target}kg khiến BMI đạt ${targetBmi.toFixed(1)} — vượt ngưỡng Bình thường (BMI ≥ 25) theo chuẩn Châu Á. NutriGain chỉ hỗ trợ tăng cân đến ngưỡng an toàn. Với chiều cao ${height}cm, vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
       }
     }
   }
@@ -836,8 +844,8 @@ function validateProfile(data) {
   } else if (height > 0) {
     const targetBmi = target / ((height / 100) ** 2);
     if (targetBmi >= 25.0) {
-      const maxNormal = (24.9 * ((height / 100) ** 2)).toFixed(1);
-      errs.target_weight = `Cân nặng mục tiêu vượt vùng BMI bình thường theo chuẩn Châu Á. Vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
+      const maxNormal = Math.floor(24.9 * ((height / 100) ** 2) * 10) / 10;
+      errs.target_weight = `Cân nặng mục tiêu ${target}kg khiến BMI đạt ${targetBmi.toFixed(1)} — vượt ngưỡng Bình thường (BMI ≥ 25) theo chuẩn Châu Á. NutriGain chỉ hỗ trợ tăng cân đến ngưỡng an toàn. Với chiều cao ${height}cm, vui lòng chọn mục tiêu tối đa ${maxNormal}kg.`;
     }
   }
   if (!data.target_duration_value && !data.target_duration_months) {

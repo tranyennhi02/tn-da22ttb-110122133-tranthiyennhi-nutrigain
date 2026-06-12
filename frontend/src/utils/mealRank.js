@@ -138,6 +138,55 @@ export function previewPoints(rank, diversityPoints, almostPerfect) {
 // ─── Local gamification stats (localStorage) ──────────────────────────────
 
 const STORAGE_KEY = "nutrigain_gami_stats";
+const VN_TIMEZONE = "Asia/Ho_Chi_Minh";
+const MAIN_MEAL_TYPES = new Set(["breakfast", "lunch", "dinner"]);
+
+const MEAL_TYPE_ALIASES = {
+  breakfast: "breakfast",
+  lunch: "lunch",
+  dinner: "dinner",
+  snacks: "snacks",
+  snack: "snacks",
+  "bữa sáng": "breakfast",
+  "bua sang": "breakfast",
+  "bữa trưa": "lunch",
+  "bua trua": "lunch",
+  "bữa tối": "dinner",
+  "bua toi": "dinner",
+  "bữa phụ": "snacks",
+  "bua phu": "snacks",
+};
+
+function getVietnamTodayKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: VN_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function normalizeMealTypeForPoints(mealType) {
+  const raw = String(mealType || "").trim().toLowerCase();
+  return MEAL_TYPE_ALIASES[raw] || raw;
+}
+
+/**
+ * @deprecated Không còn được dùng kể từ khi áp dụng chính sách khóa điểm theo ngày.
+ * Giữ lại để tham khảo — KHÔNG gọi hàm này.
+ */
+// eslint-disable-next-line no-unused-vars
+function revertTodayPoints(stats, today) {
+  const todayEntries = stats.rankHistory.filter((entry) => entry.date === today);
+  const revertedPoints = todayEntries.reduce((sum, entry) => sum + (Number(entry.points) || 0), 0);
+  const revertedSsCount = todayEntries.filter((entry) => entry.rank === "SS").length;
+  stats.rankHistory = stats.rankHistory.filter((entry) => entry.date !== today);
+  stats.ssCount = Math.max(0, (stats.ssCount || 0) - revertedSsCount);
+  if (stats.dailyPlanByDate) {
+    delete stats.dailyPlanByDate[today];
+  }
+  return revertedPoints;
+}
 
 /**
  * Lấy key có scope theo email user hiện tại (nếu có).
@@ -166,64 +215,101 @@ function getStorageKey() {
   return STORAGE_KEY;
 }
 
-/** @returns {{ totalPoints: number, ssCount: number, rankHistory: Array }} */
+/** @returns {{ totalPoints: number, ssCount: number, rankHistory: Array, dailyPlanByDate: Record<string, string> }} */
 export function loadGamificationStats() {
   try {
     const raw = localStorage.getItem(getStorageKey());
-    if (!raw) return { totalPoints: 0, ssCount: 0, rankHistory: [] };
+    if (!raw) return { totalPoints: 0, ssCount: 0, rankHistory: [], dailyPlanByDate: {} };
     const parsed = JSON.parse(raw);
     return {
-      totalPoints:  Number(parsed.totalPoints  ?? 0),
-      ssCount:      Number(parsed.ssCount      ?? 0),
-      rankHistory:  Array.isArray(parsed.rankHistory) ? parsed.rankHistory : [],
+      totalPoints: Number(parsed.totalPoints ?? 0),
+      ssCount: Number(parsed.ssCount ?? 0),
+      rankHistory: Array.isArray(parsed.rankHistory) ? parsed.rankHistory : [],
+      dailyPlanByDate: parsed.dailyPlanByDate && typeof parsed.dailyPlanByDate === "object"
+        ? parsed.dailyPlanByDate
+        : {},
     };
   } catch {
-    return { totalPoints: 0, ssCount: 0, rankHistory: [] };
+    return { totalPoints: 0, ssCount: 0, rankHistory: [], dailyPlanByDate: {} };
   }
 }
 
 /**
  * Record points earned from a meal tick session.
  * Called automatically by MealScoreInline on every tick — idempotent per meal+day.
- * Mỗi ngày tối đa 3 bữa × 65 điểm (SS + diversity) = 195 điểm.
  *
- * @param {{ rank: string, points: number, mealType: string }} entry
+ * RULE: Mỗi ngày chỉ 1 thực đơn đầu tiên được tính điểm (tối đa 3 bữa chính).
+ * Nếu user tạo thêm thực đơn trong ngày và tick món → điểm KHÔNG thay đổi.
+ * Điểm chỉ được cộng tiếp vào ngày hôm sau với thực đơn mới.
+ *
+ * @param {{ rank: string, points: number, mealType: string, mealPlanId?: string|number|null }} entry
  */
-export function recordMealPoints({ rank, points, mealType }) {
-  if (!rank || points <= 0) return;
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const stats = loadGamificationStats();
+export function recordMealPoints({ rank, points, mealType, mealPlanId = null }) {
+  if (!rank || points <= 0 || !mealType) return;
 
-  // Dedup: only record once per mealType per day
-  const key = `${today}__${mealType}`;
-  const alreadyRecorded = stats.rankHistory.some((h) => h.key === key);
+  const today = getVietnamTodayKey();
+  const canonicalMealType = normalizeMealTypeForPoints(mealType);
+  if (!MAIN_MEAL_TYPES.has(canonicalMealType)) return;
+
+  const stats = loadGamificationStats();
+  if (!stats.dailyPlanByDate) stats.dailyPlanByDate = {};
+
+  const normalizedPlanId = mealPlanId != null && mealPlanId !== "" ? String(mealPlanId) : null;
+  const lockedPlanId = stats.dailyPlanByDate[today] || null;
+
+  // ── KHÓA NGÀY: Nếu ngày hôm nay đã có thực đơn được tính điểm,
+  // và thực đơn mới khác với thực đơn đầu tiên → bỏ qua hoàn toàn.
+  // Điểm hôm nay KHÔNG bị xóa / cộng thêm từ thực đơn khác.
+  if (normalizedPlanId && lockedPlanId && lockedPlanId !== normalizedPlanId) {
+    // Kiểm tra xem ngày hôm nay đã có điểm thực sự chưa
+    const todayHasPoints = stats.rankHistory.some((entry) => entry.date === today);
+    if (todayHasPoints) {
+      // Đã có điểm hôm nay → từ chối thực đơn mới, giữ nguyên toàn bộ
+      return;
+    }
+    // Chưa có điểm thực sự (chỉ có locked plan) → cập nhật locked plan
+    stats.dailyPlanByDate[today] = normalizedPlanId;
+  } else if (normalizedPlanId && !lockedPlanId) {
+    // Lần đầu trong ngày → ghi nhận thực đơn này làm "thực đơn gốc" của ngày
+    stats.dailyPlanByDate[today] = normalizedPlanId;
+  }
+
+  const key = `${today}__${canonicalMealType}`;
+  const alreadyRecorded = stats.rankHistory.some((entry) => entry.key === key);
+
   if (alreadyRecorded) {
-    // Update if better rank achieved today (e.g. user improved meal)
-    const existing = stats.rankHistory.find((h) => h.key === key);
+    // Bữa này đã được tính điểm hôm nay → chỉ cập nhật nếu điểm MỚI CAO HƠN
+    // (cùng thực đơn, user tick thêm món để tối ưu rank)
+    const existing = stats.rankHistory.find((entry) => entry.key === key);
     if (!existing || existing.points >= points) return;
-    // Revert old points, apply new delta
+
+    // Chỉ cho phép nâng điểm nếu vẫn thuộc cùng thực đơn gốc của ngày
+    const currentLocked = stats.dailyPlanByDate[today];
+    if (normalizedPlanId && currentLocked && currentLocked !== normalizedPlanId) {
+      // Thực đơn khác → không cho nâng điểm
+      return;
+    }
+
     stats.totalPoints = Math.max(0, stats.totalPoints - existing.points + points);
     if (rank === "SS" && existing.rank !== "SS") stats.ssCount += 1;
-    existing.rank   = rank;
+    existing.rank = rank;
     existing.points = points;
-    existing.ts     = Date.now();
+    existing.mealType = canonicalMealType;
+    existing.mealPlanId = normalizedPlanId;
+    existing.ts = Date.now();
   } else {
-    // Kiểm tra tổng điểm đã cộng trong ngày hôm nay
-    const todayEntries = stats.rankHistory.filter((h) => h.date === today);
-    const todayMealTypes = new Set(todayEntries.map((h) => h.mealType));
-
-    // Mỗi ngày chỉ được cộng điểm từ tối đa 3 bữa (sáng/trưa/tối)
-    // Nếu mealType này đã cộng rồi thì bỏ qua (tránh cộng dồn khi sinh thực đơn mới)
-    const normalizedMealType = String(mealType).toLowerCase();
-    const alreadyHasThisMeal = todayEntries.some((h) =>
-      String(h.mealType || "").toLowerCase() === normalizedMealType
-    );
-    if (alreadyHasThisMeal) return;
-
+    // Bữa này chưa được tính hôm nay → cộng điểm
     stats.totalPoints += points;
     if (rank === "SS") stats.ssCount += 1;
-    stats.rankHistory.unshift({ key, rank, points, mealType, date: today, ts: Date.now() });
-    // Keep last 90 entries
+    stats.rankHistory.unshift({
+      key,
+      rank,
+      points,
+      mealType: canonicalMealType,
+      mealPlanId: normalizedPlanId,
+      date: today,
+      ts: Date.now(),
+    });
     if (stats.rankHistory.length > 90) stats.rankHistory.length = 90;
   }
 

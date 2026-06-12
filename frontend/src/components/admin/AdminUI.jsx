@@ -98,7 +98,7 @@ export function AdminPageHeader({ title, description, actions, eyebrow }) {
     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
         {eyebrow ? <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">{eyebrow}</p> : null}
-        <h1 className="mt-2 truncate text-[28px] font-extrabold leading-tight tracking-tight text-slate-950 sm:text-[32px]">{title}</h1>
+        <h1 className="mt-2 truncate text-[28px] font-extrabold leading-tight tracking-tight text-[#081832] sm:text-[32px]">{title}</h1>
         {description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
@@ -120,7 +120,7 @@ export function AdminStatCard({ label, value, helper, icon = "overview", tone = 
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-slate-500">{label}</p>
-          <p className="mt-4 text-[38px] font-extrabold leading-none tracking-tight text-slate-950">{value}</p>
+          <p className="mt-4 text-[38px] font-extrabold leading-none tracking-tight text-[#081832]">{value}</p>
         </div>
         <span className={cx("flex h-12 w-12 shrink-0 items-center justify-center rounded-full ring-1", iconTone)}>
           <Icon name={icon} className="h-5 w-5" />
@@ -140,7 +140,7 @@ export function AdminSectionCard({ title, description, actions, children, classN
       {(title || description || actions) && (
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            {title ? <h2 className="text-lg font-bold tracking-tight text-slate-950">{title}</h2> : null}
+            {title ? <h2 className="text-lg font-bold tracking-tight text-[#081832]">{title}</h2> : null}
             {description ? <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p> : null}
           </div>
           {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
@@ -205,11 +205,11 @@ export function AdminDrawer({ open, onClose, title, subtitle, children, footer, 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden">
-      <button type="button" aria-label="Đóng" className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm" onClick={onClose} />
+      <button type="button" aria-label="Đóng" className="absolute inset-0 bg-[#081832]/35 backdrop-blur-sm" onClick={onClose} />
       <aside className={cx("relative flex h-full w-full flex-col bg-white shadow-2xl", width)}>
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-6 py-5 backdrop-blur">
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-extrabold text-slate-900">{title}</h3>
+            <h3 className="truncate text-lg font-extrabold text-[#081832]">{title}</h3>
             {subtitle ? <p className="mt-1 truncate text-sm text-slate-500">{subtitle}</p> : null}
           </div>
           <button
@@ -234,7 +234,7 @@ export function AdminEmptyState({ title = "Chưa có dữ liệu", description =
       <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
         <Icon name={icon} className="h-6 w-6" />
       </span>
-      <h3 className="mt-4 text-base font-bold text-slate-900">{title}</h3>
+      <h3 className="mt-4 text-base font-bold text-[#081832]">{title}</h3>
       <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">{description}</p>
       {actions ? <div className="mt-4 flex flex-wrap justify-center gap-2">{actions}</div> : null}
     </div>
@@ -281,7 +281,7 @@ export function AdminQuickActionCard({ title, description, icon = "chevron", ton
         <Icon name={icon} className="h-5 w-5" />
       </span>
       <span>
-        <span className="flex items-center justify-between gap-3 text-sm font-bold text-slate-900">
+        <span className="flex items-center justify-between gap-3 text-sm font-bold text-[#081832]">
           {title}
           <Icon name="chevron" className="h-4 w-4 text-slate-300 transition group-hover:text-slate-500" />
         </span>
