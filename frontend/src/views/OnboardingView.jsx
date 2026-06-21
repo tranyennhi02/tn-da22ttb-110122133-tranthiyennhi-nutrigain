@@ -287,8 +287,8 @@ function NumberField({ label, name, value, onChange, placeholder, unit, error })
       <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">{label}</label>
       <div className="relative">
         <input type="number" name={name} value={value} onChange={onChange} placeholder={placeholder}
-          className={`h-[52px] w-full rounded-2xl border-2 bg-white px-4 pr-12 text-base font-semibold text-[#0F172A] outline-none transition placeholder:text-[#64748B] focus:border-[#10B981] focus:ring-4 focus:ring-[#10B981]/10 ${error ? "border-[#EF4444]" : "border-[#E2E8F0]"}`} />
-        {unit && <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[#64748B]">{unit}</span>}
+          className={`h-[52px] w-full rounded-2xl border-2 bg-white px-4 pr-20 text-base font-semibold text-[#0F172A] outline-none transition placeholder:text-[#64748B] focus:border-[#10B981] focus:ring-4 focus:ring-[#10B981]/10 ${error ? "border-[#EF4444]" : "border-[#E2E8F0]"}`} />
+        {unit && <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#64748B]">{unit}</span>}
       </div>
       {error && <p className="mt-1 text-xs font-semibold text-[#EF4444]">{error}</p>}
     </div>
@@ -338,18 +338,18 @@ function StepBody({ data, update, errors, onLogout }) {
   function handle(e){ update(e.target.name, e.target.value); }
   const bmi = calculateAsianBmi(data.weight, data.height);
   const bmiCategory = classifyAsianBMI(bmi);
-  const isOutOfScope = Number.isFinite(bmi) && bmi >= 25.0;
+  const isOutOfScope = Number.isFinite(bmi) && bmi >= 23.0;
 
-  // Tính cân nặng tối đa để BMI < 25 (theo chuẩn Châu Á)
+  // Tính cân nặng tối đa để BMI < 23 (theo chuẩn Châu Á)
   const heightVal = safeNum(data.height);
-  const maxWeightForNormal = heightVal > 0 ? Math.floor((24.9 * ((heightVal / 100) ** 2)) * 10) / 10 : null;
+  const maxWeightForNormal = heightVal > 0 ? Math.floor((22.9 * ((heightVal / 100) ** 2)) * 10) / 10 : null;
 
   let outOfScopeMessage = "";
   if (isOutOfScope) {
     if (bmiCategory === "overweight") {
-      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân theo chuẩn BMI Châu Á (BMI ≥ 23). NutriGain được thiết kế dành riêng cho người thiếu cân hoặc muốn tăng cân lành mạnh đến ngưỡng bình thường. Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người thừa cân.";
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm thừa cân theo chuẩn BMI Châu Á (BMI ≥ 23). NutriGain được thiết kế dành riêng cho người thiếu cân (BMI < 18.5) hoặc bình thường (BMI 18.5-22.9). Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người thừa cân hoặc béo phì.";
     } else if (bmiCategory === "obese") {
-      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì theo chuẩn BMI Châu Á (BMI ≥ 25). NutriGain được thiết kế dành riêng cho người thiếu cân hoặc muốn tăng cân lành mạnh đến ngưỡng bình thường. Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người béo phì.";
+      outOfScopeMessage = "BMI của bạn hiện thuộc nhóm béo phì theo chuẩn BMI Châu Á (BMI ≥ 25). NutriGain được thiết kế dành riêng cho người thiếu cân (BMI < 18.5) hoặc bình thường (BMI 18.5-22.9). Hệ thống hiện chưa hỗ trợ tạo thực đơn cho người thừa cân hoặc béo phì.";
     }
   }
 
@@ -1024,7 +1024,7 @@ export default function OnboardingView({ userEmail, onComplete, initialData, use
     
     if (stepName === "body") {
       const currentBmi = calculateAsianBmi(data.weight || data.weight_kg, data.height || data.height_cm);
-      if (Number.isFinite(currentBmi) && currentBmi >= 25.0) {
+      if (Number.isFinite(currentBmi) && currentBmi >= 23.0) {
         return;
       }
     }

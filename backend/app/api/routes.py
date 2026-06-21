@@ -464,8 +464,27 @@ def test_meal_reminder_email(
 def sms_status(
     _: User = Depends(get_current_user),
 ) -> dict:
-    """Return whether Twilio SMS is configured and ready to send."""
-    return {"configured": is_twilio_configured()}
+    """Return whether eSMS.vn SMS is configured and ready to send."""
+    from app.core.config import settings
+    import os
+    
+    # Check if keys are loaded
+    api_key_from_settings = settings.esms_api_key
+    secret_key_from_settings = settings.esms_secret_key
+    api_key_from_env = os.getenv("ESMS_API_KEY", "")
+    secret_key_from_env = os.getenv("ESMS_SECRET_KEY", "")
+    
+    return {
+        "configured": is_twilio_configured(),
+        "debug": {
+            "api_key_in_settings": bool(api_key_from_settings),
+            "secret_key_in_settings": bool(secret_key_from_settings),
+            "api_key_in_env": bool(api_key_from_env),
+            "secret_key_in_env": bool(secret_key_from_env),
+            "api_key_length": len(api_key_from_settings) if api_key_from_settings else 0,
+            "secret_key_length": len(secret_key_from_settings) if secret_key_from_settings else 0,
+        }
+    }
 
 
 @router.post("/meal-reminders/test-sms", response_model=MealReminderTestSmsResponse, tags=["meal-reminders"])
@@ -474,7 +493,13 @@ def test_meal_reminder_sms(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MealReminderTestSmsResponse:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("[TEST SMS ROUTE CALLED] user_id=%s meal_type=%s", current_user.id, payload.meal_type)
+    
     success, message, sent_to = send_test_meal_reminder_sms(current_user, payload.meal_type, db=db)
+    
+    logger.info("[TEST SMS ROUTE RESULT] success=%s message=%s", success, message)
     return MealReminderTestSmsResponse(success=success, message=message, sent_to=sent_to)
 
 

@@ -283,6 +283,7 @@ class UserService:
         if payload.weight_kg is not None:
             values["weight_kg"] = payload.weight_kg
         print("[PUT PROFILE] update_data=", values)
+        print("[PUT PROFILE] phone_number in values=", "phone_number" in values, "value=", values.get("phone_number"))
         db.expire_all()
 
         print("[PROFILE UPDATE PAYLOAD WEIGHT]", {
@@ -359,12 +360,12 @@ class UserService:
         target_weight = values.get("target_weight_kg")
         if target_weight is not None and height is not None and float(height) > 0:
             target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
-            if target_bmi >= 25.0:
+            if target_bmi >= 23.0:
                 min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
-                max_normal_weight = round(24.9 * ((float(height) / 100.0) ** 2), 1)
+                max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
                 raise_validation_error(
                     "INVALID_TARGET",
-                    f"Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 25). Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg.",
+                    f"Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 23). Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg.",
                     status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 

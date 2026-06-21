@@ -28,18 +28,18 @@ export default function HeroSection({ onShowAuth }) {
             NutriGain tính BMI, BMR, TDEE và tạo thực đơn tăng cân riêng cho bạn — không cần biết dinh dưỡng, chỉ cần nhập số liệu cơ thể.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
-            <button
-              onClick={() => onShowAuth("register")}
-              className="flex items-center gap-3 rounded-2xl bg-brand-primary px-7 py-4 text-base font800 text-white shadow-xl shadow-brand-primary/25 transition hover:-translate-y-0.5 hover:bg-brand-primary-dark"
-            >
-              <GoogleIcon />
-              Tiếp tục với Google
-            </button>
             <a
               href="#how-it-works"
-              className="flex items-center gap-2 rounded-2xl border border-brand-border bg-white px-7 py-4 text-base font800 text-brand-text-main shadow-sm transition hover:border-brand-primary hover:text-brand-primary"
+              className="flex items-center gap-2 rounded-2xl bg-brand-primary px-7 py-4 text-base font800 text-white shadow-xl shadow-brand-primary/25 transition hover:-translate-y-0.5 hover:bg-brand-primary-dark"
             >
               Xem cách hoạt động
+              <ArrowIcon />
+            </a>
+            <a
+              href="#features"
+              className="flex items-center gap-2 rounded-2xl border border-brand-border bg-white px-7 py-4 text-base font800 text-brand-text-main shadow-sm transition hover:border-brand-primary hover:text-brand-primary"
+            >
+              Tính năng
               <ArrowIcon />
             </a>
           </div>

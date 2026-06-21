@@ -621,7 +621,7 @@ BMI_NOT_UNDERWEIGHT = "BMI_NOT_UNDERWEIGHT"
 BMI_OVERWEIGHT_NOT_SUPPORTED = "BMI_OVERWEIGHT_NOT_SUPPORTED"
 BMI_OBESE_NOT_SUPPORTED = "BMI_OBESE_NOT_SUPPORTED"
 BMI_SCOPE_MESSAGE = (
-    "NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 25 (thiếu cân hoặc bình thường)."
+    "NutriGain hiện chỉ hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 23 (thiếu cân hoặc bình thường theo chuẩn Châu Á)."
 )
 BMI_NOT_UNDERWEIGHT_MESSAGE = (
     BMI_SCOPE_MESSAGE
@@ -677,7 +677,7 @@ def _is_maintain_value(value: object) -> bool:
 
 
 def _has_weight_gain_intent(*, bmi: float | None, goal: object, weight_gain_speed: object) -> bool:
-    if bmi is not None and bmi < 25.0:
+    if bmi is not None and bmi < 23.0:
         return True
     if _is_weight_loss_goal_value(goal):
         return False
@@ -4482,8 +4482,8 @@ class RecommenderService:
         bmi = float(profile_validation["bmi"])
         weight_status = RecommenderService._weight_status_from_bmi(bmi)
         bmi_label = asian_bmi_label(weight_status)
-        # Block overweight/obese (>= 25) — allow underweight and normal (18.5–24.9)
-        if bmi >= 25.0:
+        # Block overweight/obese (>= 23) — allow underweight and normal (18.5–22.9)
+        if bmi >= 23.0:
             reason = BMI_REASON_BY_CATEGORY.get(weight_status, BMI_NOT_UNDERWEIGHT)
             message = BMI_MESSAGE_BY_CATEGORY.get(weight_status, BMI_NOT_UNDERWEIGHT_MESSAGE)
             return {
@@ -4502,7 +4502,7 @@ class RecommenderService:
         elif bmi < 18.5:
             eligibility_message = None
         else:
-            # normal range (18.5 <= bmi < 25) — eligible but with info note
+            # normal range (18.5 <= bmi < 23) — eligible but with info note
             eligibility_message = (
                 "BMI của bạn đang ở mức bình thường. "
                 "NutriGain có thể hỗ trợ tạo thực đơn tăng cân nếu bạn muốn tăng cân thêm."
@@ -8522,11 +8522,11 @@ class RecommenderService:
         )
         if target_weight is not None and height is not None and float(height) > 0:
             target_bmi = float(target_weight) / ((float(height) / 100.0) ** 2)
-            if target_bmi >= 25.0:
+            if target_bmi >= 23.0:
                 min_normal_weight = round(18.5 * ((float(height) / 100.0) ** 2), 1)
-                max_normal_weight = round(24.9 * ((float(height) / 100.0) ** 2), 1)
+                max_normal_weight = round(22.9 * ((float(height) / 100.0) ** 2), 1)
                 raise ValueError(
-                    f"Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 25). "
+                    f"Cân nặng mục tiêu vượt ngưỡng Bình thường (BMI ≥ 23). "
                     f"Vui lòng chọn mục tiêu trong khoảng {min_normal_weight}kg–{max_normal_weight}kg."
                 )
 

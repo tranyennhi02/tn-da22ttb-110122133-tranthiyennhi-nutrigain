@@ -6819,49 +6819,50 @@ function MealsPage({
 
 function RestoreMealPlanModal({ records, loading, error, expandedIds, hasAnyEatenItem, onClose, onToggleExpanded, onRequestRestore }) {
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/55 px-4 py-5 backdrop-blur-sm">
-      <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl shadow-slate-950/20">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
+    <div className="fixed inset-0 z-50 bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-2xl">
+        {/* Header - Compact */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Khôi phục thực đơn trước đó</p>
-            <h3 className="mt-2 text-2xl font-black text-slate-950">Chọn một thực đơn cũ để dùng lại cho hôm nay.</h3>
-            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">Khôi phục thực đơn trước đó</p>
+            <h3 className="mt-1 text-xl font-bold text-slate-900">Chọn một thực đơn cũ để dùng lại cho hôm nay.</h3>
+            <p className="mt-1.5 max-w-2xl text-sm text-slate-600">
               Thực đơn hiện tại chỉ bị thay thế sau khi bạn xác nhận. Lịch sử món đã ăn chỉ được dùng khi có đủ dữ liệu thực đơn.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-500 transition hover:bg-slate-200"
-            aria-label="Đóng khôi phục thực đơn"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200"
+            aria-label="Đóng"
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+        {/* Content - Cleaner spacing */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (
-            <div className="grid min-h-[220px] place-items-center rounded-[28px] bg-slate-50 text-sm font-semibold text-slate-500">
+            <div className="grid min-h-[200px] place-items-center rounded-2xl bg-slate-50 text-sm font-semibold text-slate-500">
               Đang tải lịch sử khôi phục...
             </div>
           ) : error ? (
-            <div className="rounded-[28px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold leading-6 text-rose-700">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
               {error}
             </div>
           ) : records.length === 0 ? (
-            <div className="grid min-h-[220px] place-items-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+            <div className="grid min-h-[200px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-8 text-center">
               <div>
-                <h4 className="text-lg font-black text-slate-900">Chưa có lịch sử đủ điều kiện</h4>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                  NutriGain chưa tìm thấy thực đơn cũ có cấu trúc meal_plan đầy đủ để khôi phục.
+                <h4 className="text-base font-bold text-slate-900">Chưa có lịch sử đủ điều kiện</h4>
+                <p className="mt-1.5 text-sm text-slate-500">
+                  NutriGain chưa tìm thấy thực đơn cũ có cấu trúc đầy đủ để khôi phục.
                 </p>
               </div>
             </div>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid gap-3">
               {records.map((record) => {
                 const restorablePlan = getHistoryRecordMealPlan(record);
                 const canRestore = Boolean(restorablePlan);
@@ -6871,16 +6872,16 @@ function RestoreMealPlanModal({ records, loading, error, expandedIds, hasAnyEate
                 const isExpanded = expandedIds.has(record.id);
 
                 return (
-                  <article key={record.id} className="rounded-[28px] border border-slate-100 bg-white p-5 shadow-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <article key={record.id} className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-lg font-black text-slate-950">{formatHistoryRecordDate(record.created_at || record.date)}</h4>
-                          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${canRestore ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                          <h4 className="text-base font-bold text-slate-900">{formatHistoryRecordDate(record.created_at || record.date)}</h4>
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${canRestore ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                             {canRestore ? "Có thể khôi phục" : "Nhật ký đã ăn"}
                           </span>
                         </div>
-                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                        <p className="mt-1 text-sm text-slate-600">
                           {itemCount > 0 ? `${itemCount} món` : "Chưa có món đủ dữ liệu"}
                           {totals.calories > 0 ? ` · ${round(totals.calories).toLocaleString("vi-VN")} kcal` : ""}
                           {totals.protein > 0 ? ` · ${round(totals.protein)}g protein` : ""}
@@ -6891,7 +6892,7 @@ function RestoreMealPlanModal({ records, loading, error, expandedIds, hasAnyEate
                         <button
                           type="button"
                           onClick={() => onToggleExpanded(record.id)}
-                          className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                           {isExpanded ? "Thu gọn" : "Xem chi tiết"}
                         </button>
@@ -6899,7 +6900,7 @@ function RestoreMealPlanModal({ records, loading, error, expandedIds, hasAnyEate
                           <button
                             type="button"
                             onClick={() => onRequestRestore(record)}
-                            className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+                            className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700"
                           >
                             Khôi phục
                           </button>
@@ -6907,14 +6908,14 @@ function RestoreMealPlanModal({ records, loading, error, expandedIds, hasAnyEate
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-wrap gap-1.5">
                       {previewItems.slice(0, 6).map((item, index) => (
-                        <span key={`${record.id}-${index}`} className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600" title={getHistoryItemName(item)}>
+                        <span key={`${record.id}-${index}`} className="inline-flex max-w-full items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700" title={getHistoryItemName(item)}>
                           <span className="truncate">{getHistoryItemName(item)}</span>
                         </span>
                       ))}
                       {previewItems.length > 6 ? (
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500">
+                        <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-500">
                           +{previewItems.length - 6} món khác
                         </span>
                       ) : null}

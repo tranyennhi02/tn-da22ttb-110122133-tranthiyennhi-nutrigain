@@ -121,7 +121,7 @@ class MealReminderService:
     def send_meal_reminder_sms(self, phone: str, meal_type: str, user_id: int | None = None) -> str:
         """Send an SMS meal reminder. Returns 'sent', 'failed', or 'skipped'."""
         if not is_twilio_configured():
-            _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=twilio_not_configured user_id={user_id}")
+            _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=esms_not_configured user_id={user_id}")
             return "skipped"
 
         recipient = _normalize_phone(phone)
@@ -265,7 +265,7 @@ class MealReminderService:
                                 last_status = "failed"
                                 _emit_log(f"[MEAL REMINDER SMS FAILED] user_id={user.id}", level="warning")
                             else:
-                                _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=twilio_not_configured user_id={user.id}")
+                                _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=esms_not_configured user_id={user.id}")
                             counts[sms_status] = counts.get(sms_status, 0) + 1
                         except Exception as exc:
                             last_status = "failed"
@@ -314,6 +314,8 @@ class MealReminderService:
 
     def send_test_sms(self, user: User, meal_type: str = "breakfast", db: Session | None = None) -> tuple[bool, str, str | None]:
         """Send a one-off test SMS reminder to the user's stored phone number."""
+        _emit_log(f"[TEST SMS SERVICE CALLED] user_id={user.id} meal_type={meal_type}")
+        
         meal_key = str(meal_type or "breakfast").strip().lower()
         if meal_key not in MEAL_LABELS:
             meal_key = "breakfast"
@@ -324,33 +326,43 @@ class MealReminderService:
             phone = db.scalar(
                 select(UserProfileEntity.phone_number).where(UserProfileEntity.user_id == user.id)
             )
+            _emit_log(f"[TEST SMS SERVICE] user_id={user.id} phone_from_db={repr(phone)}")
         else:
             # Fallback: try relationship (may be None when session is closed)
             profile = getattr(user, "profile", None)
             phone = getattr(profile, "phone_number", None) if profile else None
+            _emit_log(f"[TEST SMS SERVICE] user_id={user.id} phone_from_profile={repr(phone)}")
 
         if not phone:
+            _emit_log(f"[TEST SMS SERVICE ERROR] user_id={user.id} phone is None or empty", level="error")
             return False, "Tài khoản chưa có số điện thoại để nhận SMS.", None
 
+        print(f"[DEBUG] About to check is_twilio_configured()")
         if not is_twilio_configured():
-            return False, "Twilio chưa được cấu hình.", None
+            print(f"[DEBUG] is_twilio_configured() returned False")
+            return False, "eSMS.vn chưa được cấu hình.", None
+        
+        print(f"[DEBUG] is_twilio_configured() returned True, proceeding...")
 
         recipient = _normalize_phone(phone)
         if not recipient:
-            _emit_log(f"[MEAL REMINDER SMS TEST SKIPPED] user_id={user.id}, reason=invalid_phone")
+            _emit_log(f"[MEAL REMINDER SMS TEST SKIPPED] user_id={user.id}, reason=invalid_phone phone={repr(phone)}")
             return False, "Số điện thoại không hợp lệ.", None
 
+        print(f"[DEBUG] About to call send_sms() with recipient={recipient}")
         meal_label = MEAL_LABELS.get(meal_key, meal_key)
         body = (
             f"NutriGain nhắc bạn: Đã đến giờ ăn {meal_label} rồi. "
             "Hãy ăn nhẹ nhàng và đều đặn theo kế hoạch hôm nay nhé!"
         )
         sent = send_sms(recipient, body)
+        print(f"[DEBUG] send_sms() returned: {sent}")
+        
         if sent:
             _emit_log(f"[MEAL REMINDER SMS TEST SENT] user_id={user.id}, meal_type={meal_key}")
             return True, "Đã gửi SMS thử.", _mask_phone(recipient)
         _emit_log(f"[MEAL REMINDER SMS TEST FAILED] user_id={user.id}", level="warning")
-        return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình Twilio.", None
+        return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình eSMS.vn.", None
 
 
 _service = MealReminderService()

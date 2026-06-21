@@ -22,11 +22,8 @@ export default function PublicHeader({ onShowAuth }) {
           ))}
         </nav>
         <div className="hidden items-center gap-3 lg:flex">
-          <button onClick={() => onShowAuth("login")} className="rounded-xl border border-brand-border px-5 py-2.5 text-sm font800 text-brand-text-main transition hover:border-brand-primary hover:text-brand-primary">
+          <button onClick={() => onShowAuth("login")} className="rounded-xl bg-brand-primary px-6 py-2.5 text-sm font800 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
             Đăng nhập
-          </button>
-          <button onClick={() => onShowAuth("register")} className="rounded-xl bg-brand-primary px-5 py-2.5 text-sm font800 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
-            Bắt đầu miễn phí
           </button>
         </div>
         <button className="grid h-10 w-10 place-items-center rounded-xl border border-brand-border lg:hidden" onClick={() => setMenuOpen(!menuOpen)}>
@@ -41,8 +38,9 @@ export default function PublicHeader({ onShowAuth }) {
             </a>
           ))}
           <div className="mt-4 flex flex-col gap-3">
-            <button onClick={() => { setMenuOpen(false); onShowAuth("login"); }} className="rounded-xl border border-brand-border py-3 text-sm font800 text-brand-text-main">Đăng nhập</button>
-            <button onClick={() => { setMenuOpen(false); onShowAuth("register"); }} className="rounded-xl bg-brand-primary py-3 text-sm font800 text-white">Bắt đầu miễn phí</button>
+            <button onClick={() => { setMenuOpen(false); onShowAuth("login"); }} className="rounded-xl bg-brand-primary py-3 text-sm font800 text-white shadow-lg shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+              Đăng nhập
+            </button>
           </div>
         </div>
       )}

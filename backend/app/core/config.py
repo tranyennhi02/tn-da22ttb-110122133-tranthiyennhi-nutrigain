@@ -63,10 +63,9 @@ class Settings:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     smtp_from: str = os.getenv("SMTP_FROM", "")
     smtp_use_tls: bool = _bool_env("SMTP_USE_TLS", True)
-    # Twilio SMS settings
-    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
-    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
-    twilio_phone_number: str = os.getenv("TWILIO_PHONE_NUMBER", "")
+    # eSMS.vn SMS settings
+    esms_api_key: str = os.getenv("ESMS_API_KEY", "")
+    esms_secret_key: str = os.getenv("ESMS_SECRET_KEY", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_vision_model: str = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")

@@ -2210,6 +2210,8 @@ function SettingsPage({ refreshKey }) {
   return (
     <div className="space-y-5">
       {error ? <AdminEmptyState icon="errors" title="Không tải được cài đặt" description={error} /> : null}
+      
+      {/* Food Categories */}
       <AdminSectionCard title="Nhóm món" description="Tổng hợp số lượng món ăn theo nhóm chuẩn đang được backend sử dụng.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {asArray(data.items).map((item) => (
@@ -2220,6 +2222,140 @@ function SettingsPage({ refreshKey }) {
           ))}
         </div>
       </AdminSectionCard>
+
+      {/* Email Configuration */}
+      <AdminSectionCard title="Cấu hình Email" description="Quản lý email tự động gửi cho người dùng.">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-[#081832]">Email chào mừng</p>
+              <p className="mt-1 text-xs text-slate-500">Gửi email khi người dùng đăng ký mới</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-emerald-600">Đang bật</span>
+              <AdminButton variant="subtle" size="sm">Chỉnh sửa</AdminButton>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-[#081832]">Email nhắc nh</p>
+              <p className="mt-1 text-xs text-slate-500">Nhắc người dùng về bữa ăn và mục tiêu</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-emerald-600">Đang bật</span>
+              <AdminButton variant="subtle" size="sm">Chỉnh sửa</AdminButton>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-[#081832]">Báo cáo tuần</p>
+              <p className="mt-1 text-xs text-slate-500">Gửi báo cáo tiến độ hàng tuần</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-slate-400">Đang tắt</span>
+              <AdminButton variant="subtle" size="sm">Chỉnh sửa</AdminButton>
+            </div>
+          </div>
+        </div>
+      </AdminSectionCard>
+
+      {/* SMS Configuration */}
+      <AdminSectionCard title="Cấu hình SMS" description="Quản lý gửi SMS thông báo quan trọng.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <MiniInfo label="SMS Provider" value="Twilio" />
+          <MiniInfo label="SMS đã gửi hôm nay" value="127 tin" />
+          <MiniInfo label="Giới hạn hàng ngày" value="1,000 tin" />
+          <MiniInfo label="Số dư còn lại" value="$45.50" />
+        </div>
+        <div className="mt-4 flex gap-2">
+          <AdminButton variant="primary">Gửi SMS test</AdminButton>
+          <AdminButton variant="subtle">Xem lịch sử</AdminButton>
+        </div>
+      </AdminSectionCard>
+
+      {/* Backup Management */}
+      <AdminSectionCard title="Quản lý Backup" description="Sao lưu và khôi phục dữ liệu hệ thống.">
+        <div className="space-y-3">
+          <MiniLine label="Backup gần nhất" value="16/06/2026 02:00 AM" />
+          <MiniLine label="Tần suất tự động" value="Hàng ngày lúc 2:00 AM" />
+          <MiniLine label="Thư mục lưu trữ" value="/backups/database/" />
+          <MiniLine label="Lưu giữ" value="30 ngày" />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <AdminButton variant="primary">Backup ngay</AdminButton>
+          <AdminButton variant="subtle">Xem lịch sử backup</AdminButton>
+          <AdminButton variant="subtle">Khôi phục từ backup</AdminButton>
+        </div>
+      </AdminSectionCard>
+
+      {/* Storage Management */}
+      <AdminSectionCard title="Quản lý dung lượng" description="Theo dõi và quản lý không gian lưu trữ.">
+        <div className="space-y-3">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-[#081832]">Tổng dung lượng</span>
+              <span className="text-2xl font-extrabold text-blue-600">100 GB</span>
+            </div>
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full w-[45%] rounded-full bg-blue-600"></div>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <span className="text-slate-500">Đã sử dụng: 45.2 GB</span>
+              <span className="font-semibold text-slate-600">45%</span>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <MiniInfo label="Ảnh món ăn" value="12.3 GB" />
+            <MiniInfo label="File người dùng" value="8.9 GB" />
+            <MiniInfo label="Database" value="15.6 GB" />
+            <MiniInfo label="Logs" value="8.4 GB" />
+          </div>
+        </div>
+        <div className="mt-4">
+          <AdminButton variant="primary">Dọn dẹp file cũ</AdminButton>
+        </div>
+      </AdminSectionCard>
+
+      {/* System Configuration */}
+      <AdminSectionCard title="Cấu hình hệ thống" description="Các thiết lập kỹ thuật của hệ thống.">
+        <div className="grid gap-3 md:grid-cols-2">
+          <MiniLine label="Session Timeout" value="7 ngày" />
+          <MiniLine label="API Rate Limit" value="100 req/phút" />
+          <MiniLine label="Max Upload Size" value="10 MB" />
+          <MiniLine label="Database Pool Size" value="20 connections" />
+        </div>
+        <div className="mt-4">
+          <AdminButton variant="primary">Cập nhật cấu hình</AdminButton>
+        </div>
+      </AdminSectionCard>
+
+      {/* Maintenance Tools */}
+      <AdminSectionCard title="Công cụ bảo trì" description="Các công cụ tối ưu hóa và bảo trì hệ thống.">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+            <div className="mb-2 text-2xl">🧹</div>
+            <p className="text-sm font-bold text-[#081832]">Xóa Cache</p>
+            <AdminButton variant="subtle" size="sm" className="mt-3 w-full">Thực hiện</AdminButton>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+            <div className="mb-2 text-2xl">⚡</div>
+            <p className="text-sm font-bold text-[#081832]">Tối ưu DB</p>
+            <AdminButton variant="subtle" size="sm" className="mt-3 w-full">Thực hiện</AdminButton>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+            <div className="mb-2 text-2xl">📋</div>
+            <p className="text-sm font-bold text-[#081832]">Dọn Logs</p>
+            <AdminButton variant="subtle" size="sm" className="mt-3 w-full">Thực hiện</AdminButton>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center">
+            <div className="mb-2 text-2xl">🔄</div>
+            <p className="text-sm font-bold text-[#081832]">Rebuild Index</p>
+            <AdminButton variant="subtle" size="sm" className="mt-3 w-full">Thực hiện</AdminButton>
+          </div>
+        </div>
+      </AdminSectionCard>
+
+      {/* Operating Notes */}
       <AdminSectionCard title="Ghi chú vận hành" description="Các cài đặt backend, auth, recommender và pipeline ảnh không được thay đổi trong redesign này.">
         <div className="grid gap-3 md:grid-cols-3">
           <MiniInfo label="API admin" value="Giữ nguyên" />

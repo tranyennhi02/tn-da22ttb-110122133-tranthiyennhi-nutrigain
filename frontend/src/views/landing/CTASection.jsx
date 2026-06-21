@@ -19,19 +19,18 @@ export default function CTASection({ onShowAuth }) {
               Tham gia cùng hàng nghìn người đang sử dụng NutriGain để xây dựng lộ trình dinh dưỡng cá nhân hóa.
             </p>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-              <button
-                onClick={() => onShowAuth("register")}
-                className="flex items-center gap-3 rounded-2xl bg-white px-8 py-4 text-base font900 text-brand-navy shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl"
+              <a
+                href="#features"
+                className="rounded-2xl bg-white px-8 py-4 text-base font900 text-brand-navy shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl"
               >
-                <GoogleIcon />
-                Tiếp tục với Google
-              </button>
-              <button
-                onClick={() => onShowAuth("login")}
+                Khám phá tính năng
+              </a>
+              <a
+                href="#how-it-works"
                 className="rounded-2xl border border-white/30 px-8 py-4 text-base font800 text-white backdrop-blur-sm transition hover:bg-white/10"
               >
-                Đăng nhập bằng email
-              </button>
+                Cách hoạt động
+              </a>
             </div>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm font700 text-brand-mint/80">
               <span>✓ Không cần thẻ ngân hàng</span>

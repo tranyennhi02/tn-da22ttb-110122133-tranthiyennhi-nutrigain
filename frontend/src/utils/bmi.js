@@ -26,7 +26,7 @@ export function classifyAsianBMI(bmi) {
   if (!Number.isFinite(raw)) return "unknown";
   const value = Number(raw.toFixed(1));
   if (value < 18.5) return "underweight";
-  if (value < 25) return "normal";
+  if (value < 23) return "normal";
   if (value < 30) return "overweight";
   return "obese";
 }
@@ -64,7 +64,7 @@ export function bmiMessageForCategory(category) {
   if (normalized === "obese") {
     return "BMI của bạn đang thuộc nhóm béo phì. NutriGain hiện chưa hỗ trợ tạo thực đơn tăng cân cho nhóm này.";
   }
-  return "NutriGain hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 25 (thiếu cân hoặc bình thường).";
+  return "NutriGain hỗ trợ tạo thực đơn tăng cân cho người có BMI dưới 23 (thiếu cân hoặc bình thường theo chuẩn Châu Á).";
 }
 
 export function bmiPreviewMessage(category) {

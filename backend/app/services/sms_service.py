@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import re
 
+import requests
+
 from app.core.config import settings
 
 
@@ -10,8 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 def is_twilio_configured() -> bool:
-    """Return True only when all three Twilio credentials are set."""
-    return bool(settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_phone_number)
+    """Return True only when eSMS.vn API credentials are set."""
+    from app.core.config import settings as config_settings
+    api_key = config_settings.esms_api_key
+    secret_key = config_settings.esms_secret_key
+    is_configured = bool(api_key and secret_key)
+    
+    print(f"[DEBUG is_twilio_configured] api_key={repr(api_key)[:20]}... secret_key={repr(secret_key)[:20]}... result={is_configured}")
+    
+    logger.info(
+        "[ESMS CONFIG CHECK] api_key=%s secret_key=%s configured=%s",
+        "SET" if api_key else "MISSING",
+        "SET" if secret_key else "MISSING",
+        is_configured
+    )
+    return is_configured
 
 
 def _normalize_phone(phone: str | None) -> str | None:
@@ -47,6 +62,20 @@ def _normalize_phone(phone: str | None) -> str | None:
     return e164
 
 
+def _esms_format_phone(phone_e164: str) -> str:
+    """Convert E.164 phone (+84912345678) to eSMS.vn local format (0912345678).
+    
+    eSMS.vn expects Vietnamese numbers in local format starting with 0.
+    """
+    # Remove + and convert 84xxxxxxxxx to 0xxxxxxxxx
+    if phone_e164.startswith("+84"):
+        return "0" + phone_e164[3:]
+    elif phone_e164.startswith("84"):
+        return "0" + phone_e164[2:]
+    # If already in local format or other format, return as is
+    return phone_e164.lstrip("+")
+
+
 def _mask_phone(phone: str | None) -> str:
     """Return a partially masked phone number for safe logging."""
     text = str(phone or "").strip()
@@ -56,44 +85,71 @@ def _mask_phone(phone: str | None) -> str:
 
 
 def send_sms(to_phone: str, body: str) -> bool:
-    """Send a plain-text SMS via Twilio.
+    """Send a plain-text SMS via eSMS.vn.
 
     Returns True on success, False otherwise.
-    Skips sending gracefully when Twilio is not configured.
+    Skips sending gracefully when eSMS.vn is not configured.
     """
+    logger.info("[SEND_SMS CALLED] to_phone=%s", _mask_phone(to_phone))
+    
     if not is_twilio_configured():
-        logger.warning("[SMS SKIPPED] reason=twilio_not_configured")
+        logger.warning("[SMS SKIPPED] reason=esms_not_configured")
         return False
 
-    recipient = _normalize_phone(to_phone)
-    if not recipient:
+    recipient_e164 = _normalize_phone(to_phone)
+    if not recipient_e164:
         logger.warning("[SMS SKIPPED] reason=invalid_phone to_phone=%s", _mask_phone(to_phone))
         return False
 
-    try:
-        # Import here so the rest of the app works even without twilio installed
-        from twilio.rest import Client  # type: ignore[import-untyped]
+    # Convert E.164 format to eSMS.vn local format (0912345678)
+    recipient_local = _esms_format_phone(recipient_e164)
+    logger.info("[SMS] Normalized phone: %s -> %s", _mask_phone(recipient_e164), _mask_phone(recipient_local))
 
-        client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
-        message = client.messages.create(
-            body=body,
-            from_=settings.twilio_phone_number,
-            to=recipient,
-        )
-        logger.info("[SMS SENT] to=%s sid=%s", _mask_phone(recipient), message.sid)
-        return True
-    except ImportError:
-        logger.error("[SMS FAILED] reason=twilio_not_installed — run: pip install twilio")
+    try:
+        url = "https://rest.esms.vn/MainService.svc/json/SendMultipleMessage_V4_post_json/"
+        payload = {
+            "ApiKey": settings.esms_api_key,
+            "SecretKey": settings.esms_secret_key,
+            "Phone": recipient_local,
+            "Content": body,
+            "SmsType": 2,  # 2 = Brandname SMS (change to 1 for fixed number if needed)
+        }
+        
+        # Log payload with masked keys
+        safe_payload = {
+            "ApiKey": settings.esms_api_key[:8] + "***" if settings.esms_api_key else "***",
+            "SecretKey": "***",
+            "Phone": _mask_phone(recipient_local),
+            "Content": body[:50] + "..." if len(body) > 50 else body,
+            "SmsType": payload["SmsType"],
+        }
+        logger.info("[ESMS PAYLOAD] %s", safe_payload)
+        
+        response = requests.post(url, json=payload, timeout=30)
+        result = response.json()
+        
+        # Log complete response
+        logger.info("[ESMS RESPONSE] status_code=%s body=%s", response.status_code, result)
+        
+        # eSMS.vn returns CodeResult: "100" for success
+        code_result = str(result.get("CodeResult", ""))
+        if code_result == "100":
+            sms_id = result.get("SMSID", "unknown")
+            logger.info("[SMS SENT] to=%s esms_id=%s", _mask_phone(recipient_local), sms_id)
+            return True
+        else:
+            error_msg = result.get("ErrorMessage", "Unknown error")
+            logger.error(
+                "[SMS FAILED] to=%s esms_code=%s message=%s",
+                _mask_phone(recipient_local), 
+                code_result,
+                error_msg
+            )
+            return False
+            
+    except requests.exceptions.RequestException as exc:
+        logger.error("[SMS FAILED] to=%s network_error=%s", _mask_phone(recipient_local), str(exc))
         return False
     except Exception as exc:
-        # Log Twilio-specific error code when available (e.g. error 21608 = unverified number)
-        twilio_code = getattr(exc, "code", None) or getattr(exc, "status", None)
-        twilio_msg = getattr(exc, "msg", None) or str(exc)
-        if twilio_code:
-            logger.error(
-                "[SMS FAILED] to=%s twilio_error_code=%s message=%s",
-                _mask_phone(recipient), twilio_code, twilio_msg,
-            )
-        else:
-            logger.exception("[SMS FAILED] to=%s", _mask_phone(recipient))
+        logger.exception("[SMS FAILED] to=%s unexpected_error=%s", _mask_phone(recipient_local), str(exc))
         return False
