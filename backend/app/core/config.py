@@ -1,6 +1,18 @@
 from __future__ import annotations
 
 import os
+from dotenv import load_dotenv
+
+
+# Load environment variables from .env file
+env_file_path = os.path.join(os.path.dirname(__file__), "../../.env")
+load_dotenv(env_file_path)
+
+# Debug: print to verify .env is loaded
+print(f"[CONFIG DEBUG] Loading .env from: {os.path.abspath(env_file_path)}")
+print(f"[CONFIG DEBUG] SMSGATE_URL = {os.getenv('SMSGATE_URL', 'NOT SET')}")
+print(f"[CONFIG DEBUG] SMSGATE_USERNAME = {os.getenv('SMSGATE_USERNAME', 'NOT SET')}")
+print(f"[CONFIG DEBUG] SMSGATE_PASSWORD = {os.getenv('SMSGATE_PASSWORD', 'NOT SET')}")
 
 
 DEFAULT_FOOD_DATASET_PATH = os.path.abspath(
@@ -63,9 +75,10 @@ class Settings:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     smtp_from: str = os.getenv("SMTP_FROM", "")
     smtp_use_tls: bool = _bool_env("SMTP_USE_TLS", True)
-    # eSMS.vn SMS settings
-    esms_api_key: str = os.getenv("ESMS_API_KEY", "")
-    esms_secret_key: str = os.getenv("ESMS_SECRET_KEY", "")
+    # SMSGate SMS settings (Basic Auth + JWT token)
+    smsgate_url: str = os.getenv("SMSGATE_URL", "")
+    smsgate_username: str = os.getenv("SMSGATE_USERNAME", "")
+    smsgate_password: str = os.getenv("SMSGATE_PASSWORD", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_vision_model: str = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")

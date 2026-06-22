@@ -121,7 +121,7 @@ class MealReminderService:
     def send_meal_reminder_sms(self, phone: str, meal_type: str, user_id: int | None = None) -> str:
         """Send an SMS meal reminder. Returns 'sent', 'failed', or 'skipped'."""
         if not is_twilio_configured():
-            _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=esms_not_configured user_id={user_id}")
+            _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=smsgate_not_configured user_id={user_id}")
             return "skipped"
 
         recipient = _normalize_phone(phone)
@@ -265,7 +265,7 @@ class MealReminderService:
                                 last_status = "failed"
                                 _emit_log(f"[MEAL REMINDER SMS FAILED] user_id={user.id}", level="warning")
                             else:
-                                _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=esms_not_configured user_id={user.id}")
+                                _emit_log(f"[MEAL REMINDER SMS SKIPPED] reason=smsgate_not_configured user_id={user.id}")
                             counts[sms_status] = counts.get(sms_status, 0) + 1
                         except Exception as exc:
                             last_status = "failed"
@@ -340,7 +340,7 @@ class MealReminderService:
         print(f"[DEBUG] About to check is_twilio_configured()")
         if not is_twilio_configured():
             print(f"[DEBUG] is_twilio_configured() returned False")
-            return False, "eSMS.vn chưa được cấu hình.", None
+            return False, "SMSGate chưa được cấu hình.", None
         
         print(f"[DEBUG] is_twilio_configured() returned True, proceeding...")
 
@@ -362,7 +362,7 @@ class MealReminderService:
             _emit_log(f"[MEAL REMINDER SMS TEST SENT] user_id={user.id}, meal_type={meal_key}")
             return True, "Đã gửi SMS thử.", _mask_phone(recipient)
         _emit_log(f"[MEAL REMINDER SMS TEST FAILED] user_id={user.id}", level="warning")
-        return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình eSMS.vn.", None
+        return False, "Chưa gửi được SMS. Vui lòng kiểm tra cấu hình SMSGate.", None
 
 
 _service = MealReminderService()

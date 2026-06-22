@@ -464,25 +464,29 @@ def test_meal_reminder_email(
 def sms_status(
     _: User = Depends(get_current_user),
 ) -> dict:
-    """Return whether eSMS.vn SMS is configured and ready to send."""
+    """Return whether SMSGate SMS is configured and ready to send."""
     from app.core.config import settings
     import os
     
     # Check if keys are loaded
-    api_key_from_settings = settings.esms_api_key
-    secret_key_from_settings = settings.esms_secret_key
-    api_key_from_env = os.getenv("ESMS_API_KEY", "")
-    secret_key_from_env = os.getenv("ESMS_SECRET_KEY", "")
+    url_from_settings = settings.smsgate_url
+    username_from_settings = settings.smsgate_username
+    password_from_settings = settings.smsgate_password
+    url_from_env = os.getenv("SMSGATE_URL", "")
+    username_from_env = os.getenv("SMSGATE_USERNAME", "")
+    password_from_env = os.getenv("SMSGATE_PASSWORD", "")
     
     return {
         "configured": is_twilio_configured(),
         "debug": {
-            "api_key_in_settings": bool(api_key_from_settings),
-            "secret_key_in_settings": bool(secret_key_from_settings),
-            "api_key_in_env": bool(api_key_from_env),
-            "secret_key_in_env": bool(secret_key_from_env),
-            "api_key_length": len(api_key_from_settings) if api_key_from_settings else 0,
-            "secret_key_length": len(secret_key_from_settings) if secret_key_from_settings else 0,
+            "url_in_settings": bool(url_from_settings),
+            "username_in_settings": bool(username_from_settings),
+            "password_in_settings": bool(password_from_settings),
+            "url_in_env": bool(url_from_env),
+            "username_in_env": bool(username_from_env),
+            "password_in_env": bool(password_from_env),
+            "url_value": url_from_settings if url_from_settings else "NOT SET",
+            "username_value": username_from_settings if username_from_settings else "NOT SET",
         }
     }
 
