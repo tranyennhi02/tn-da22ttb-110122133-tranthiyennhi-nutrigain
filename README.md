@@ -267,8 +267,6 @@ sequenceDiagram
     B-->>F: JSON response
     F-->>U: Display meal plan
 ```
-
----
 =======
 ## Luồng hoạt động chính
 
