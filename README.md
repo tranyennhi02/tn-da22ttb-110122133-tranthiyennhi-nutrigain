@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 <div align="center">
   
 # 🥗 NutriGain
@@ -270,12 +270,6 @@ sequenceDiagram
 
 ---
 =======
-|---|---|
-| Containerization | Docker |
-| Orchestration | Docker Compose |
-
----
-
 ## Luồng hoạt động chính
 
 ```text
