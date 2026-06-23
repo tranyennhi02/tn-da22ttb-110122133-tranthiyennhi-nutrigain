@@ -9054,10 +9054,47 @@ class RecommenderService:
                     axis=1,
                 )
                 ranked["ingredient_match_count"] = match_counts.astype(int)
+                
+                # CALORIE-AWARE INGREDIENT PREFERENCE:
+                # When user provides low-calorie ingredients, we must balance by:
+                # 1. Including the low-cal ingredient items (with moderate boost)
+                # 2. Also selecting high-calorie items WITHOUT those ingredients (to reach calorie target)
+                # 
+                # Strategy: Apply SMALLER bonus to low-calorie matched items (< 150 kcal)
+                # so they don't dominate the ranking, leaving room for high-calorie supplementary items.
                 if match_counts.any():
-                    ranked["score"] = ranked["score"].astype(float) + (
-                        ranked["ingredient_match_count"].astype(float) * INGREDIENT_PREFERENCE_BONUS
+                    # Get calorie values for each food item
+                    food_calories = ranked.apply(
+                        lambda row: float(
+                            row.get("calories_raw") or 
+                            row.get("kcal_per_serving_clean") or 
+                            row.get("calories") or 
+                            0
+                        ),
+                        axis=1
                     )
+                    
+                    # Define calorie threshold: items below this are considered "low-calorie"
+                    LOW_CALORIE_THRESHOLD = 150.0
+                    
+                    # Calculate adaptive bonus:
+                    # - High-calorie matched items: full bonus (18%)
+                    # - Low-calorie matched items: reduced bonus (6%) to prevent them from dominating
+                    # - Non-matched items: no bonus (but can still be selected if they have high base score)
+                    ingredient_bonus = ranked.apply(
+                        lambda row: (
+                            INGREDIENT_PREFERENCE_BONUS  # Full 18% bonus
+                            if row["ingredient_match_count"] > 0 and food_calories[row.name] >= LOW_CALORIE_THRESHOLD
+                            else (
+                                INGREDIENT_PREFERENCE_BONUS * 0.33  # Reduced 6% bonus for low-cal matches
+                                if row["ingredient_match_count"] > 0
+                                else 0.0  # No bonus for non-matches
+                            )
+                        ) * row["ingredient_match_count"],
+                        axis=1
+                    )
+                    
+                    ranked["score"] = ranked["score"].astype(float) + ingredient_bonus
                     ranked = ranked.sort_values("score", ascending=False)
 
                 # Phase 2: candidate summary debug log (top 10 only, not entire DB)
@@ -9341,8 +9378,15 @@ class RecommenderService:
             "itemCount": len(meal_items_for_db),
         })
         
-        # Only rebalance if CORE items deficit is significant (> 12% or below 88% of target)
-        if target_kcal > 0 and core_kcal < target_kcal * 0.88:
+        # ═══ FIX CALORIE SHORTAGE FOR REQUIRED INGREDIENTS ═══
+        # When user provides required_ingredients (available_ingredients), 
+        # we must ensure the meal plan reaches 100% of target calories (no shortage allowed).
+        # Otherwise users can't meet their nutrition goals even after selecting all suggested items.
+        has_required_ingredients = bool(normalized_available_ingredients)
+        min_kcal_threshold = 0.98 if has_required_ingredients else 0.88  # 98% = effectively 100% with rounding
+        
+        # Only rebalance if CORE items deficit is significant
+        if target_kcal > 0 and core_kcal < target_kcal * min_kcal_threshold:
             deficit = target_kcal - core_kcal
             logger.info("[MEAL_CALORIE_TOP_UP_START] %s", {
                 "deficit": round(deficit),
@@ -9371,12 +9415,15 @@ class RecommenderService:
                     if item_category not in energy_booster_categories:
                         continue
                         
-                    # Increase portion by up to 50%
+                    # Increase portion by up to 50% (or 100% for required_ingredients to ensure target)
                     old_kcal = float(item.get("calories", 0))
                     old_serving = float(item.get("serving_grams", 100))
                     
                     # Calculate how much to increase
-                    increase_factor = min(1.5, 1 + (deficit / max(old_kcal, 1)) * 0.5)
+                    # For required_ingredients: allow up to 100% increase (2x) to reach target
+                    # For normal case: limit to 50% increase (1.5x)
+                    max_increase_factor = 2.0 if has_required_ingredients else 1.5
+                    increase_factor = min(max_increase_factor, 1 + (deficit / max(old_kcal, 1)) * 0.5)
                     new_serving = old_serving * increase_factor
                     
                     # Apply serving limits
@@ -9420,90 +9467,122 @@ class RecommenderService:
                         })
             
             # If still deficit in core kcal, try adding high-calorie CORE items from ranked candidates
-            if deficit > target_kcal * 0.05 and not ranked.empty:  # More than 5% still needed
-                # Find meals with fewer CORE items than expected
-                for meal in meal_plan_payload:
-                    if deficit <= 0:
-                        break
-                        
-                    meal_type = meal.get("meal_type", "dinner")
-                    expected_slots = _expected_slots_for_meal(meal_type)
-                    current_core_items = len([i for i in meal.get("items", []) if i.get("is_core", True)])
+            # IMPORTANT: For required_ingredients, be VERY aggressive (add items even at 2% deficit)
+            aggressive_threshold = 0.02 if has_required_ingredients else 0.05
+            if deficit > target_kcal * aggressive_threshold and not ranked.empty:
+                logger.info("[MEAL_CALORIE_ADD_ITEMS_START] deficit=%.1f kcal, has_required_ingredients=%s", deficit, has_required_ingredients)
+                
+                # Keep adding items until deficit is resolved (max 10 iterations to prevent infinite loop)
+                max_iterations = 10
+                iteration = 0
+                
+                while deficit > target_kcal * aggressive_threshold and iteration < max_iterations:
+                    iteration += 1
+                    items_added_this_round = 0
                     
-                    if current_core_items < expected_slots:
-                        # Find a suitable high-calorie item to add as a CORE item
-                        existing_ids = {str(item.get("food_id")) for item in meal.get("items", [])}
+                    # Find meals with fewer CORE items than expected
+                    for meal in meal_plan_payload:
+                        if deficit <= target_kcal * aggressive_threshold:
+                            break
+                            
+                        meal_type = meal.get("meal_type", "dinner")
+                        expected_slots = _expected_slots_for_meal(meal_type)
+                        current_core_items = len([i for i in meal.get("items", []) if i.get("is_core", True)])
                         
-                        # Filter candidates: energy categories, not already in plan, reasonable kcal
-                        target_item_kcal = deficit / max(1, expected_slots - current_core_items)
+                        # For required_ingredients: add items even if meal already has expected slots
+                        # (we need to reach the calorie target, not just fill slots)
+                        # Allow up to 2 extra items per meal beyond expected_slots when deficit exists
+                        max_items_per_meal = expected_slots + (2 if has_required_ingredients else 0)
+                        can_add_more = (current_core_items < max_items_per_meal) and (has_required_ingredients or current_core_items < expected_slots)
                         
-                        for _, candidate_row in ranked.iterrows():
-                            candidate_id = str(candidate_row.get("food_id", ""))
-                            if candidate_id in existing_ids:
-                                continue
+                        if can_add_more:
+                            # Find a suitable high-calorie item to add as a CORE item
+                            existing_ids = {str(item.get("food_id")) for item in meal.get("items", [])}
+                            
+                            # Filter candidates: energy categories, not already in plan, reasonable kcal
+                            target_item_kcal = deficit / max(1, max_items_per_meal - current_core_items)
+                            
+                            for _, candidate_row in ranked.iterrows():
+                                candidate_id = str(candidate_row.get("food_id", ""))
+                                if candidate_id in existing_ids:
+                                    continue
+                                    
+                                candidate_category = _canonical_food_category(
+                                    candidate_row.get("clean_category", candidate_row.get("category", "")),
+                                    candidate_row.get("name", "")
+                                )
                                 
-                            candidate_category = _canonical_food_category(
-                                candidate_row.get("clean_category", candidate_row.get("category", "")),
-                                candidate_row.get("name", "")
-                            )
-                            
-                            if candidate_category not in energy_booster_categories:
-                                continue
-                            
-                            candidate_kcal = float(
-                                candidate_row.get("calories_raw", candidate_row.get("kcal_per_serving_clean", 0)) or 0
-                            )
-                            
-                            # Prefer items with kcal close to what we need
-                            if candidate_kcal < 50 or candidate_kcal > target_item_kcal * 2:
-                                continue
-                            
-                            # Add this item as a CORE item (it fills a required calorie slot)
-                            new_item = self._to_food_item_payload(candidate_row)
-                            new_item["is_core"] = True
-                            new_item["is_default_selected"] = True
-                            new_item["meal_role_display"] = "core"
-                            meal.get("items", []).append(new_item)
-                            
-                            added_kcal = float(new_item.get("calories", 0))
-                            deficit -= added_kcal
-                            total_kcal += added_kcal
-                            core_kcal += added_kcal
-                            total_protein += float(new_item.get("protein", 0))
-                            core_protein += float(new_item.get("protein", 0))
-                            total_fat += float(new_item.get("fat", 0))
-                            total_carbs += float(new_item.get("carbs", 0))
-                            
-                            # Also add to meal_items_for_db
-                            meal_items_for_db.append({
-                                "meal_type": meal_type,
-                                "food_id": new_item["food_id"],
-                                "name": new_item["name"],
-                                "category": new_item["category"],
-                                "serving_grams": new_item.get("serving_grams"),
-                                "serving_display": new_item.get("serving_display") or new_item.get("portion_display"),
-                                "calories": new_item["calories"],
-                                "protein": new_item["protein"],
-                                "fat": new_item["fat"],
-                                "carbs": new_item["carbs"],
-                                "reason": new_item.get("name"),
-                                "image_url": new_item.get("image_url"),
-                                "image_badge": new_item.get("image_badge"),
-                                "score": new_item["score"],
-                                # Core top-up items are always core by definition
-                                "is_core": new_item.get("is_core", True),
-                                "meal_role": new_item.get("meal_role", ""),
-                            })
-                            
-                            logger.info("[MEAL_CALORIE_TOP_UP_ADD_CORE_ITEM] %s", {
-                                "mealKey": meal_type,
-                                "foodId": new_item["food_id"],
-                                "foodName": new_item["name"],
-                                "kcal": round(added_kcal),
-                                "reason": "fill_core_deficit",
-                            })
-                            
-                            break  # Only add one item per meal per iteration
+                                if candidate_category not in energy_booster_categories:
+                                    continue
+                                
+                                candidate_kcal = float(
+                                    candidate_row.get("calories_raw", candidate_row.get("kcal_per_serving_clean", 0)) or 0
+                                )
+                                
+                                # For required_ingredients: accept any reasonable calorie item (>=50 kcal)
+                                # For normal case: prefer items close to target
+                                if has_required_ingredients:
+                                    if candidate_kcal < 50:
+                                        continue
+                                else:
+                                    if candidate_kcal < 50 or candidate_kcal > target_item_kcal * 2:
+                                        continue
+                                
+                                # Add this item as a CORE item (it fills a required calorie slot)
+                                new_item = self._to_food_item_payload(candidate_row)
+                                new_item["is_core"] = True
+                                new_item["is_default_selected"] = True
+                                new_item["meal_role_display"] = "core"
+                                meal.get("items", []).append(new_item)
+                                
+                                added_kcal = float(new_item.get("calories", 0))
+                                deficit -= added_kcal
+                                total_kcal += added_kcal
+                                core_kcal += added_kcal
+                                total_protein += float(new_item.get("protein", 0))
+                                core_protein += float(new_item.get("protein", 0))
+                                total_fat += float(new_item.get("fat", 0))
+                                total_carbs += float(new_item.get("carbs", 0))
+                                
+                                # Also add to meal_items_for_db
+                                meal_items_for_db.append({
+                                    "meal_type": meal_type,
+                                    "food_id": new_item["food_id"],
+                                    "name": new_item["name"],
+                                    "category": new_item["category"],
+                                    "serving_grams": new_item.get("serving_grams"),
+                                    "serving_display": new_item.get("serving_display") or new_item.get("portion_display"),
+                                    "calories": new_item["calories"],
+                                    "protein": new_item["protein"],
+                                    "fat": new_item["fat"],
+                                    "carbs": new_item["carbs"],
+                                    "reason": new_item.get("name"),
+                                    "image_url": new_item.get("image_url"),
+                                    "image_badge": new_item.get("image_badge"),
+                                    "score": new_item["score"],
+                                    # Core top-up items are always core by definition
+                                    "is_core": new_item.get("is_core", True),
+                                    "meal_role": new_item.get("meal_role", ""),
+                                })
+                                
+                                items_added_this_round += 1
+                                
+                                logger.info("[MEAL_CALORIE_TOP_UP_ADD_CORE_ITEM] %s", {
+                                    "iteration": iteration,
+                                    "mealKey": meal_type,
+                                    "foodId": new_item["food_id"],
+                                    "foodName": new_item["name"],
+                                    "kcal": round(added_kcal),
+                                    "remainingDeficit": round(deficit),
+                                    "reason": "fill_core_deficit",
+                                })
+                                
+                                break  # Only add one item per meal per iteration
+                    
+                    # If no items were added this round, break to avoid infinite loop
+                    if items_added_this_round == 0:
+                        logger.warning("[MEAL_CALORIE_ADD_ITEMS_NO_PROGRESS] Could not add more items, deficit remains=%.1f", deficit)
+                        break
             
             logger.info("[MEAL_CALORIE_BALANCE_DONE] %s", {
                 "targetKcal": target_kcal,
@@ -9511,6 +9590,21 @@ class RecommenderService:
                 "finalTotalKcal": round(total_kcal),
                 "finalCoreProgress": round((core_kcal / target_kcal * 100) if target_kcal > 0 else 0),
                 "difference": round(target_kcal - core_kcal),
+            })
+        
+        # Add warning if still below target after all rebalancing attempts
+        calorie_shortage_warning: str | None = None
+        if has_required_ingredients and target_kcal > 0 and core_kcal < target_kcal * 0.98:
+            shortage_pct = round((1 - core_kcal / target_kcal) * 100)
+            calorie_shortage_warning = (
+                f"Không thể đủ calories với nguyên liệu hiện có (thiếu {shortage_pct}%). "
+                f"Vui lòng thêm thực phẩm giàu năng lượng như cơm, thịt, cá, trứng, hạt."
+            )
+            logger.warning("[CALORIE_SHORTAGE_WARNING] %s", {
+                "target_kcal": target_kcal,
+                "core_kcal": round(core_kcal),
+                "shortage_pct": shortage_pct,
+                "available_ingredients": available_ingredients,
             })
         
         ingredient_warning_data: dict[str, object] | None = None
@@ -12508,6 +12602,13 @@ class RecommenderService:
             if not validation_result.get("reason") and meal_item_count_warnings:
                 validation_result["reason"] = meal_item_count_warnings[0]
         is_valid = validation_result["is_valid"]
+        
+        # Add calorie shortage warning if present
+        if calorie_shortage_warning and calorie_shortage_warning not in warnings:
+            warnings.append(calorie_shortage_warning)
+        if calorie_shortage_warning and calorie_shortage_warning not in validation_result["warnings"]:
+            validation_result["warnings"].append(calorie_shortage_warning)
+        
         if is_vegetarian_plan and not is_valid and errors:
             validation_result["status"] = "major_adjustment"
             validation_result["message"] = "Chưa đủ món chay phù hợp để đạt tối ưu dinh dưỡng. Hệ thống đã tạo phương án gần nhất từ các món chay hiện có."
