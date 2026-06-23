@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div align="center">
   
 # 🥗 NutriGain
@@ -268,6 +269,7 @@ sequenceDiagram
 ```
 
 ---
+=======
 |---|---|
 | Containerization | Docker |
 | Orchestration | Docker Compose |
