@@ -42,12 +42,27 @@ class GamificationService:
         # compute consecutive days of completed_main_meals backwards from ref_date
         streak = 0
         cursor = ref_date
+        completed_dates = []  # NEW: Store actual completed dates
         while True:
             if self._completed_main_meals(db, user.id, cursor):
                 streak += 1
+                completed_dates.append(cursor)  # NEW: Track the date
                 cursor = cursor - timedelta(days=1)
             else:
                 break
+
+        # NEW: Calculate week_days boolean array for current week (Monday to Sunday)
+        # Find the start of current week (Monday)
+        current_weekday = today.weekday()  # 0=Monday, 6=Sunday
+        week_start = today - timedelta(days=current_weekday)
+        
+        week_days = [False] * 7  # [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+        for completed_date in completed_dates:
+            # Check if this completed date is in the current week
+            if week_start <= completed_date <= week_start + timedelta(days=6):
+                day_index = (completed_date - week_start).days
+                if 0 <= day_index < 7:
+                    week_days[day_index] = True
 
         # Auto-recalculate achievements every time summary is fetched
         # so badges unlock as soon as the user meets the criteria
@@ -129,7 +144,12 @@ class GamificationService:
         encouragement = random.choice(encouragements)
 
         return {
-            "streak": {"current": streak, "label": "Chuỗi ăn đều", "message": streak > 0 and f"Bạn đã ăn đều {streak} ngày liên tiếp." or "Bắt đầu bằng một ngày ăn đều hôm nay nhé."},
+            "streak": {
+                "current": streak, 
+                "label": "Chuỗi ăn đều", 
+                "message": streak > 0 and f"Bạn đã ăn đều {streak} ngày liên tiếp." or "Bắt đầu bằng một ngày ăn đều hôm nay nhé.",
+                "week_days": week_days,  # NEW: [T2, T3, T4, T5, T6, T7, CN] boolean array
+            },
             "achievements": achievements,
             "today_challenge": today_challenge,
             "encouragement": encouragement,

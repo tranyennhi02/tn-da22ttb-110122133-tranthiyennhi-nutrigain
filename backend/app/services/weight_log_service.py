@@ -126,17 +126,55 @@ class WeightLogService:
             .limit(1)
         )
         
+        # CRITICAL FIX: If no previous log exists, compare with profile weight (initial weight)
+        # to prevent first-time unrealistic updates (e.g., 40kg → 50kg)
         if previous_log:
             days_diff = (log_date - previous_log.log_date).days
             weight_diff = abs(weight_kg - float(previous_log.weight_kg))
+            comparison_weight = float(previous_log.weight_kg)
+            comparison_source = "previous_log"
+        else:
+            # No previous log: compare with profile weight
+            profile = user.profile or db.scalar(
+                select(UserProfileEntity).where(UserProfileEntity.user_id == user.id)
+            )
+            if profile and profile.weight_kg:
+                # Assume update is happening today, so days_diff = 0 days (same day)
+                # This means NO change is allowed on first update if weight differs significantly
+                days_diff = 0
+                weight_diff = abs(weight_kg - float(profile.weight_kg))
+                comparison_weight = float(profile.weight_kg)
+                comparison_source = "profile"
+            else:
+                # No profile weight to compare: allow the update
+                days_diff = None
+                weight_diff = None
+                comparison_weight = None
+                comparison_source = None
+        
+        # Apply validation if we have a comparison point
+        if days_diff is not None and weight_diff is not None:
+            MAX_DAILY_CHANGE_KG = 0.5
             
-            # Cho phép tối đa 2kg/ngày (rất khoan dung rồi)
-            if days_diff > 0 and weight_diff / days_diff > 2.0:
+            # Special case: same-day update (days_diff = 0) should still allow SOME change
+            # due to water weight fluctuation, but not 10kg!
+            if days_diff == 0:
+                # Same day: allow up to 2kg change (very generous for water weight)
+                max_allowed_change = 2.0
+            else:
+                max_allowed_change = MAX_DAILY_CHANGE_KG * days_diff
+            
+            if weight_diff > max_allowed_change:
+                if days_diff == 0:
+                    error_msg = f"Cân nặng thay đổi quá nhiều trong ngày ({weight_diff:.1f}kg so với {comparison_source}). Mức thay đổi tối đa trong cùng ngày là {max_allowed_change:.1f}kg. Vui lòng kiểm tra lại số liệu."
+                else:
+                    error_msg = f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Mức tăng cân an toàn tối đa là {max_allowed_change:.1f}kg. Vui lòng kiểm tra lại số liệu."
+                    
                 raise HTTPException(
                     status_code=422,
                     detail={
                         "code": "UNREALISTIC_WEIGHT_CHANGE",
-                        "message": f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Vui lòng kiểm tra lại."
+                        "message": error_msg
                     }
                 )
         
@@ -413,15 +451,21 @@ class WeightLogService:
             days_diff = (log_date - previous_log.log_date).days
             weight_diff = abs(weight_kg - float(previous_log.weight_kg))
             
-            # Cho phép tối đa 2kg/ngày (rất khoan dung rồi)
-            if days_diff > 0 and weight_diff / days_diff > 2.0:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "code": "UNREALISTIC_WEIGHT_CHANGE",
-                        "message": f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Vui lòng kiểm tra lại."
-                    }
-                )
+            # CRITICAL FIX: Limit daily weight change to 0.5kg per day (realistic for healthy weight gain)
+            # Tốc độ tăng cân an toàn: ~0.5-1kg/tuần = ~0.07-0.14kg/ngày
+            # Cho phép buffer nhẹ do dao động nước trong cơ thể: 0.5kg/ngày
+            MAX_DAILY_CHANGE_KG = 0.5
+            
+            if days_diff > 0:
+                max_allowed_change = MAX_DAILY_CHANGE_KG * days_diff
+                if weight_diff > max_allowed_change:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "code": "UNREALISTIC_WEIGHT_CHANGE",
+                            "message": f"Cân nặng thay đổi quá nhanh ({weight_diff:.1f}kg trong {days_diff} ngày). Mức tăng cân an toàn tối đa là {max_allowed_change:.1f}kg. Vui lòng kiểm tra lại số liệu."
+                        }
+                    )
         
         saved = self.upsert_weight_log(
             db,
@@ -539,10 +583,14 @@ class WeightLogService:
         latest_log_weight = float(latest_log.weight_kg) if latest_log else None
         target_weight = _profile_target_weight(profile)
 
-        start_weight = float(start_log.weight_kg) if start_log else None
+        # CRITICAL FIX: start_weight should be the INITIAL weight from profile (when user registered),
+        # NOT the first weight log entry (which might be a later update).
+        # Use profile.weight_kg as the starting point, OR fallback to first log if profile weight is missing.
+        start_weight = profile_weight if profile else (float(start_log.weight_kg) if start_log else None)
         start_date = start_log.log_date if start_log else None
 
-        current_weight = profile_weight if profile_weight is not None else latest_log_weight
+        # current_weight should be the LATEST log weight (most recent update)
+        current_weight = latest_log_weight if latest_log_weight is not None else profile_weight
         if current_weight is None and start_weight is not None:
              current_weight = start_weight
              

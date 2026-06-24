@@ -316,7 +316,7 @@ export default function AuthCard({
             <TextField
               label="Mã xác thực"
               name="verificationCode"
-              placeholder="123456"
+              placeholder="Nhập mã xác thực"
               value={form.verificationCode}
               error={errors.verificationCode}
               onChange={handleChange}
@@ -388,7 +388,7 @@ function TextField({ label, name, type = "text", placeholder, value, error, onCh
         autoComplete={autoComplete}
         inputMode={inputMode}
         maxLength={maxLength}
-        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
         style={{
           WebkitBoxShadow: "0 0 0px 1000px rgb(255,255,255) inset",
           WebkitTextFillColor: "rgb(15,23,42)",
@@ -396,6 +396,12 @@ function TextField({ label, name, type = "text", placeholder, value, error, onCh
         }}
       />
       {error && <p className="text-xs font-semibold text-red-600">{error}</p>}
+      <style jsx>{`
+        input::placeholder {
+          color: rgba(203, 213, 225, 0.5) !important;
+          opacity: 0.5 !important;
+        }
+      `}</style>
     </div>
   );
 }

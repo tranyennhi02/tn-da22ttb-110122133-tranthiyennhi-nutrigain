@@ -223,20 +223,51 @@ export default function GentleMotivationPanel({ onAction, refreshKey = 0 }) {
             {/* 7-cell day strip */}
             <div className="flex justify-between gap-2 sm:gap-3 mb-8">
               {DAY_LABELS.map((day, i) => {
-                const filled = i < weeklyCycleDay;
-                const isToday = i === weeklyCycleDay - 1 && weeklyCycleDay > 0;
+                // Get current day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+                const currentDayOfWeek = new Date().getDay();
+                // Convert to our format (0=Monday/T2, 1=Tuesday/T3, ..., 6=Sunday/CN)
+                const todayIndex = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1;
+                
+                const isCurrentDay = i === todayIndex;
+                const isPastDay = i < todayIndex; // Day has already passed
+                
+                // NEW: Use week_days array from backend if available
+                const weekDays = summary?.streak?.week_days || [];
+                const filled = weekDays[i] === true;  // Check if this specific day was completed
+                
+                // Missed day: past day that wasn't completed
+                const isMissed = isPastDay && !filled;
+                
                 return (
                   <div key={day} className="flex flex-col items-center gap-2 flex-1">
-                    <div className={`h-10 w-full rounded-xl transition-all duration-300 flex items-center justify-center ${
+                    <div className={`relative h-10 w-full rounded-xl transition-all duration-300 flex items-center justify-center ${
                       filled
-                        ? isToday
-                          ? "bg-teal-500 shadow-md shadow-teal-200 scale-105"
-                          : "bg-teal-100"
-                        : "bg-slate-100"
+                        ? "bg-teal-500 shadow-md shadow-teal-200"
+                        : isMissed
+                          ? "bg-red-50 border-2 border-red-200"
+                          : isCurrentDay
+                            ? "bg-white border-2 border-teal-400 shadow-sm"
+                            : "bg-slate-100"
                     }`}>
-                      {filled && <Check size={16} className={isToday ? "text-white" : "text-teal-600"} strokeWidth={3} />}
+                      {/* Completed day - always show checkmark */}
+                      {filled && <Check size={16} className="text-white" strokeWidth={3} />}
+                      
+                      {/* Missed day (past but not completed) */}
+                      {isMissed && (
+                        <svg width="16" height="16" viewBox="0 0 16 16" className="text-red-400">
+                          <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                        </svg>
+                      )}
                     </div>
-                    <span className={`text-xs font-bold ${filled ? (isToday ? "text-teal-600" : "text-teal-400") : "text-slate-300"}`}>
+                    <span className={`text-xs font-bold ${
+                      filled 
+                        ? "text-teal-600"
+                        : isMissed
+                          ? "text-red-400"
+                          : isCurrentDay 
+                            ? "text-teal-600" 
+                            : "text-slate-300"
+                    }`}>
                       {day}
                     </span>
                   </div>

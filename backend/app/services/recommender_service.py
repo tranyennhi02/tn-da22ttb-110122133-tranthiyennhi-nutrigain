@@ -9075,22 +9075,20 @@ class RecommenderService:
                     )
                     
                     # Define calorie threshold: items below this are considered "low-calorie"
-                    LOW_CALORIE_THRESHOLD = 150.0
+                    # LOWERED from 150 to 100 to give more items full boost
+                    LOW_CALORIE_THRESHOLD = 100.0
                     
                     # Calculate adaptive bonus:
                     # - High-calorie matched items: full bonus (18%)
-                    # - Low-calorie matched items: reduced bonus (6%) to prevent them from dominating
+                    # - Low-calorie matched items: NO BONUS (0%) to prevent them from dominating
+                    #   They will still appear in the plan due to base score, but won't push out high-cal items
                     # - Non-matched items: no bonus (but can still be selected if they have high base score)
                     ingredient_bonus = ranked.apply(
                         lambda row: (
-                            INGREDIENT_PREFERENCE_BONUS  # Full 18% bonus
+                            INGREDIENT_PREFERENCE_BONUS * row["ingredient_match_count"]  # Full bonus for high-cal
                             if row["ingredient_match_count"] > 0 and food_calories[row.name] >= LOW_CALORIE_THRESHOLD
-                            else (
-                                INGREDIENT_PREFERENCE_BONUS * 0.33  # Reduced 6% bonus for low-cal matches
-                                if row["ingredient_match_count"] > 0
-                                else 0.0  # No bonus for non-matches
-                            )
-                        ) * row["ingredient_match_count"],
+                            else 0.0  # NO bonus for low-cal or non-matches
+                        ),
                         axis=1
                     )
                     
@@ -9491,8 +9489,8 @@ class RecommenderService:
                         
                         # For required_ingredients: add items even if meal already has expected slots
                         # (we need to reach the calorie target, not just fill slots)
-                        # Allow up to 2 extra items per meal beyond expected_slots when deficit exists
-                        max_items_per_meal = expected_slots + (2 if has_required_ingredients else 0)
+                        # Allow up to 3 extra items per meal beyond expected_slots when deficit exists
+                        max_items_per_meal = expected_slots + (3 if has_required_ingredients else 0)
                         can_add_more = (current_core_items < max_items_per_meal) and (has_required_ingredients or current_core_items < expected_slots)
                         
                         if can_add_more:

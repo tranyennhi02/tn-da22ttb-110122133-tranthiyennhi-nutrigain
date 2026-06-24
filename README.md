@@ -8,7 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115.8-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![MySQL](https://img.shields.io/badge/MySQL-8.4-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
 **Hệ thống gợi ý thực đơn tăng cân lành mạnh thông minh dành cho người thiếu cân**
@@ -108,48 +108,50 @@ graph LR
 
 - ✨ **Modern UI/UX**: React 18 + Tailwind CSS với Glassmorphism design
 - 📱 **Fully Responsive**: Tối ưu cho desktop, tablet, mobile
-- 🎨 **7 màn hình chính**:
-  - 🏠 **Dashboard**: Tổng quan calories, macros, tiến độ
-  - 🍽️ **Meal Plans**: Kế hoạch bữa ăn hôm nay với regenerate từng bữa
-  - 📖 **Food Journal**: Nhật ký ăn uống chi tiết
-  - 📊 **Charts**: Biểu đồ cân nặng, dinh dưỡng
-  - 👤 **Account**: Quản lý hồ sơ, cài đặt
-  - 🔔 **Notifications**: Thông báo nhắc nhở
-  - 💬 **AI Chat**: Trợ lý AI tư vấn dinh dưỡng
+- 🎨 **8 màn hình chính**:
+  - 🏠 **Dashboard**: Tổng quan calories, macros, tiến độ tăng cân
+  - 🍽️ **Meal Plans**: Kế hoạch bữa ăn với regenerate từng bữa riêng biệt
+  - 📖 **Food Journal**: Nhật ký ăn uống chi tiết theo ngày
+  - 📊 **Charts**: Biểu đồ cân nặng, nutrition trends
+  - 👤 **Account**: Quản lý hồ sơ, mục tiêu, preferences
+  - 🎮 **Gamification**: Streaks, achievements, levels
+  - 🔔 **Notifications**: Nhắc nhở bữa ăn
+  - 💬 **AI Chat**: Trợ lý AI tư vấn dinh dưỡng (đang phát triển)
 
 ### 🤖 2. AI-Powered Recommendation Engine
 
-**Content-based Filtering + Machine Learning**
+**Content-based Filtering với Cosine Similarity**
 
 - 📊 **Cosine Similarity**: Tính độ tương đồng giữa vector dinh dưỡng người dùng và món ăn
-- 🌲 **Random Forest Classifier**: Đánh giá độ phù hợp món ăn (menu_eligible scoring)
 - 🎯 **Smart Balancing**: Tự động cân bằng macros ±10% calories, ±15% protein/fat/carbs
 - 🔄 **Anti-repetition**: Tránh lặp món giữa các ngày, hạn chế trùng nhóm món
-- 🍎 **Ingredient Coverage**: Đảm bảo nguyên liệu yêu cầu xuất hiện 100%
+- 🍎 **Ingredient Coverage**: Đảm bảo nguyên liệu yêu cầu xuất hiện đầy đủ
+- 🧮 **Nutrition Targeting**: Tính toán chính xác BMR (Mifflin-St Jeor), TDEE, và calorie surplus phù hợp
 
 ### 👁️ 3. Nhận diện nguyên liệu bằng AI (CLIP)
 
-- 📸 **Upload ảnh nguyên liệu**: Chụp tủ lạnh, tìm món phù hợp
+- 📸 **Upload ảnh nguyên liệu**: Chụp tủ lạnh/nguyên liệu, tìm món phù hợp
 - 🧠 **CLIP Model**: OpenAI's `clip-vit-base-patch32` với PyTorch
-- 🎯 **High Accuracy**: Confidence thresholds (High ≥0.25, Medium 0.18-0.24)
-- 🗳️ **Majority Voting**: Kết hợp 3 prompts để tăng độ chính xác
-- 🍳 **Meal Generation**: Tự động sinh thực đơn từ nguyên liệu có sẵn
+- 🎯 **High Accuracy**: Multi-threshold confidence scoring (High ≥0.25, Medium 0.18-0.24, Low 0.12-0.17)
+- 🗳️ **Majority Voting**: Kết hợp nhiều prompts để tăng độ chính xác
+- 🍳 **Smart Safety**: Validation gates chặt chẽ cho thịt/hải sản (score ≥0.34-0.36)
+- ✅ **Ingredient Coverage**: Tự động sinh thực đơn từ nguyên liệu đã nhận diện
 
 ### 🎮 4. Gamification System
 
-- ⭐ **EXP & Leveling**: Level up công thức `100 × level` EXP
-  - Mark món: +5 EXP
-  - Check-in bữa: +10-30 EXP (tùy bữa)
+- ⭐ **EXP & Leveling**: Tích lũy điểm kinh nghiệm với công thức `100 × level`
+  - Mark món đã ăn: +5 EXP
+  - Check-in bữa ăn: +10-30 EXP (tùy bữa)
   - Log cân nặng: +15 EXP
   
-- 🏆 **Achievement System**: 12+ huy hiệu mở khóa
-  - **Weight**: First Kilogram, Halfway There, Goal Achieved
+- 🏆 **Achievement System**: 12+ huy hiệu mở khóa tự động
+  - **Weight Milestones**: First Kilogram, Halfway There, Goal Achieved
   - **Consistency**: Week Warrior (7 ngày), Month Master (30 ngày)
-  - **Meals**: Perfect Day (4 bữa/ngày), Meal Century (100 bữa)
-  - **Exploration**: Food Explorer (50 món), Variety King (100 món)
+  - **Meal Streaks**: Perfect Day (3 bữa chính/ngày), Meal Century (100 bữa)
+  - **Food Variety**: Food Explorer (50 món), Variety King (100 món)
   
-- 🔥 **Streak Counter**: Đếm ngày liên tục check-in bữa ăn
-- 💬 **Gentle Motivation**: Động viên tích cực, không body-shaming
+- 🔥 **Streak Counter**: Đếm ngày liên tục hoàn thành 3 bữa chính
+- 💬 **Gentle Motivation**: Động viên tích cực, không áp lực
 
 ### 📊 5. Theo dõi tiến độ chi tiết
 
@@ -176,11 +178,10 @@ graph LR
 
 ### 🔔 6. Smart Meal Reminders
 
-- 📧 **Email Reminders**: SMTP với HTML template động viên
-- 📱 **SMS Reminders**: Twilio API integration
-- ⏰ **Auto Scheduler**: Chạy mỗi phút, gửi đúng giờ thiết lập
+- 📧 **SMS Reminders**: Tích hợp SMSGate API với JWT authentication
+- ⏰ **Auto Scheduler**: Gửi nhắc nhở đúng giờ bữa ăn đã thiết lập
 - 📝 **Reminder Log**: Lưu lịch sử sent/failed/skipped
-- 🧪 **Test Feature**: Gửi test email/SMS kiểm tra cấu hình
+- 🧪 **Test Feature**: Gửi test SMS kiểm tra cấu hình
 
 ### 🤝 7. Cá nhân hóa theo sở thích
 
@@ -192,11 +193,11 @@ graph LR
 
 ### 🏥 8. An toàn y tế (Medical Safety)
 
-- ⚠️ **BMI Gate**: Chỉ phục vụ người BMI < 25
-- 🚨 **Critical Warning**: Cảnh báo BMI < 16 (suy dinh dưỡng nặng)
-- 🛡️ **Ramp-up Phase**: Giới hạn calorie surplus cho BMI < 16 (TDEE + 350 kcal)
-- 🔒 **Weight Validation**: Từ chối cập nhật cân nặng >2kg/ngày
-- 🎯 **Target Limit**: Không cho phép mục tiêu BMI ≥ 25
+- ⚠️ **BMI Gate (Asian Standards)**: Chỉ phục vụ người BMI < 23 (thiếu cân hoặc bình thường theo chuẩn Châu Á)
+- 🚨 **Severe Underweight Warning**: Cảnh báo BMI < 16 nên theo dõi với chuyên gia dinh dưỡng
+- 🛡️ **Ramp-up Phase**: Giới hạn calorie surplus cho BMI < 16 (max TDEE + 350 kcal)
+- 🔒 **Weight Validation**: Từ chối cập nhật cân nặng thay đổi >2kg trong cùng ngày (water weight fluctuation safety)
+- 🎯 **Target Weight Limit**: Không cho phép mục tiêu BMI ≥ 23 (giữ trong phạm vi underweight–normal)
 
 ### 👨‍💼 9. Admin Dashboard
 
@@ -246,87 +247,120 @@ graph LR
 
 ### 🔄 Request Flow
 
-```mermaid
-sequenceDiagram
-    participant U as User Browser
-    participant F as React Frontend
-    participant B as FastAPI Backend
-    participant S as RecommenderService
-    participant D as MySQL Database
-    
-    U->>F: Yêu cầu thực đơn
-    F->>B: POST /api/v1/recommendations
-    B->>D: Query user profile
-    D-->>B: User data
-    B->>S: generate_meal_plan()
-    S->>D: Query foods with filters
-    D-->>S: Food dataset
-    S->>S: Content-based filtering<br/>+ ML scoring
-    S-->>B: Meal plan result
-    B->>D: Save meal_plans
-    B-->>F: JSON response
-    F-->>U: Display meal plan
-```
-=======
-## Luồng hoạt động chính
+## 🛠 Thuật toán AI & ML
 
-```text
-Người dùng nhập hồ sơ
-        ↓
-Hệ thống tính BMI / BMR / TDEE / kcal mục tiêu
-        ↓
-Kiểm tra điều kiện BMI và ràng buộc cá nhân
-        ↓
-Lọc món từ database foods
-        ↓
-Xếp hạng bằng content-based filtering
-        ↓
-Sinh meal plan trong ngày
-        ↓
-Lưu vào meal_plans -> meals -> meal_plan_items
-        ↓
-Người dùng check-in món đã ăn
-        ↓
-Ghi nhận vào food_logs -> food_log_items
-```
+### Content-based Filtering Engine
 
-### Phân biệt dữ liệu gợi ý và dữ liệu đã ăn
+NutriGain sử dụng **Content-based Filtering** kết hợp với **vector similarity** để gợi ý thực đơn:
 
-| Nhóm dữ liệu | Ý nghĩa |
+#### 1. Vector Construction
+- Xây dựng vector dinh dưỡng từ hồ sơ người dùng (BMR, TDEE, target calories, macros)
+- Chuẩn hóa vector món ăn về cùng không gian đặc trưng (scaled features)
+- Features: calories, protein, fat, carbs, fiber, vitamin, mineral, food category
+
+#### 2. Similarity Scoring
+- **Cosine Similarity**: Tính độ tương đồng giữa user vector và food vectors
+- Xếp hạng món ăn theo similarity score
+- Áp dụng diversity jitter (0.18) để tăng đa dạng
+
+#### 3. Rule-based Filtering
+| Rule | Mục đích |
 |---|---|
-| `meal_plan_items` | Món hệ thống gợi ý trong kế hoạch bữa ăn |
-| `food_log_items` | Món người dùng đã xác nhận ăn trong nhật ký |
+| **BMI Gate** | Chỉ hỗ trợ người BMI < 23 (Asian BMI standards: underweight + normal range) |
+| **Medical Warning** | Cảnh báo + giới hạn surplus cho BMI < 16 (TDEE + 350 kcal max) |
+| **Allergy Hard-filter** | Loại bỏ 100% món chứa allergen |
+| **Energy Tolerance** | ±10% calories target per meal slot |
+| **Macro Balance** | ±15% protein/fat/carbs target |
+| **Anti-repetition** | Chống lặp món giữa các ngày, limit group duplication |
+| **Category Balance** | Đảm bảo đủ tinh bột/protein/rau/trái cây mỗi bữa |
+| **Ingredient Coverage** | Ưu tiên món có nguyên liệu yêu cầu (must-have ingredients) |
+
+#### 4. Personalization Layers
+- **Favorite Foods**: Boost score +18% cho món yêu thích
+- **Disliked Foods**: Loại bỏ món không thích
+- **Diet Type**: Áp dụng filter cho vegetarian/eat-clean/high-protein
+- **Budget Constraint**: Lọc theo ngân sách (low/medium/high)
+
+#### 5. CLIP-based Ingredient Recognition
+- **Model**: OpenAI `clip-vit-base-patch32`
+- **Confidence Thresholds**:
+  - High: ≥0.25 (auto-accept)
+  - Medium: 0.18-0.24 (suggest with warning)
+  - Low: 0.12-0.17 (manual confirmation)
+- **Majority Voting**: Combine 10+ prompts per ingredient
+- **Safety Gates**: Strict validation for meat/seafood (0.34-0.36 min score)
+- **Supported Ingredients**: 25+ types (thịt bò, gà, lợn, cá hồi, tôm, cua, trứng, khoai, rau, trái cây...)
+
+### Nutrition Calculation Service
+
+#### BMR Formula (Mifflin-St Jeor)
+```
+Nam: BMR = 10×weight(kg) + 6.25×height(cm) - 5×age(years) + 5
+Nữ: BMR = 10×weight(kg) + 6.25×height(cm) - 5×age(years) - 161
+```
+
+#### TDEE Calculation
+```
+TDEE = BMR × Activity Multiplier
+- sedentary: 1.2
+- lightly_active: 1.375
+- moderately_active: 1.55
+- very_active: 1.725
+- extremely_active: 1.9
+```
+
+#### Calorie Surplus Strategy
+```
+slow (chậm): TDEE + 250 kcal
+moderate (vừa phải): TDEE + 500 kcal
+fast (nhanh): TDEE + 750 kcal
+
+Special case BMI < 16: max TDEE + 350 kcal (ramp-up phase)
+```
+
+#### Macro Distribution
+```
+Protein: 1.6-2.0g/kg body weight
+Fat: 25-35% total calories
+Carbs: Remaining calories after protein + fat
+```
 
 ---
 
-## Thuật toán gợi ý
+## 🏗 Kiến trúc hệ thống
 
-NutriGain sử dụng **Content-based Filtering** với các bước chính:
+### High-Level Architecture
 
-1. Đọc dữ liệu món ăn dạng raw và scaled.
-2. Ghép dữ liệu theo `food_id`.
-3. Xây dựng vector dinh dưỡng mục tiêu từ hồ sơ người dùng.
-4. Đưa vector mục tiêu về cùng không gian đặc trưng đã scale.
-5. Tính **cosine similarity** giữa vector người dùng và vector món ăn.
-6. Lọc món theo rule an toàn.
-7. Xếp hạng lại theo:
-   - similarity score,
-   - độ phù hợp calories,
-   - độ cân bằng macro,
-   - nhóm món,
-   - lịch sử yêu thích / không thích.
-
-### Các rule quan trọng
-
-| Rule | Mục đích |
-|---|---|
-| BMI gate & Medical Warning | Chỉ sinh thực đơn cho người thiếu cân. Hiện cảnh báo y tế và áp dụng sàn năng lượng nghiêm ngặt (TDEE + 350 kcal) cho BMI < 16 |
-| Allergy hard-filter | Loại bỏ món có từ khóa dị ứng |
-| Energy tolerance | Giữ món có kcal gần mục tiêu từng slot |
-| Macro validation | Phát hiện macro bất thường và tối ưu mật độ protein |
-| Duplicate group & item check | Hạn chế lặp món cùng nhóm và chống lặp món giữa các ngày |
-| Backtracking fallback | Nới lỏng điều kiện khi danh sách hợp lệ quá ít |
-| Image fallback | Dùng ảnh minh họa nếu thiếu ảnh thật |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CLIENT LAYER                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │   React SPA (Frontend) - Port 5173                  │   │
+│  │   • Lucide React Icons + Tailwind CSS                │   │
+│  │   • React Router + Context API State                 │   │
+│  │   • Recharts + jsPDF Export                          │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+└─────────────────────────┼────────────────────────────────────┘
+                          │ HTTP/REST + JWT Bearer Token
+┌─────────────────────────┼────────────────────────────────────┐
+│                     API GATEWAY                              │
+│  ┌──────────────────────┴──────────────────────────────┐   │
+│  │   FastAPI Backend (Python 3.13) - Port 8000         │   │
+│  │   • JWT Authentication + bcrypt hashing              │   │
+│  │   • Routes → Controllers → Services → Repositories   │   │
+│  │   • CLIP Model (PyTorch) + Recommender Engine       │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+└─────────────────────────┼────────────────────────────────────┘
+                          │ SQLAlchemy ORM
+┌─────────────────────────┼────────────────────────────────────┐
+│                     DATA LAYER                               │
+│  ┌──────────────────────┴──────────────────────────────┐   │
+│  │   PostgreSQL 15+ (hoặc MySQL 8.4+)                   │   │
+│  │   • 25+ tables (users, foods, meal_plans, logs...)   │   │
+│  │   • Composite indexes for performance                │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ---
 
