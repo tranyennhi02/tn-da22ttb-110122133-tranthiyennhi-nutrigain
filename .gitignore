@@ -27,6 +27,9 @@ Thumbs.db
 pip-cache/
 pip-temp/
 
+# Hugging Face model cache (large files)
+hf-cache/
+
 # Backend virtual env
 backend/.venv/
 .venv-1/
