@@ -22,44 +22,17 @@ env/
 .DS_Store
 Thumbs.db
 
-# Local caches / ML models
+# Cache directories (must be inside src/ per school requirements)
+.cache/
 pip-cache/
 pip-temp/
-hf-cache/
-backend/.venv/
-.venv/
-.venv-1/
 
-# Local cache files
-pip-cache/
-pip-temp/
-hf-cache/
-.venv/
-.venv-1/
+# Backend virtual env
 backend/.venv/
-
-# Local cache files
-pip-cache/
-pip-temp/
-hf-cache/
-.venv/
 .venv-1/
-backend/.venv/
-__pycache__/
-*.pyc
-
-# Python cache
-__pycache__/
-*.pyc
 
 # Frontend build
 frontend/dist/
 
-# Local cache/model files
-pip-cache/
-pip-temp/
-hf-cache/
-torch-cache/
-.venv/
-.venv-1/
-backend/.venv/
+# Python bytecode
+*.pyc

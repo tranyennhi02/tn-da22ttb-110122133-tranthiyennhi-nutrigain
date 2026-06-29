@@ -1,53 +1,63 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
-# Load .env file before importing settings
-try:
-    from dotenv import load_dotenv
-    # Try to load .env.local first (for local development), then fallback to .env
-    backend_dir = Path(__file__).parent.parent
-    env_local_file = backend_dir / ".env.local"
-    env_file = backend_dir / ".env"
-    
-    if env_local_file.exists():
-        load_dotenv(env_local_file)
-        print(f"[DOTENV] Loaded {env_local_file}")
-    elif env_file.exists():
-        load_dotenv(env_file)
-        print(f"[DOTENV] Loaded {env_file}")
-    else:
-        print(f"[DOTENV] No .env or .env.local file found in {backend_dir}")
-except ImportError:
-    print("[DOTENV] python-dotenv not installed, skipping .env load")
-except Exception as e:
-    print(f"[DOTENV] Error loading .env: {e}")
+# Fix PyTorch DLL loading on Windows by adding torch/lib to DLL search path
+# This must be done BEFORE importing torch
+def _fix_pytorch_dll_path():
+    """Add PyTorch lib directory to DLL search path on Windows"""
+    if sys.platform == "win32":
+        try:
+            # Find torch installation
+            import site
+            site_packages = site.getsitepackages()
+            
+            for sp in site_packages:
+                torch_lib = Path(sp) / "torch" / "lib"
+                if torch_lib.exists():
+                    # Python 3.8+ supports os.add_dll_directory
+                    if hasattr(os, 'add_dll_directory'):
+                        os.add_dll_directory(str(torch_lib))
+                        print(f"[PYTORCH DLL FIX] Added to DLL search path: {torch_lib}")
+                    else:
+                        # Fallback for older Python: add to PATH
+                        os.environ["PATH"] = str(torch_lib) + os.pathsep + os.environ.get("PATH", "")
+                        print(f"[PYTORCH DLL FIX] Added to PATH: {torch_lib}")
+                    break
+        except Exception as e:
+            print(f"[PYTORCH DLL FIX] Warning: Failed to add torch/lib to DLL path: {e}")
 
-# Configure Hugging Face cache BEFORE importing any HF/transformers modules
+_fix_pytorch_dll_path()
+
+# Configure Hugging Face cache FIRST, before loading .env files
+# This ensures cache paths are set before any imports that might use them
 def _configure_hf_cache():
-    """Configure Hugging Face cache paths to use D drive instead of C drive"""
-    project_root = Path(__file__).parent.parent.parent
-    default_hf_home = str(project_root / "hf-cache")
-    default_hub_cache = str(project_root / "hf-cache" / "hub")
-    default_transformers_cache = str(project_root / "hf-cache" / "transformers")
-    default_torch_home = str(project_root / "torch-cache")
+    """Configure Hugging Face cache paths inside src/ as required by school"""
+    backend_dir = Path(__file__).parent.parent  # backend/
+    src_dir = backend_dir.parent  # src/
+    default_hf_home = str(src_dir / ".cache" / "huggingface")
+    default_hub_cache = str(src_dir / ".cache" / "huggingface" / "hub")
+    default_transformers_cache = str(src_dir / ".cache" / "huggingface" / "transformers")
+    default_torch_home = str(src_dir / ".cache" / "torch")
     
-    # Set environment variables with defaults
-    os.environ.setdefault("HF_HOME", os.getenv("HF_HOME") or default_hf_home)
-    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", os.getenv("HUGGINGFACE_HUB_CACHE") or default_hub_cache)
-    os.environ.setdefault("HF_HUB_CACHE", os.getenv("HF_HUB_CACHE") or default_hub_cache)
-    os.environ.setdefault("TRANSFORMERS_CACHE", os.getenv("TRANSFORMERS_CACHE") or default_transformers_cache)
-    os.environ.setdefault("TORCH_HOME", os.getenv("TORCH_HOME") or default_torch_home)
+    # Set environment variables with defaults (only if not already set)
+    # This allows run-local.bat or .env.local to override if needed
+    os.environ.setdefault("HF_HOME", default_hf_home)
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", default_hub_cache)
+    os.environ.setdefault("HF_HUB_CACHE", default_hub_cache)
+    os.environ.setdefault("TRANSFORMERS_CACHE", default_transformers_cache)
+    os.environ.setdefault("TORCH_HOME", default_torch_home)
     
     # Create directories if they don't exist
-    for env_var in ["HF_HOME", "HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "TORCH_HOME"]:
+    for env_var in ["HF_HOME", "TORCH_HOME"]:
         cache_path = os.environ.get(env_var)
         if cache_path:
             try:
                 Path(cache_path).mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                print(f"[HF CACHE] Warning: Failed to create {env_var} directory {cache_path}: {e}")
+                print(f"[CACHE] Warning: Failed to create {env_var} directory {cache_path}: {e}")
     
     # Log cache configuration
     print("[CLIP CACHE CONFIG] Hugging Face cache paths:")
@@ -56,13 +66,29 @@ def _configure_hf_cache():
     print(f"  HF_HUB_CACHE: {os.environ.get('HF_HUB_CACHE')}")
     print(f"  TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE')}")
     print(f"  TORCH_HOME: {os.environ.get('TORCH_HOME')}")
-    
-    # Check if cache is still pointing to C drive (Windows only)
-    hf_home = os.environ.get("HF_HOME", "")
-    if hf_home.upper().startswith("C:") or hf_home.upper().startswith("C\\"):
-        print(f"[CLIP CACHE WARNING] Hugging Face cache is still on C drive: {hf_home}")
 
 _configure_hf_cache()
+
+# Load .env file AFTER cache configuration
+# If .env.local overrides cache paths, it will take precedence
+try:
+    from dotenv import load_dotenv
+    backend_dir = Path(__file__).parent.parent
+    env_local_file = backend_dir / ".env.local"
+    env_file = backend_dir / ".env"
+    
+    if env_local_file.exists():
+        load_dotenv(env_local_file, override=True)
+        print(f"[DOTENV] Loaded {env_local_file}")
+    elif env_file.exists():
+        load_dotenv(env_file, override=True)
+        print(f"[DOTENV] Loaded {env_file}")
+    else:
+        print(f"[DOTENV] No .env or .env.local file found in {backend_dir}")
+except ImportError:
+    print("[DOTENV] python-dotenv not installed, skipping .env load")
+except Exception as e:
+    print(f"[DOTENV] Error loading .env: {e}")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
