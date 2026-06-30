@@ -61,7 +61,6 @@ NutriGain cung cấp:
 | **🤖 Nhận Diện Nguyên Liệu AI** | Mô hình CLIP ViT-B/32 nhận diện 26 nguyên liệu | ✅ Hoạt động |
 | **📊 Theo Dõi Dinh Dưỡng** | Tự động tính toán calo và chất dinh dưỡng đa lượng | ✅ Hoạt động |
 | **⚖️ Ghi Nhận BMI & Cân Nặng** | Theo dõi thay đổi cân nặng với biểu đồ trực quan | ✅ Hoạt động |
-
 | **🎮 Hệ Thống Gamification** | Streak, thành tích, thử thách và cấp độ | ✅ Hoạt động |
 | **📈 Bảng Điều Khiển Tiến Trình** | Biểu đồ tương tác với thống kê dinh dưỡng | ✅ Hoạt động |
 | **🔐 Xác Thực An Toàn** | Xác thực JWT với mã hóa mật khẩu | ✅ Hoạt động |
