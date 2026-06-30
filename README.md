@@ -937,7 +937,7 @@ npm run test
 
 Dự án này là đồ án tốt nghiệp được nộp cho Đại Học Trà Vinh.
 
-**Bản Quyền © 2024 Trần Thị Yến Nhi**
+**Bản Quyền © 2026 Trần Thị Yến Nhi**
 
 Mọi quyền được bảo lưu. Dự án này và tài liệu của nó là tài sản trí tuệ của tác giả và Đại Học Trà Vinh.
 
@@ -960,7 +960,7 @@ Mọi quyền được bảo lưu. Dự án này và tài liệu của nó là t
 **Được Tạo Với ❤️ Bởi Yến Nhi Tại Đại Học Trà Vinh**
 
 [![Trà Vinh University](https://img.shields.io/badge/Đại_Học_Trà_Vinh-0066CC?style=for-the-badge)](https://tvu.edu.vn/)
-[![Đồ Án Tốt Nghiệp](https://img.shields.io/badge/Đồ_Án_Tốt_Nghiệp-2024-green?style=for-the-badge)](.)
+[![Đồ Án Tốt Nghiệp](https://img.shields.io/badge/Đồ_Án_Tốt_Nghiệp-2026-green?style=for-the-badge)](.)
 
 ---
 
