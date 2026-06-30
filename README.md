@@ -1,598 +1,756 @@
-# NutriGain - Hệ Thống Gợi Ý Thực Đơn Tăng Cân Thông Minh
+<div align="center">
 
-> **Đồ án tốt nghiệp** - Ứng dụng AI hỗ trợ người gầy tăng cân an toàn và khoa học
+# 🥗 NutriGain
 
-## 🎯 Mục Tiêu Đồ Án
+### *Intelligent Weight Gain Meal Recommendation System*
 
-### Mục Tiêu Tổng Quát
-Xây dựng hệ thống recommendation AI giúp người dùng gầy (BMI < 23) tăng cân một cách khoa học, an toàn và bền vững thông qua việc gợi ý thực đơn cá nhân hóa và theo dõi tiến trình.
+**AI-Powered Nutrition Tracking • Personalized Meal Planning • Gamified Health Journey**
 
-### Mục Tiêu Cụ Thể
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://mysql.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 
-1. **Personalized Meal Recommendation**
-   - Gợi ý thực đơn dựa trên sở thích người dùng
-   - Tính toán dinh dưỡng phù hợp với mục tiêu tăng cân
-   - Content-based filtering với nutrition similarity
+[Features](#-features) • [Tech Stack](#-tech-stack) • [Installation](#-installation) • [Documentation](#-documentation) • [API](#-api-reference) • [Authors](#-authors)
 
-2. **AI-Powered Ingredient Recognition**
-   - Nhận diện nguyên liệu từ ảnh sử dụng CLIP model
-   - Hỗ trợ 26 loại nguyên liệu phổ biến
-   - Độ chính xác 76.26% (167/219 ảnh test)
+---
 
-3. **Gamification & Motivation**
-   - Hệ thống streak, achievements, challenges
-   - Động lực hóa người dùng duy trì chế độ dinh dưỡng
-   - Visual progress tracking
+</div>
 
-4. **Health Tracking**
-   - Theo dõi cân nặng, BMI
-   - Nutrition intake tracking
-   - Visual analytics và báo cáo tiến trình
+## 📖 Overview
 
-### Đối Tượng Sử Dụng
-- Người dùng có BMI < 23 (gầy) muốn tăng cân khoa học
-- Cần hướng dẫn dinh dưỡng và động lực duy trì
-- Có nhu cầu theo dõi tiến trình tăng cân
+**NutriGain** is an intelligent meal recommendation system designed to help underweight individuals (BMI < 23) gain weight safely and scientifically through personalized nutrition planning, AI-powered ingredient recognition, and gamified progress tracking.
 
-## 🏗️ Kiến Trúc Hệ Thống
+### 🎯 The Problem We Solve
 
-### Tech Stack
+Many underweight individuals struggle with:
+- **Lack of personalized guidance** for healthy weight gain
+- **Difficulty tracking** nutritional intake accurately
+- **Low motivation** to maintain consistent eating habits
+- **Confusion** about appropriate food choices
 
-**Backend (FastAPI)**:
-- **Framework**: FastAPI (Python 3.13)
-- **Database**: MySQL 8.0
-- **ORM**: SQLAlchemy
-- **Authentication**: JWT tokens
-- **AI/ML**: 
-  - CLIP ViT-B/32 (PyTorch 2.6.0+cpu)
-  - HuggingFace Transformers
-- **Recommendation**: Content-based filtering
+### 💡 Our Solution
 
-**Frontend (React)**:
-- **Framework**: React 18.3.1
-- **Build Tool**: Vite 5.4
-- **Styling**: TailwindCSS 3.4
-- **Icons**: Lucide React
-- **HTTP Client**: Axios
 
-**Infrastructure**:
-- **Containerization**: Docker & Docker Compose
-- **Web Server**: Nginx (production)
-- **Reverse Proxy**: Nginx (API gateway)
+NutriGain provides:
+- 🤖 **AI-Powered Meal Recommendations** using content-based filtering and nutrition similarity
+- 📸 **Image Recognition** with CLIP model (76.26% accuracy across 26 ingredients)
+- 🎮 **Gamification System** with streaks, achievements, and challenges
+- 📊 **Real-time Progress Tracking** with BMI, weight logs, and nutrition analytics
+- 🔐 **Secure Authentication** with JWT tokens
+- 📱 **Responsive Design** optimized for mobile and desktop
 
-### System Architecture Diagram
+### 👥 Target Users
+
+- Individuals with BMI < 23 seeking healthy weight gain
+- People who need nutritional guidance and meal planning
+- Users wanting to track their progress scientifically
+- Anyone looking for motivation to maintain healthy eating habits
+
+---
+
+## ✨ Features
+
+<div align="center">
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **🍽️ Personalized Meal Recommendations** | Content-based filtering with nutrition similarity matching | ✅ Live |
+| **🤖 AI Ingredient Recognition** | CLIP ViT-B/32 model recognizing 26 ingredients | ✅ Live |
+| **📊 Nutrition Tracking** | Automatic calorie and macro calculation | ✅ Live |
+| **⚖️ BMI & Weight Logging** | Track weight changes with visual analytics | ✅ Live |
+
+| **🎮 Gamification System** | Streaks, achievements, challenges, and levels | ✅ Live |
+| **📈 Progress Dashboard** | Interactive charts with nutrition insights | ✅ Live |
+| **🔐 Secure Authentication** | JWT-based auth with password encryption | ✅ Live |
+| **📱 Responsive UI** | Mobile-first design with TailwindCSS | ✅ Live |
+| **🐳 Docker Support** | One-command deployment with Docker Compose | ✅ Live |
+| **💾 Export Reports** | PDF nutrition reports with charts | ✅ Live |
+
+</div>
+
+<details>
+<summary><b>🎮 Gamification Details</b></summary>
+
+### Achievement System
+- **First Steps**: Log first meal, first weight entry, complete first day
+- **Consistency**: 3-day streak, 7-day streak, perfect week
+- **Diversity**: Try 10 different foods, eat from all food groups
+- **Progress**: Reach target calories, balanced nutrition day
+
+### Challenges
+- Daily calorie target
+- Macro balance challenge
+- Food diversity challenge
+- Consistency streak challenge
+
+### Level System
+- 20 levels based on experience points
+- Earn XP by completing meals, maintaining streaks, achieving goals
+- Visual level progression indicators
+
+</details>
+
+---
+
+
+## 🛠 Tech Stack
+
+<div align="center">
+
+### Frontend
+
+![React](https://img.shields.io/badge/React-18.3.1-61DAFB?style=flat-square&logo=react&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-5.4.14-646CFF?style=flat-square&logo=vite&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/Tailwind-3.4.8-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)
+![Recharts](https://img.shields.io/badge/Recharts-2.5.0-8884D8?style=flat-square)
+![Lucide](https://img.shields.io/badge/Lucide-1.16.0-F56565?style=flat-square)
+
+### Backend
+
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115.8-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0.38-red?style=flat-square)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
+![Transformers](https://img.shields.io/badge/🤗_Transformers-yellow?style=flat-square)
+
+### Database & Infrastructure
+
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-latest-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Nginx](https://img.shields.io/badge/Nginx-latest-009639?style=flat-square&logo=nginx&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-Auth-000000?style=flat-square&logo=json-web-tokens&logoColor=white)
+
+</div>
+
+---
+
+
+## 🏗️ System Architecture
+
+```mermaid
+graph TB
+    subgraph Client["🖥️ Client Layer"]
+        UI["React App<br/>Port 5173/3000"]
+        Upload["Image Upload"]
+        Charts["Interactive Charts"]
+    end
+
+    subgraph API["⚙️ Application Layer"]
+        FastAPI["FastAPI Server<br/>Port 8000"]
+        Auth["Authentication<br/>(JWT)"]
+        Meals["Meal API"]
+        Track["Tracking API"]
+        Image["Image Recognition API"]
+    end
+
+    subgraph AI["🤖 AI/ML Layer"]
+        CLIP["CLIP ViT-B/32<br/>76.26% Accuracy"]
+        Rec["Recommendation Engine<br/>(Content-Based)"]
+        Nutr["Nutrition Calculator"]
+    end
+
+    subgraph Data["💾 Data Layer"]
+        MySQL["MySQL 8.0<br/>Port 3307"]
+        Cache["HuggingFace Cache<br/>~600MB"]
+    end
+
+    UI --> FastAPI
+    Upload --> Image
+    FastAPI --> Auth
+    FastAPI --> Meals
+    FastAPI --> Track
+    Image --> CLIP
+    Meals --> Rec
+    Track --> Nutr
+    FastAPI --> MySQL
+    CLIP --> Cache
+    Rec --> MySQL
+    Nutr --> MySQL
+
+    style UI fill:#61DAFB,stroke:#333,stroke-width:2px,color:#000
+    style FastAPI fill:#009688,stroke:#333,stroke-width:2px,color:#fff
+    style CLIP fill:#EE4C2C,stroke:#333,stroke-width:2px,color:#fff
+    style MySQL fill:#4479A1,stroke:#333,stroke-width:2px,color:#fff
+```
+
+---
+
+
+## 🔄 User Flow
+
+```mermaid
+flowchart TD
+    Start([👤 User Visits App]) --> Check{Authenticated?}
+    Check -->|No| Register[📝 Register/Login]
+    Check -->|Yes| Profile[👤 Complete Profile]
+    
+    Register --> Profile
+    Profile --> BMI{BMI < 23?}
+    
+    BMI -->|No| Restrict[❌ Access Restricted]
+    BMI -->|Yes| Dashboard[📊 Dashboard]
+    
+    Dashboard --> Action{Choose Action}
+    
+    Action --> Recommend[🍽️ Get Meal<br/>Recommendations]
+    Action --> Upload[📸 Upload Food Image]
+    Action --> Log[📝 Log Weight]
+    Action --> View[📈 View Progress]
+    
+    Recommend --> AI1[🤖 AI Recommendation<br/>Engine]
+    AI1 --> Display1[📋 Display Meals]
+    
+    Upload --> AI2[🤖 CLIP Recognition]
+    AI2 --> Display2[🏷️ Detected<br/>Ingredients]
+    
+    Log --> Save[💾 Save to Database]
+    Save --> Calculate[🔢 Calculate BMI]
+    
+    View --> Charts[📊 Show Analytics<br/>& Charts]
+    
+    Display1 --> Track[✅ Track Consumption]
+    Display2 --> Track
+    Track --> Gamify[🎮 Update Gamification]
+    Gamify --> Dashboard
+    
+    style Start fill:#4CAF50,stroke:#2E7D32,stroke-width:3px,color:#fff
+    style Dashboard fill:#2196F3,stroke:#1565C0,stroke-width:2px,color:#fff
+    style AI1 fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    style AI2 fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    style Gamify fill:#9C27B0,stroke:#4A148C,stroke-width:2px,color:#fff
+```
+
+---
+
+
+## 🎯 Recommendation Workflow
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 User
+    participant F as 🖥️ Frontend
+    participant A as ⚙️ API
+    participant R as 🤖 Recommender
+    participant D as 💾 Database
+
+    U->>F: Request Meal Recommendations
+    F->>A: GET /api/v1/meals/recommend
+    
+    A->>D: Fetch User Profile & History
+    D-->>A: Return User Data
+    
+    A->>D: Get Available Foods
+    D-->>A: Return Food Dataset
+    
+    A->>R: Calculate Similarity Scores
+    Note over R: Content-Based Filtering<br/>Nutrition Vector Similarity
+    
+    R->>R: Apply Filters<br/>- BMI Gate<br/>- User Preferences<br/>- Diversity
+    
+    R-->>A: Return Top Recommendations
+    
+    A->>D: Save Recommendation Log
+    
+    A-->>F: Return Meal List (JSON)
+    F-->>U: Display Personalized Meals
+    
+    U->>F: Select & Track Meal
+    F->>A: POST /api/v1/meals/log
+    A->>D: Update Consumption History
+    A->>D: Update Gamification Stats
+    D-->>A: Confirm Save
+    A-->>F: Success Response
+    F-->>U: Show Updated Dashboard
+```
+
+---
+
+
+## 💾 Database Schema
+
+```mermaid
+erDiagram
+    USERS ||--o{ USER_PROFILES : has
+    USERS ||--o{ WEIGHT_LOGS : tracks
+    USERS ||--o{ MEAL_LOGS : logs
+    USERS ||--o{ USER_ACHIEVEMENTS : earns
+    USERS ||--o{ RECOMMENDATION_LOGS : receives
+    
+    FOODS ||--o{ MEAL_LOGS : contains
+    FOODS ||--o{ USER_FOOD_INTERACTIONS : interacts
+    FOODS ||--o{ RECOMMENDATION_LOGS : recommended
+    
+    USERS {
+        int id PK
+        string email UK
+        string password_hash
+        string full_name
+        datetime created_at
+        datetime updated_at
+    }
+    
+    USER_PROFILES {
+        int id PK
+        int user_id FK
+        float height
+        date birth_date
+        string gender
+        float target_weight
+        float target_calories
+        text preferences
+    }
+    
+    FOODS {
+        int id PK
+        string name
+        string category
+        float calories
+        float protein
+        float carbs
+        float fat
+        string image_url
+    }
+    
+    WEIGHT_LOGS {
+        int id PK
+        int user_id FK
+        float weight
+        float bmi
+        date log_date
+    }
+    
+    MEAL_LOGS {
+        int id PK
+        int user_id FK
+        int food_id FK
+        float portion
+        datetime consumed_at
+    }
+
+    USER_ACHIEVEMENTS {
+        int id PK
+        int user_id FK
+        string achievement_type
+        datetime earned_at
+    }
+```
+
+---
+
+
+## 📁 Project Structure
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Client Layer                         │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │        React Frontend (Port 3000/5173)               │  │
-│  │  - User Interface                                     │  │
-│  │  - State Management                                   │  │
-│  │  - Image Upload                                       │  │
-│  └───────────────────┬──────────────────────────────────┘  │
-└────────────────────────┼───────────────────────────────────┘
-                         │
-                         │ HTTP/REST API
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Application Layer                      │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │       FastAPI Backend (Port 8000)                    │  │
-│  │  ┌──────────────┐  ┌──────────────┐                 │  │
-│  │  │   Auth API   │  │  Meals API   │                 │  │
-│  │  └──────────────┘  └──────────────┘                 │  │
-│  │  ┌──────────────┐  ┌──────────────┐                 │  │
-│  │  │  Image API   │  │ Tracking API │                 │  │
-│  │  └──────────────┘  └──────────────┘                 │  │
-│  └───────────┬──────────────┬───────────────┬──────────┘  │
-└──────────────┼──────────────┼───────────────┼─────────────┘
-               │              │               │
-               │              │               ▼
-               │              │    ┌───────────────────────┐
-               │              │    │   CLIP Model Layer    │
-               │              │    │  ┌─────────────────┐  │
-               │              │    │  │ CLIP ViT-B/32   │  │
-               │              │    │  │ (PyTorch)       │  │
-               │              │    │  │ 26 ingredients  │  │
-               │              │    │  │ 76.26% accuracy │  │
-               │              │    │  └─────────────────┘  │
-               │              │    └───────────────────────┘
-               │              │
-               │              ▼
-               │    ┌───────────────────────┐
-               │    │ Recommendation Engine │
-               │    │  ┌─────────────────┐  │
-               │    │  │ Content-based   │  │
-               │    │  │ Filtering       │  │
-               │    │  │ (Nutrition      │  │
-               │    │  │  Similarity)    │  │
-               │    │  └─────────────────┘  │
-               │    └───────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        Data Layer                           │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │         MySQL Database (Port 3307)                   │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐          │  │
-│  │  │  Users   │  │  Meals   │  │  Foods   │          │  │
-│  │  └──────────┘  └──────────┘  └──────────┘          │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐          │  │
-│  │  │ Profiles │  │  Logs    │  │Favorites │          │  │
-│  │  └──────────┘  └──────────┘  └──────────┘          │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      Cache Layer                            │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │        src/.cache/ (Inside src/)                     │  │
-│  │  - HuggingFace models (~600MB)                       │  │
-│  │  - PyTorch cache                                      │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+NutriGain/
+├── 📚 docs/                          # Documentation
+│   ├── BAOCAOĐATN.docx              # Thesis Report (Word)
+│   ├── BAOCAOĐATN.pdf               # Thesis Report (PDF)
+│   └── POSTERTN.pdf                 # Project Poster
+│
+└── 💻 src/                           # Source Code
+    ├── 🔧 backend/                   # FastAPI Backend
+    │   ├── app/
+    │   │   ├── api/                 # API Endpoints
+    │   │   │   └── v1/              # API Version 1
+    │   │   ├── core/                # Configuration
+    │   │   ├── models/              # SQLAlchemy Models
+    │   │   ├── services/            # Business Logic
+    │   │   │   ├── clip_ingredient_service.py
+    │   │   │   ├── recommender_service.py
+    │   │   │   └── gamification_service.py
+    │   │   └── repositories/        # Database Queries
+    │   ├── scripts/                 # Utility Scripts
+    │   ├── requirements.txt         # Python Dependencies
+    │   ├── Dockerfile              # Docker Image
+    │   └── run-local.bat           # Local Run Script
+    │
+    ├── 🎨 frontend/                  # React Frontend
+    │   ├── src/
+    │   │   ├── components/          # React Components
+    │   │   ├── views/               # Page Components
+    │   │   ├── services/            # API Clients
+    │   │   ├── utils/               # Utilities
+    │   │   └── App.jsx             # Main App
+    │   ├── public/                  # Static Assets
+    │   ├── package.json            # NPM Dependencies
+    │   └── Dockerfile              # Docker Image
+    │
+    ├── 🗄️ database/                  # Database Scripts
+    │   └── init.sql                # Initial Schema
+    │
+    ├── 💾 data/                      # Test Data
+    │   └── clip_test_images/        # 219 Test Images
+    │
+    ├── 🐳 docker-compose.yml         # Docker Orchestration
+    └── 📝 README.md                 # This File
 ```
 
-### Data Flow Diagram
+---
 
-```
-User uploads image
-       │
-       ▼
-[Frontend] ──(HTTP POST /api/v1/ingredients/recognize)──▶ [Backend API]
-                                                                 │
-                                                                 ▼
-                                                          [CLIP Service]
-                                                                 │
-                                                                 ├─▶ Load CLIP model
-                                                                 ├─▶ Process image
-                                                                 ├─▶ Match with 716 prompts
-                                                                 └─▶ Return top ingredients
-                                                                 │
-       ┌─────────────────────────────────────────────────────────┘
-       │
-       ▼
-[Backend API] ──(JSON response)──▶ [Frontend]
-       │                                 │
-       ▼                                 ▼
-Save to database              Display results to user
-```
 
-## � Phần Mềm Cần Thiết Để Triển Khai
+## 🚀 Installation
 
-### Development Environment
+### Prerequisites
 
-| Phần Mềm | Version | Mục Đích | Download Link |
-|----------|---------|----------|---------------|
-| **Python** | 3.13.9 | Backend runtime | [python.org](https://python.org) |
-| **Node.js** | 18+ | Frontend build tool | [nodejs.org](https://nodejs.org) |
-| **Docker Desktop** | 20+ | Container runtime | [docker.com](https://docker.com) |
-| **Git** | Latest | Version control | [git-scm.com](https://git-scm.com) |
-| **Visual Studio Code** | Latest | Code editor (khuyến nghị) | [code.visualstudio.com](https://code.visualstudio.com) |
+| Software | Version | Purpose |
+|----------|---------|---------|
+| **Python** | 3.13+ | Backend runtime |
+| **Node.js** | 18+ | Frontend build tool |
+| **Docker** | 20+ | Container runtime |
+| **Git** | Latest | Version control |
 
-### System Requirements
-
-**Minimum**:
-- CPU: Dual-core 2.0 GHz
-- RAM: 4GB (8GB khuyến nghị cho CLIP model)
-- Disk: 5GB free space (2GB for models + 3GB for source code)
-- OS: Windows 10/11, macOS 10.15+, Ubuntu 20.04+
-
-**Recommended**:
-- CPU: Quad-core 2.5 GHz+
-- RAM: 8GB+
-- Disk: 10GB+ SSD
-- Network: Stable internet (lần đầu tải CLIP model ~600MB)
-
-### Additional Dependencies
-
-**Windows** (quan trọng cho PyTorch):
-- Visual C++ Redistributable 2015-2022 (x64)
-  - Download: https://aka.ms/vs/17/release/vc_redist.x64.exe
-  - Cần thiết để PyTorch load DLL files
-
-**Python Packages** (tự động cài qua pip):
-- FastAPI, Uvicorn, SQLAlchemy
-- PyTorch 2.6.0+cpu (stable build)
-- Transformers, Pillow
-- python-dotenv, PyJWT
-
-**Node Packages** (tự động cài qua npm):
-- React, Vite, TailwindCSS
-- Axios, React Router
-- Lucide React
-
-## 🚀 Cách Thức Chạy Chương Trình
-
-### 🐳 Option 1: Docker Compose (Khuyến Nghị - Production Ready)
-
-**Đây là cách triển khai đơn giản nhất, phù hợp cho hosting, production, và demo đồ án.**
-
-#### Ưu Điểm
-- ✅ Tất cả services chạy trong containers (isolated)
-- ✅ Dễ deploy lên cloud (AWS, GCP, Azure, DigitalOcean)
-- ✅ Không cần cài đặt Python, Node.js trực tiếp
-- ✅ Consistent across environments
-
-#### Bước Thực Hiện
+### Quick Start with Docker (Recommended)
 
 ```bash
-# 1. Clone repository
-git clone <repository-url>
-cd NutriGain/src
+# Clone the repository
+git clone https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain.git
+cd tn-da22ttb-110122133-tranthiyennhi-nutrigain/src
 
-# 2. Copy environment files
+# Copy environment files
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 
-# 3. Chỉnh sửa .env files nếu cần
-# (Mặc định đã config sẵn cho Docker)
-
-# 4. Build và start tất cả services
+# Start all services
 docker-compose up -d --build
 
-# 5. Chờ services khởi động (30-60s)
-docker-compose logs -f
-
-# 6. Kiểm tra services đang chạy
+# Check status
 docker-compose ps
 ```
 
-#### Truy Cập Ứng Dụng
+**Access the application:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
 
-| Service | URL | Mô Tả |
-|---------|-----|-------|
-| **Frontend** | http://localhost:3000 | React app |
-| **Backend API** | http://localhost:8000 | FastAPI server |
-| **API Docs** | http://localhost:8000/docs | Swagger UI |
-| **Database** | localhost:3307 | MySQL |
+<details>
+<summary><b>🔧 Local Development Setup</b></summary>
 
-#### Quản Lý Services
-
-```bash
-# Xem logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
-
-# Stop services
-docker-compose down
-
-# Restart service
-docker-compose restart backend
-
-# Rebuild service after code changes
-docker-compose up -d --build backend
-```
-
-#### Deploy Lên Cloud Hosting
-
-**Railway.app** (Miễn phí cho students):
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login và deploy
-railway login
-railway init
-railway up
-```
-
-**Render.com**:
-1. Connect GitHub repository
-2. Chọn `docker-compose.yml`
-3. Click "Deploy"
-
-**DigitalOcean App Platform**:
-1. Connect repository
-2. Detect Dockerfile
-3. Configure environment variables
-4. Deploy
-
-### 💻 Option 2: Local Development (Dev Mode)
-
-**Phù hợp khi đang phát triển code và cần hot reload.**
-
-#### Backend Setup
+### Backend Setup
 
 ```bash
-# 1. Vào thư mục backend
+# Navigate to backend
 cd src/backend
 
-# 2. Tạo virtual environment
+# Create virtual environment
 python -m venv .venv
 
-# 3. Activate virtual environment
+# Activate virtual environment
 # Windows:
 .venv\Scripts\activate
 # Linux/Mac:
 source .venv/bin/activate
 
-# 4. Cài đặt dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# 5. Copy và config .env
-cp .env.example .env.local
-# Chỉnh sửa .env.local nếu cần
-
-# 6. Start MySQL database (Docker)
+# Start MySQL database
 cd ..
 docker-compose up -d db
 
-# 7. Chờ database ready (5-10s)
-# Kiểm tra: docker-compose logs db
-
-# 8. Quay lại backend và start server
+# Run backend server
 cd backend
-run-local.bat      # Windows
-./run-local.sh     # Linux/Mac
+run-local.bat  # Windows
+./run-local.sh # Linux/Mac
 ```
 
-**Backend sẽ chạy tại**: http://localhost:8000
 
-**⚠️ Lưu Ý Quan Trọng - CLIP Model**:
-- Server chạy **KHÔNG có hot reload** (để CLIP model stable)
-- Khi thay đổi code: nhấn `Ctrl+C` và chạy lại `run-local.bat`
-- Lần đầu chạy sẽ tải CLIP model ~600MB (chờ 2-3 phút)
-- Các lần sau load từ cache `src/.cache/` (nhanh hơn)
-
-#### Frontend Setup
+### Frontend Setup
 
 ```bash
-# 1. Mở terminal mới, vào thư mục frontend
+# Navigate to frontend
 cd src/frontend
 
-# 2. Cài đặt dependencies
+# Install dependencies
 npm install
 
-# 3. Copy và config .env
-cp .env.example .env
-# Mặc định đã config cho local backend
-
-# 4. Start dev server
+# Start dev server
 npm run dev
 ```
 
-**Frontend sẽ chạy tại**: http://localhost:5173
+**Server URLs:**
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
 
-### 🌐 Option 3: Deploy Lên VPS/Server (Production)
+</details>
 
-**Phù hợp cho demo đồ án trên server thật.**
+<details>
+<summary><b>☁️ Production Deployment</b></summary>
 
-#### Yêu Cầu VPS
-- Ubuntu 20.04+ / CentOS 8+
-- RAM: 2GB+ (4GB recommended)
-- CPU: 2 cores+
-- Disk: 10GB+
-
-#### Setup Script
+### Deploy to VPS
 
 ```bash
-# 1. SSH vào VPS
+# SSH into server
 ssh user@your-server-ip
 
-# 2. Cài đặt Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
+# Install Docker
+curl -fsSL https://get.docker.com | sh
 
-# 3. Cài đặt Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# 4. Clone repository
-git clone <repository-url>
+# Clone and deploy
+git clone <repo-url>
 cd NutriGain/src
 
-# 5. Config production environment
+# Configure production environment
 cp backend/.env.example backend/.env
-# Edit với production values (database password, secret keys, etc.)
+nano backend/.env  # Edit with production values
 
-# 6. Build và start
+# Start services
 docker-compose -f docker-compose.prod.yml up -d --build
-
-# 7. Setup Nginx reverse proxy (optional)
-sudo apt install nginx
-sudo nano /etc/nginx/sites-available/nutrigain
 ```
 
-**Nginx Config** (`/etc/nginx/sites-available/nutrigain`):
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
+### Deploy to Cloud Platforms
 
-    # Frontend
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
+**Railway.app:**
+```bash
+railway login
+railway init
+railway up
+```
 
-    # Backend API
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
+**Render.com:**
+1. Connect GitHub repository
+2. Select `docker-compose.yml`
+3. Deploy
+
+</details>
+
+---
+
+
+## 📡 API Reference
+
+### Base URL
+
+```
+Development: http://localhost:8000/api/v1
+Production: https://your-domain.com/api/v1
+```
+
+### Authentication
+
+All protected endpoints require a JWT token in the Authorization header:
+
+```bash
+Authorization: Bearer <your-jwt-token>
+```
+
+### Endpoints
+
+<details>
+<summary><b>🔐 Authentication</b></summary>
+
+#### Register User
+```http
+POST /auth/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "secure_password",
+  "full_name": "John Doe"
 }
 ```
 
-```bash
-# Enable site và restart Nginx
-sudo ln -s /etc/nginx/sites-available/nutrigain /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
+#### Login
+```http
+POST /auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "secure_password"
+}
 ```
 
-#### SSL Certificate (HTTPS)
-
-```bash
-# Install Certbot
-sudo apt install certbot python3-certbot-nginx
-
-# Get certificate
-sudo certbot --nginx -d your-domain.com
-
-# Auto-renewal test
-sudo certbot renew --dry-run
+**Response:**
+```json
+{
+  "access_token": "eyJhbGci...",
+  "token_type": "bearer",
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "full_name": "John Doe"
+  }
+}
 ```
 
-## 📁 Cấu Trúc Dự Án
+</details>
 
-> ⚠️ **Quan trọng**: Cấu trúc này tuân thủ yêu cầu nhà trường - TẤT CẢ source code và cache phải nằm trong `src/`
+<details>
+<summary><b>🍽️ Meal Recommendations</b></summary>
 
-```
-NutriGain/
-├── docs/                          # Tài liệu đồ án
-│   ├── BAOCAOĐATN.docx           # Báo cáo đồ án (Word)
-│   ├── BAOCAOĐATN.pdf            # Báo cáo đồ án (PDF)
-│   ├── slides.pptx                # Slide báo vệ
-│   └── poster.pdf                 # Poster đồ án
-│
-├── src/                           # SOURCE CODE (TẤT CẢ trong đây)
-│   ├── backend/                   # FastAPI Backend
-│   │   ├── app/
-│   │   │   ├── api/              # API endpoints
-│   │   │   ├── core/             # Config, database, security
-│   │   │   ├── models/           # SQLAlchemy models
-│   │   │   ├── services/         # Business logic
-│   │   │   │   └── clip_ingredient_service.py  # CLIP recognition
-│   │   │   ├── repositories/     # Database queries
-│   │   │   └── main.py           # FastAPI app
-│   │   ├── scripts/              # Utility scripts
-│   │   │   └── evaluate_clip_accuracy.py  # CLIP evaluation
-│   │   ├── .env.local            # Local environment config
-│   │   ├── requirements.txt      # Python dependencies
-│   │   ├── run-local.bat         # Windows startup script
-│   │   └── Dockerfile            # Docker image
-│   │
-│   ├── frontend/                  # React Frontend
-│   │   ├── src/
-│   │   │   ├── components/       # React components
-│   │   │   ├── pages/            # Page components
-│   │   │   ├── services/         # API calls
-│   │   │   ├── utils/            # Utilities
-│   │   │   └── App.jsx           # Main app
-│   │   ├── public/               # Static assets
-│   │   ├── .env                  # Frontend config
-│   │   ├── package.json          # NPM dependencies
-│   │   └── Dockerfile            # Docker image
-│   │
-│   ├── .cache/                    # Cache (tuân thủ yêu cầu)
-│   │   ├── huggingface/          # CLIP model cache (~600MB)
-│   │   └── torch/                # PyTorch cache
-│   │
-│   ├── data/                      # Test data
-│   │   └── clip_test_images/     # 219 images for evaluation
-│   │
-│   ├── docker-compose.yml         # Dev environment
-│   ├── docker-compose.prod.yml   # Production environment
-│   ├── .gitignore                # Git ignore
-│   └── STRUCTURE.md              # Cấu trúc chi tiết
-│
-└── README.md                      # File này (hướng dẫn chính)
+#### Get Recommendations
+```http
+GET /meals/recommend?limit=10
+Authorization: Bearer <token>
 ```
 
-### Giải Thích Cấu Trúc
-
-**`docs/`**: Tài liệu đồ án (Word, PDF, PowerPoint, Poster)  
-**`src/`**: Toàn bộ source code và cache (tuân thủ yêu cầu nhà trường)  
-**`src/backend/`**: Python FastAPI backend với CLIP AI model  
-**`src/frontend/`**: React frontend với TailwindCSS  
-**`src/.cache/`**: Cache models (CLIP ~600MB, tuân thủ yêu cầu nằm trong src/)  
-
-Chi tiết xem [src/STRUCTURE.md](src/STRUCTURE.md)
-
-## 🔧 Configuration & Environment Variables
-
-### Backend Configuration (`src/backend/.env.local`)
-
-```env
-# Database - MySQL trong Docker
-DATABASE_URL=mysql+pymysql://nutrigain:yennhi2602@localhost:3307/food_recommender
-
-# JWT Secret
-SECRET_KEY=your-super-secret-key-change-in-production
-
-# Feature Flags
-ENABLE_INGREDIENT_IMAGE_RECOGNITION=true
-
-# Cache Configuration (tự động set bởi run-local.bat)
-# HF_HOME sẽ được set vào src/.cache/huggingface/
-# TORCH_HOME sẽ được set vào src/.cache/torch/
+**Response:**
+```json
+{
+  "recommendations": [
+    {
+      "food_id": 42,
+      "name": "Grilled Chicken Breast",
+      "calories": 165,
+      "protein": 31,
+      "carbs": 0,
+      "fat": 3.6,
+      "similarity_score": 0.92
+    }
+  ]
+}
 ```
 
-**Frontend** (`src/frontend/.env`):
-```env
-VITE_API_BASE_URL=http://localhost:8000
+
+#### Log Meal Consumption
+```http
+POST /meals/log
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "food_id": 42,
+  "portion": 1.5,
+  "consumed_at": "2024-01-15T12:30:00"
+}
 ```
 
-## ⚙️ CLIP Model - Đã Khắc Phục Lỗi DLL
+</details>
 
-### ✅ Trạng Thái: Hoạt Động Bình Thường
+<details>
+<summary><b>📸 Image Recognition</b></summary>
 
-CLIP model đã được fix hoàn toàn và sẵn sàng sử dụng!
+#### Recognize Ingredients
+```http
+POST /ingredients/recognize
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
 
-**PyTorch Version**: 2.6.0+cpu (stable)  
-**CLIP Model**: openai/clip-vit-base-patch32  
-**Accuracy**: 76.26% (167/219 images)  
-**Cache Location**: `src/.cache/huggingface/` (~600MB)
-
-### Kiểm Tra CLIP Đã Load
-
-Sau khi start backend, tìm dòng log:
-```
-INFO: [CLIP MODEL STATUS] {'loaded': True, 'device': 'cpu', ...}
-INFO: [CLIP MODEL LOADED] Model cached for subsequent requests
+image: <binary-file>
 ```
 
-Xem hướng dẫn chi tiết: [src/backend/HUONG_DAN_CLIP.md](src/backend/HUONG_DAN_CLIP.md)
+**Response:**
+```json
+{
+  "detected_ingredients": [
+    {
+      "name": "Cam (Orange)",
+      "confidence": 0.89,
+      "category": "Fruit"
+    },
+    {
+      "name": "Cà chua (Tomato)",
+      "confidence": 0.76,
+      "category": "Vegetable"
+    }
+  ],
+  "processing_time_ms": 234
+}
+```
 
-## 📊 Features - Chức Năng Chính
+</details>
 
-### 1. Meal Recommendation
-- Content-based filtering dựa trên nutrition similarity
-- Personalization theo user preferences
-- BMI gate: chỉ gợi ý cho người BMI < 23
-- Diversity trong recommendations
+<details>
+<summary><b>📊 Tracking & Analytics</b></summary>
 
-### 2. AI Image Recognition (CLIP)
-- **Model**: CLIP ViT-B/32 (OpenAI)
-- **Prompts**: 716 prompts cho 26 nguyên liệu
-- **Accuracy**: 76.26% (167/219 test images)
-- **Supported**: Cam, Cà chua, Trứng, Thịt, Cá, Rau, v.v.
+#### Log Weight
+```http
+POST /weight-logs
+Authorization: Bearer <token>
+Content-Type: application/json
 
-### 3. Gamification
-- **Streak**: Chuỗi ngày hoàn thành liên tục
-- **Achievements**: 8 loại huy hiệu
-- **Challenges**: Thử thách hằng ngày
-- **Levels**: Hệ thống cấp độ 1-20
+{
+  "weight": 55.5,
+  "log_date": "2024-01-15"
+}
+```
 
-### 4. Progress Tracking
-- Weight log với BMI tự động
-- Nutrition tracking
-- Visual charts & analytics
+#### Get Dashboard Stats
+```http
+GET /dashboard/stats
+Authorization: Bearer <token>
+```
 
-## 📈 CLIP Performance
+</details>
+
+<details>
+<summary><b>🎮 Gamification</b></summary>
+
+#### Get Gamification Summary
+```http
+GET /gamification/summary
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "streak": 7,
+  "level": 5,
+  "xp": 1250,
+  "achievements": [
+    {
+      "type": "first_meal_plan",
+      "earned_at": "2024-01-10T08:00:00"
+    }
+  ]
+}
+```
+
+</details>
+
+> 📚 **Full API Documentation:** Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive Swagger UI
+
+---
+
+
+## 🤖 CLIP Model Performance
+
+### Overview
+
+- **Model:** CLIP ViT-B/32 (OpenAI)
+- **Framework:** PyTorch 2.6.0 (CPU)
+- **Test Dataset:** 219 images across 26 ingredients
+- **Overall Accuracy:** **76.26%** (167/219 correct recognitions)
 
 ### Accuracy Breakdown
 
-| Nhóm | Nguyên Liệu | Accuracy |
-|------|-------------|----------|
-| 🟢 Hoàn hảo (100%) | Cam, Cà chua, Cà rốt, Khoai lang, Khoai tây, Trứng | 6/26 |
-| 🟡 Rất tốt (80-99%) | Cá hồi, Sữa, Táo, Chuối, Cua, Thịt bò | 6/26 |
-| 🟠 Trung bình (60-79%) | Yến mạch, Tôm, Cá, Đậu nành, Rau cải, Thịt gà | 7/26 |
-| 🔴 Yếu (<60%) | Cơm, Nấm, Đậu hũ, Thịt lợn, Bí đỏ, Hàu, Sò | 7/26 |
+| Performance Tier | Ingredients | Count | Accuracy Range |
+|-----------------|-------------|-------|----------------|
+| 🟢 **Excellent** (100%) | Cam, Cà chua, Cà rốt, Khoai lang, Khoai tây, Trứng | 6 | 100% |
+| 🟡 **Very Good** (80-99%) | Cá hồi, Sữa, Táo, Chuối, Cua, Thịt bò | 6 | 80-99% |
+| 🟠 **Good** (60-79%) | Yến mạch, Tôm, Cá, Đậu nành, Rau cải, Thịt gà | 7 | 60-79% |
+| 🔴 **Fair** (<60%) | Cơm, Nấm, Đậu hũ, Thịt lợn, Bí đỏ, Hàu, Sò | 7 | <60% |
 
-**Overall**: 76.26% (167/219 successful recognitions)
+### Supported Ingredients
 
-Chi tiết: [src/backend/CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md)
+<div align="center">
+
+| Nguyên Liệu (Vietnamese) | English | Category |
+|---------------------------|---------|----------|
+| 🍊 Cam | Orange | Fruit |
+| 🍅 Cà chua | Tomato | Vegetable |
+| 🥕 Cà rốt | Carrot | Vegetable |
+| 🐟 Cá | Fish | Protein |
+| 🦐 Tôm | Shrimp | Protein |
+| 🥚 Trứng | Egg | Protein |
+| 🍗 Thịt gà | Chicken | Protein |
+| 🥩 Thịt bò | Beef | Protein |
+| 🍚 Cơm | Rice | Starch |
+| 🍌 Chuối | Banana | Fruit |
+
+*...and 16 more ingredients*
+
+</div>
+
+> 📖 **Detailed Report:** See [CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md)
+
+---
+
 
 ## 🧪 Testing
 
@@ -603,86 +761,210 @@ cd src/backend
 pytest
 ```
 
-### CLIP Evaluation
+### CLIP Model Evaluation
 
 ```bash
 cd src/backend
 
-# Quick test
+# Quick test with sample images
 python -m scripts.quick_test_clip
 
-# Full evaluation
+# Full evaluation on test dataset
 python -m scripts.evaluate_clip_accuracy --test-dir ../data/clip_test_images
+
+# Test specific ingredient
+python -m scripts.test_clip_recognition --ingredient "Cam"
 ```
 
-## 📝 API Documentation
+### Frontend Tests
 
-API documentation có sẵn tại:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Key Endpoints
-
-```
-POST   /api/v1/auth/register           # Đăng ký
-POST   /api/v1/auth/login              # Đăng nhập
-GET    /api/v1/meals/recommend         # Gợi ý thực đơn
-POST   /api/v1/ingredients/recognize   # Nhận diện nguyên liệu
-GET    /api/v1/gamification/summary    # Thống kê gamification
-POST   /api/v1/weight-logs             # Ghi nhận cân nặng
+```bash
+cd src/frontend
+npm run test
 ```
 
-## 🎓 Tài Liệu
-
-- **Quyền đồ án**: `docs/*.docx`, `docs/*.pdf`
-- **Slide báo vệ**: `docs/*.pptx`
-- **Poster**: `docs/poster.pdf`
-- **Hướng dẫn demo**: `docs/demo-guide.md`
-- **Cấu trúc chi tiết**: [src/STRUCTURE.md](src/STRUCTURE.md)
-- **CLIP Evaluation**: [src/backend/CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md)
+---
 
 ## 🐛 Troubleshooting
 
-### CLIP không hoạt động?
+<details>
+<summary><b>❌ CLIP Model Not Loading</b></summary>
 
-**Vấn đề**: CLIP model không tải được
+**Problem:** CLIP model fails to load or gives DLL errors
 
-**Giải pháp**: Đảm bảo đang dùng `run-local.bat` hoặc set cache paths:
-```bash
-set HF_HOME=D:\path\to\NutriGain\src\.cache\huggingface
-set TORCH_HOME=D:\path\to\NutriGain\src\.cache\torch
-```
+**Solutions:**
+1. Ensure using `run-local.bat` which sets correct cache paths
+2. Install Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe
+3. Verify PyTorch installation:
+   ```bash
+   python -c "import torch; print(torch.__version__)"
+   ```
+4. Clear cache and reinstall:
+   ```bash
+   rm -rf src/.cache/
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+   ```
 
-### Database connection failed?
+</details>
 
-**Vấn đề**: Không kết nối được PostgreSQL
+<details>
+<summary><b>❌ Database Connection Failed</b></summary>
 
-**Giải pháp**:
-```bash
-# Check database is running
-docker ps
+**Problem:** Cannot connect to MySQL database
 
-# Start database if not running
-cd src
-docker-compose up -d db
-```
+**Solutions:**
+1. Check if database container is running:
+   ```bash
+   docker ps
+   ```
+2. Start database if not running:
+   ```bash
+   cd src
+   docker-compose up -d db
+   ```
+3. Verify connection string in `.env`:
+   ```
+   DATABASE_URL=mysql+pymysql://nutrigain:password@localhost:3307/food_recommender
+   ```
 
-### Frontend không gọi được API?
+</details>
 
-**Vấn đề**: CORS error
+<details>
+<summary><b>❌ Frontend CORS Error</b></summary>
 
-**Giải pháp**: Kiểm tra `VITE_API_BASE_URL` trong `src/frontend/.env`
+**Problem:** Frontend cannot connect to backend API
 
-## 📧 Liên Hệ
+**Solutions:**
+1. Check `VITE_API_BASE_URL` in `src/frontend/.env`
+2. Verify backend is running on correct port
+3. Check FastAPI CORS configuration in `src/backend/app/main.py`
 
-- **Sinh viên**: Trần Thị Yến Nhi
-- **MSSV**: 110122133
-- **Email**: 110122133@st.tvu.edu.vn
-- **Lớp**: DA22TTB
-- **Khoa**: Công Nghệ Thông Tin
+</details>
+
+<details>
+<summary><b>❌ Docker Build Fails</b></summary>
+
+**Problem:** Docker build fails with memory or timeout errors
+
+**Solutions:**
+1. Increase Docker memory limit (Settings > Resources)
+2. Use multi-stage builds (already configured)
+3. Build services separately:
+   ```bash
+   docker-compose build backend
+   docker-compose build frontend
+   ```
+
+</details>
+
+---
+
+
+## 🚧 Future Improvements
+
+- [ ] **Mobile App** - React Native version for iOS and Android
+- [ ] **Collaborative Filtering** - Hybrid recommendation system combining content-based and collaborative filtering
+- [ ] **Meal Planning Calendar** - Weekly meal plan generation with grocery lists
+- [ ] **Social Features** - Share progress, recipes, and achievements with friends
+- [ ] **Nutrition Chatbot** - AI assistant for nutrition queries using LLM
+- [ ] **Multi-language Support** - English, Vietnamese, and more
+- [ ] **Barcode Scanner** - Scan food products for instant nutrition info
+- [ ] **Integration with Fitness Trackers** - Sync with Apple Health, Google Fit
+- [ ] **Recipe Generator** - AI-powered recipe suggestions based on available ingredients
+- [ ] **Meal Prep Guides** - Step-by-step cooking instructions with timers
+- [ ] **Professional Dietitian Support** - Connect users with certified nutritionists
+- [ ] **Advanced Analytics** - Predictive weight gain models using ML
+
+---
+
+## 📚 Documentation
+
+| Document | Description | Link |
+|----------|-------------|------|
+| **Thesis Report (Vietnamese)** | Complete graduation thesis | [docs/BAOCAOĐATN.pdf](docs/BAOCAOĐATN.pdf) |
+| **Project Poster** | Visual project summary | [docs/POSTERTN.pdf](docs/POSTERTN.pdf) |
+| **CLIP Evaluation Report** | Detailed AI model performance analysis | [src/backend/CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md) |
+| **Project Structure** | Detailed folder structure explanation | [src/STRUCTURE.md](src/STRUCTURE.md) |
+| **API Documentation** | Interactive Swagger UI | http://localhost:8000/docs |
+
+---
+
+
+## 👥 Authors
+
+<div align="center">
+
+### Trần Thị Yến Nhi
+
+**Student ID:** 110122133  
+**Class:** DA22TTB  
+**Major:** Information Technology  
+**University:** Trà Vinh University
+
+[![Email](https://img.shields.io/badge/Email-110122133@st.tvu.edu.vn-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:110122133@st.tvu.edu.vn)
+[![GitHub](https://img.shields.io/badge/GitHub-tranyennhi02-181717?style=for-the-badge&logo=github)](https://github.com/tranyennhi02)
+
+</div>
+
+---
+
+## 🙏 Acknowledgements
+
+This graduation thesis project would not have been possible without the support and guidance of:
+
+- **Trà Vinh University** - Faculty of Engineering and Technology, Department of Information Technology
+- **Thesis Advisors** - For invaluable guidance and mentorship throughout the project
+- **OpenAI** - For the CLIP model and vision-language research
+- **HuggingFace** - For Transformers library and model hosting
+- **FastAPI Community** - For excellent documentation and support
+- **React Community** - For modern frontend development tools
+- **Open Source Contributors** - For amazing libraries and frameworks
+
+### Technology Credits
+
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
+- [React](https://reactjs.org/) - Frontend UI library
+- [PyTorch](https://pytorch.org/) - Deep learning framework
+- [CLIP](https://github.com/openai/CLIP) - Vision-language model by OpenAI
+- [TailwindCSS](https://tailwindcss.com/) - Utility-first CSS framework
+- [Recharts](https://recharts.org/) - Charting library for React
+- [SQLAlchemy](https://www.sqlalchemy.org/) - Python SQL toolkit
+- [Vite](https://vitejs.dev/) - Next generation frontend tooling
+
+---
+
 
 ## 📄 License
 
-Đồ án tốt nghiệp 
+This project is a graduation thesis submitted to Trà Vinh University.
+
+**Copyright © 2024 Trần Thị Yến Nhi**
+
+All rights reserved. This project and its documentation are the intellectual property of the author and Trà Vinh University.
 
 ---
+
+## 📞 Contact & Support
+
+For questions, suggestions, or collaboration opportunities:
+
+- 📧 **Email:** 110122133@st.tvu.edu.vn
+- 🐛 **Issues:** [GitHub Issues](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/issues)
+- 📖 **Documentation:** [Project Wiki](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/wiki)
+
+---
+
+<div align="center">
+
+### ⭐ If you find this project helpful, please consider giving it a star!
+
+**Made with ❤️ by Yến Nhi at Trà Vinh University**
+
+[![Trà Vinh University](https://img.shields.io/badge/Trà_Vinh_University-0066CC?style=for-the-badge)](https://tvu.edu.vn/)
+[![Graduation Thesis](https://img.shields.io/badge/Graduation_Thesis-2024-green?style=for-the-badge)](.)
+
+---
+
+**NutriGain** • *Intelligent Weight Gain, Powered by AI*
+
+</div>
