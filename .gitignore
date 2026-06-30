@@ -22,7 +22,7 @@ env/
 .DS_Store
 Thumbs.db
 
-# Cache directories (must be inside src/ per school requirements)
+# Cache directories
 .cache/
 pip-cache/
 pip-temp/
@@ -39,3 +39,19 @@ frontend/dist/
 
 # Python bytecode
 *.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+*.err.log
+*.out.log
+
+# Temporary files
+*.tmp
+*.temp

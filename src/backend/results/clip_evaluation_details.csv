@@ -1,0 +1,228 @@
+﻿file,ground_truth,predicted,confidence,correct,processing_time_ms
+Bi_do\bi_do_1.jpg,Bí đỏ,Bí đỏ,0.0,True,74921.53
+Bi_do\bi_do_2.jpg,Bí đỏ,Cà rốt,0.0,False,162.5
+Bi_do\bi_do_3.jpg,Bí đỏ,Khoai lang,0.0,False,105.14
+Bi_do\bi_do_4.jpg,Bí đỏ,Cà rốt,0.0,False,107.3
+Bi_do\bi_do_5.jpg,Bí đỏ,Khoai lang,0.0,False,98.66
+Bi_do\bi_do_6.jpg,Bí đỏ,Khoai lang,0.0,False,101.71
+Bi_do\bi_do_7.jpg,Bí đỏ,Khoai lang,0.0,False,105.22
+Bi_do\bi_do_8.jpg,Bí đỏ,Khoai lang,0.0,False,104.14
+Bi_do\bi_do_9.jpg,Bí đỏ,Khoai tây,0.0,False,101.85
+Ca\ca_1.jpg,Cá,Cá,0.0,True,98.33
+Ca\ca_10.jpg,Cá,Cá,0.0,True,95.7
+Ca\ca_11.jpg,Cá,Cá,0.0,True,97.1
+Ca\ca_2.jpg,Cá,Cá,0.0,True,105.52
+Ca\ca_5.jpg,Cá,Cá,0.0,True,101.61
+Ca\ca_6.jpg,Cá,Cá,0.0,True,102.16
+Ca\ca_9.jpg,Cá,Cá,0.0,True,94.1
+Ca_chua\ca_chua_1.jpg,Cà chua,Cà chua,0.0,True,98.96
+Ca_chua\ca_chua_10.jpg,Cà chua,Cà chua,0.0,True,102.07
+Ca_chua\ca_chua_2.jpg,Cà chua,Cà chua,0.0,True,99.16
+Ca_chua\ca_chua_3.jpg,Cà chua,Cà chua,0.0,True,104.23
+Ca_chua\ca_chua_4.jpg,Cà chua,Cà chua,0.0,True,101.64
+Ca_chua\ca_chua_5.jpg,Cà chua,Cà chua,0.0,True,99.99
+Ca_chua\ca_chua_6.jpg,Cà chua,Cà chua,0.0,True,96.93
+Ca_chua\ca_chua_7.jpg,Cà chua,Cà chua,0.0,True,97.14
+Ca_chua\ca_chua_8.jpg,Cà chua,Cà chua,0.0,True,98.92
+Ca_chua\ca_chua_9.jpg,Cà chua,Cà chua,0.0,True,105.86
+Ca_hoi\ca_hoi_1.jpg,Cá hồi,Cá hồi,0.0,True,128.12
+Ca_hoi\ca_hoi_10.jpg,Cá hồi,Cá hồi,0.0,True,97.94
+Ca_hoi\ca_hoi_2.jpg,Cá hồi,Cá hồi,0.0,True,94.3
+Ca_hoi\ca_hoi_3.jpg,Cá hồi,Cá hồi,0.0,True,103.26
+Ca_hoi\ca_hoi_4.jpg,Cá hồi,Cá hồi,0.0,True,97.77
+Ca_hoi\ca_hoi_5.jpg,Cá hồi,Cá hồi,0.0,True,97.64
+Ca_hoi\ca_hoi_6.jpg,Cá hồi,Cá hồi,0.0,True,93.85
+Ca_hoi\ca_hoi_7.jpg,Cá hồi,Cá hồi,0.0,True,93.3
+Ca_hoi\ca_hoi_9.jpg,Cá hồi,Cá hồi,0.0,True,92.49
+Ca_rot\ca_rot_1.jpg,Cà rốt,Cà rốt,0.0,True,95.3
+Ca_rot\ca_rot_10.jpg,Cà rốt,Cà rốt,0.0,True,101.21
+Ca_rot\ca_rot_2.jpg,Cà rốt,Cà rốt,0.0,True,88.05
+Ca_rot\ca_rot_3.jpg,Cà rốt,Cà rốt,0.0,True,98.7
+Ca_rot\ca_rot_4.jpg,Cà rốt,Cà rốt,0.0,True,92.61
+Ca_rot\ca_rot_5.jpg,Cà rốt,Cà rốt,0.0,True,96.99
+Ca_rot\ca_rot_6.jpg,Cà rốt,Cà rốt,0.0,True,99.13
+Ca_rot\ca_rot_7.jpg,Cà rốt,Cà rốt,0.0,True,100.05
+Ca_rot\ca_rot_8.jpg,Cà rốt,Cà rốt,0.0,True,105.81
+Ca_rot\ca_rot_9.jpg,Cà rốt,Cà rốt,0.0,True,105.69
+Cam\cam_1.jpg,Cam,Cam,0.0,True,96.32
+Cam\cam_10.jpg,Cam,Cam,0.0,True,94.2
+Cam\cam_2.jpg,Cam,Cam,0.0,True,97.14
+Cam\cam_3.jpg,Cam,Cam,0.0,True,99.8
+Cam\cam_4.jpg,Cam,Cam,0.0,True,93.29
+Cam\cam_5.jpg,Cam,Cam,0.0,True,101.14
+Cam\cam_6.jpg,Cam,Cam,0.0,True,106.99
+Cam\cam_7.jpg,Cam,Cam,0.0,True,85.64
+Cam\cam_8.jpg,Cam,Cam,0.0,True,95.53
+Cam\cam_9.jpg,Cam,Cam,0.0,True,92.58
+Chuoi\chuoi_1.jpg,Chuối,Chuối,0.0,True,104.76
+Chuoi\chuoi_10.jpg,Chuối,Chuối,0.0,True,99.88
+Chuoi\chuoi_2.jpg,Chuối,Chuối,0.0,True,101.67
+Chuoi\chuoi_3.jpg,Chuối,Khoai tây,0.0,False,104.43
+Chuoi\chuoi_4.jpg,Chuối,Chuối,0.0,True,97.31
+Chuoi\chuoi_5.jpg,Chuối,Chuối,0.0,True,102.98
+Chuoi\chuoi_6.jpg,Chuối,Chuối,0.0,True,109.66
+Chuoi\chuoi_7.jpg,Chuối,Chuối,0.0,True,98.38
+Chuoi\chuoi_8.jpg,Chuối,Chuối,0.0,True,104.18
+Chuoi\chuoi_9.jpg,Chuối,Khoai tây,0.0,False,720.32
+Com\com_1.jpg,Cơm,Cơm,0.0,True,100.91
+Com\com_10.jpg,Cơm,Bí đỏ,0.0,False,112.98
+Com\com_11.jpg,Cơm,Cơm,0.0,True,92.59
+Com\com_12.jpg,Cơm,Cơm,0.0,True,110.63
+Com\com_2.jpg,Cơm,Bí đỏ,0.0,False,113.32
+Com\com_3.jpg,Cơm,Khoai tây,0.0,False,109.66
+Com\com_4.jpg,Cơm,Cơm,0.0,True,90.08
+Com\com_5.jpg,Cơm,Cơm,0.0,True,95.9
+Com\com_6.jpg,Cơm,Khoai tây,0.0,False,103.84
+Com\com_7.jpg,Cơm,Cơm,0.0,True,107.84
+Com\com_8.jpg,Cơm,Khoai tây,0.0,False,105.0
+Com\com_9.jpg,Cơm,Bí đỏ,0.0,False,100.09
+Cua\cua_1.jpg,Cua,Cua,0.0,True,95.81
+Cua\cua_10.jpg,Cua,Cua,0.0,True,105.48
+Cua\cua_2.jpg,Cua,Cua,0.0,True,92.5
+Cua\cua_3.jpg,Cua,Cua,0.0,True,98.34
+Cua\cua_4.jpg,Cua,Cua,0.0,True,100.46
+Cua\cua_5.jpg,Cua,Cua,0.0,True,97.91
+Cua\cua_6.jpg,Cua,Cua,0.0,True,101.02
+Cua\cua_8.jpg,Cua,Cua,0.0,True,93.98
+Dau_hu\dau_hu_1.jpg,Đậu hũ,Khoai lang,0.0,False,94.78
+Dau_hu\dau_hu_10.jpg,Đậu hũ,Đậu hũ,0.0,True,100.91
+Dau_hu\dau_hu_2.jpg,Đậu hũ,Sữa,0.0,False,114.91
+Dau_hu\dau_hu_3.jpg,Đậu hũ,Sữa,0.0,False,127.61
+Dau_hu\dau_hu_4.jpg,Đậu hũ,Khoai tây,0.0,False,125.29
+Dau_hu\dau_hu_5.jpg,Đậu hũ,Đậu hũ,0.0,True,126.47
+Dau_hu\dau_hu_6.jpg,Đậu hũ,Khoai tây,0.0,False,121.62
+Dau_hu\dau_hu_7.jpg,Đậu hũ,Sữa,0.0,False,135.93
+Dau_hu\dau_hu_8.jpg,Đậu hũ,Sữa,0.0,False,121.91
+Dau_hu\dau_hu_9.jpg,Đậu hũ,Sữa,0.0,False,121.41
+Dau_nanh\dau_nanh_1.jpg,Đậu nành,Đậu nành,0.0,True,135.38
+Dau_nanh\dau_nanh_10.jpg,Đậu nành,Sữa,0.0,False,127.39
+Dau_nanh\dau_nanh_11.jpg,Đậu nành,Sữa,0.0,False,128.31
+Dau_nanh\dau_nanh_2.jpg,Đậu nành,Đậu nành,0.0,True,129.19
+Dau_nanh\dau_nanh_3.jpg,Đậu nành,Đậu nành,0.0,True,126.67
+Dau_nanh\dau_nanh_4.jpg,Đậu nành,Sữa,0.0,False,129.02
+Dau_nanh\dau_nanh_5.jpg,Đậu nành,Đậu nành,0.0,True,150.84
+Dau_nanh\dau_nanh_6.jpg,Đậu nành,Khoai tây,0.0,False,122.57
+Dau_nanh\dau_nanh_7.jpg,Đậu nành,Sữa,0.0,False,113.42
+Dau_nanh\dau_nanh_8.jpg,Đậu nành,Đậu nành,0.0,True,140.27
+Dau_nanh\dau_nanh_9.jpg,Đậu nành,Đậu nành,0.0,True,139.24
+Khoai_lang\khoai_lang_1.jpg,Khoai lang,Khoai lang,0.0,True,97.61
+Khoai_lang\khoai_lang_10.jpg,Khoai lang,Khoai lang,0.0,True,98.37
+Khoai_lang\khoai_lang_2.jpg,Khoai lang,Khoai lang,0.0,True,93.51
+Khoai_lang\khoai_lang_3.jpg,Khoai lang,Khoai lang,0.0,True,101.91
+Khoai_lang\khoai_lang_4.jpg,Khoai lang,Khoai lang,0.0,True,91.22
+Khoai_lang\khoai_lang_5.jpg,Khoai lang,Khoai lang,0.0,True,98.87
+Khoai_lang\khoai_lang_6.jpg,Khoai lang,Khoai lang,0.0,True,111.74
+Khoai_lang\khoai_lang_7.jpg,Khoai lang,Khoai lang,0.0,True,108.45
+Khoai_lang\khoai_lang_8.jpg,Khoai lang,Khoai lang,0.0,True,97.57
+Khoai_lang\khoai_lang_9.jpg,Khoai lang,Khoai lang,0.0,True,107.04
+Khoai_tay\khoai_tay_1.jpg,Khoai tây,Khoai tây,0.0,True,104.89
+Khoai_tay\khoai_tay_10.jpg,Khoai tây,Khoai tây,0.0,True,106.76
+Khoai_tay\khoai_tay_2.jpg,Khoai tây,Khoai tây,0.0,True,91.3
+Khoai_tay\khoai_tay_3.jpg,Khoai tây,Khoai tây,0.0,True,97.46
+Khoai_tay\khoai_tay_4.jpg,Khoai tây,Khoai tây,0.0,True,108.99
+Khoai_tay\khoai_tay_5.jpg,Khoai tây,Khoai tây,0.0,True,101.26
+Khoai_tay\khoai_tay_6.jpg,Khoai tây,Khoai tây,0.0,True,110.41
+Khoai_tay\khoai_tay_7.jpg,Khoai tây,Khoai tây,0.0,True,86.75
+Khoai_tay\khoai_tay_8.jpg,Khoai tây,Khoai tây,0.0,True,88.15
+Khoai_tay\khoai_tay_9.jpg,Khoai tây,Khoai tây,0.0,True,97.8
+Nam\nam_1.jpg,Nấm,Cà chua,0.0,False,122.0
+Nam\nam_10.jpg,Nấm,Cà chua,0.0,False,104.26
+Nam\nam_2.jpg,Nấm,Cà chua,0.0,False,106.14
+Nam\nam_3.jpg,Nấm,Nấm,0.0,True,104.23
+Nam\nam_4.jpg,Nấm,Cà chua,0.0,False,105.04
+Nam\nam_5.jpg,Nấm,Nấm,0.0,True,113.97
+Nam\nam_6.jpg,Nấm,Khoai lang,0.0,False,97.75
+Nam\nam_7.jpg,Nấm,Khoai tây,0.0,False,99.34
+Nam\nam_8.jpg,Nấm,Khoai tây,0.0,False,97.92
+Nam\nam_9.jpg,Nấm,Nấm,0.0,True,99.81
+Rau_cai\rau_cai_1.jpg,Rau cải,Cà chua,0.0,False,112.43
+Rau_cai\rau_cai_10.jpg,Rau cải,Khoai lang,0.0,False,105.85
+Rau_cai\rau_cai_11.jpg,Rau cải,Cà chua,0.0,False,99.81
+Rau_cai\rau_cai_12.jpg,Rau cải,Khoai lang,0.0,False,96.73
+Rau_cai\rau_cai_2.jpg,Rau cải,Khoai lang,0.0,False,90.93
+Rau_cai\rau_cai_3.jpg,Rau cải,Cà chua,0.0,False,114.79
+Rau_cai\rau_cai_4.jpg,Rau cải,Rau cải,0.0,True,107.93
+Rau_cai\rau_cai_5.jpg,Rau cải,Rau cải,0.0,True,113.38
+Rau_cai\rau_cai_6.jpg,Rau cải,Rau cải,0.0,True,129.29
+Rau_cai\rau_cai_7.jpg,Rau cải,Rau cải,0.0,True,282.32
+Rau_cai\rau_cai_8.jpg,Rau cải,Rau cải,0.0,True,95.74
+Rau_cai\rau_cai_9.jpg,Rau cải,Cà chua,0.0,False,101.58
+Sua\sua_1.jpg,Sữa,Sữa,0.0,True,95.74
+Sua\sua_10.jpg,Sữa,Sữa,0.0,True,98.46
+Sua\sua_2.jpg,Sữa,Sữa,0.0,True,101.93
+Sua\sua_3.jpg,Sữa,Sữa,0.0,True,104.79
+Sua\sua_4.jpg,Sữa,Sữa,0.0,True,100.4
+Sua\sua_5.jpg,Sữa,Sữa,0.0,True,103.79
+Sua\sua_7.jpg,Sữa,Sữa,0.0,True,93.05
+Sua\sua_8.jpg,Sữa,Sữa,0.0,True,106.6
+Sua\sua_9.jpg,Sữa,Sữa,0.0,True,103.39
+Tao\tao_1.jpg,Táo,Táo,0.0,True,104.38
+Tao\tao_10.jpg,Táo,Táo,0.0,True,114.84
+Tao\tao_2.jpg,Táo,Táo,0.0,True,108.62
+Tao\tao_3.jpg,Táo,Táo,0.0,True,111.92
+Tao\tao_4.jpg,Táo,Táo,0.0,True,100.03
+Tao\tao_5.jpg,Táo,Táo,0.0,True,108.77
+Tao\tao_6.jpg,Táo,Táo,0.0,True,95.78
+Tao\tao_7.jpg,Táo,Táo,0.0,True,97.52
+Tao\tao_8.jpg,Táo,Táo,0.0,True,114.32
+Tao\tao_9.jpg,Táo,Khoai lang,0.0,False,124.55
+Thit_bo\beef_1.jpg,Thịt bò,Sữa,0.0,False,100.63
+Thit_bo\beef_10.jpg,Thịt bò,Thịt bò,0.0,True,102.72
+Thit_bo\beef_3.jpg,Thịt bò,Thịt bò,0.0,True,98.64
+Thit_bo\beef_4.jpg,Thịt bò,Thịt bò,0.0,True,92.17
+Thit_bo\beef_5.jpg,Thịt bò,Thịt bò,0.0,True,101.79
+Thit_bo\beef_6.jpg,Thịt bò,Thịt bò,0.0,True,97.34
+Thit_bo\beef_7.jpg,Thịt bò,Thịt bò,0.0,True,94.95
+Thit_bo\beef_8.jpg,Thịt bò,Thịt bò,0.0,True,101.33
+Thit_bo\beef_9.jpg,Thịt bò,Thịt bò,0.0,True,110.12
+Thit_ga\chicken_1.jpg,Thịt gà,Thịt gà,0.0,True,112.12
+Thit_ga\chicken_10.jpg,Thịt gà,Thịt gà,0.0,True,98.71
+Thit_ga\chicken_11.jpg,Thịt gà,Thịt gà,0.0,True,104.01
+Thit_ga\chicken_2.jpg,Thịt gà,Thịt gà,0.0,True,97.41
+Thit_ga\chicken_3.jpg,Thịt gà,Thịt gà,0.0,True,92.51
+Thit_ga\chicken_4.jpg,Thịt gà,Cam,0.0,False,97.36
+Thit_ga\chicken_5.jpg,Thịt gà,Thịt gà,0.0,True,91.73
+Thit_lon\thit_lon_10.jpg,Thịt lợn,Thịt lợn,0.0,True,88.65
+Thit_lon\thit_lon_2.jpg,Thịt lợn,Bí đỏ,0.0,False,111.18
+Thit_lon\thit_lon_4.jpg,Thịt lợn,Thịt lợn,0.0,True,93.48
+Thit_lon\thit_lon_8.jpg,Thịt lợn,Thịt bò,0.0,False,99.58
+Thit_lon\thit_lon_9.jpg,Thịt lợn,Thịt bò,0.0,False,95.11
+Tom\tom_1.jpg,Tôm,Tôm,0.0,True,93.42
+Tom\tom_11.jpg,Tôm,Tôm,0.0,True,107.04
+Tom\tom_2.jpg,Tôm,Tôm,0.0,True,109.59
+Tom\tom_3.jpg,Tôm,Tôm,0.0,True,107.43
+Tom\tom_4.jpg,Tôm,Tôm,0.0,True,94.96
+Tom\tom_6.jpg,Tôm,Tôm,0.0,True,110.72
+Tom\tom_7.jpg,Tôm,Tôm,0.0,True,97.6
+Tom\tom_9.jpg,Tôm,Tôm,0.0,True,101.39
+Trung\trung_1.jpg,Trứng,Trứng,0.0,True,90.19
+Trung\trung_10.jpg,Trứng,Trứng,0.0,True,124.77
+Trung\trung_2.jpg,Trứng,Trứng,0.0,True,90.63
+Trung\trung_3.jpg,Trứng,Trứng,0.0,True,96.27
+Trung\trung_4.jpg,Trứng,Trứng,0.0,True,89.96
+Trung\trung_5.jpg,Trứng,Trứng,0.0,True,93.07
+Trung\trung_6.jpg,Trứng,Trứng,0.0,True,105.33
+Trung\trung_7.jpg,Trứng,Trứng,0.0,True,93.87
+Trung\trung_8.jpg,Trứng,Trứng,0.0,True,91.21
+Trung\trung_9.jpg,Trứng,Trứng,0.0,True,97.77
+Xuc_xich\xuc_xich_1.jpg,Xúc xích,Xúc xích,0.0,True,90.62
+Xuc_xich\xuc_xich_10.jpg,Xúc xích,Khoai lang,0.0,False,97.46
+Xuc_xich\xuc_xich_11.jpg,Xúc xích,Xúc xích,0.0,True,100.52
+Xuc_xich\xuc_xich_2.jpg,Xúc xích,Xúc xích,0.0,True,97.6
+Xuc_xich\xuc_xich_3.jpg,Xúc xích,Khoai tây,0.0,False,97.25
+Xuc_xich\xuc_xich_4.jpg,Xúc xích,Xúc xích,0.0,True,102.45
+Xuc_xich\xuc_xich_5.jpg,Xúc xích,Xúc xích,0.0,True,100.81
+Xuc_xich\xuc_xich_6.jpg,Xúc xích,Xúc xích,0.0,True,111.27
+Xuc_xich\xuc_xich_8.jpg,Xúc xích,Khoai tây,0.0,False,94.87
+Xuc_xich\xuc_xich_9.jpg,Xúc xích,Xúc xích,0.0,True,91.38
+Yen_mach\yen_mach_1.jpg,Yến mạch,Yến mạch,0.0,True,103.21
+Yen_mach\yen_mach_10.jpg,Yến mạch,Yến mạch,0.0,True,110.82
+Yen_mach\yen_mach_11.jpg,Yến mạch,Yến mạch,0.0,True,105.41
+Yen_mach\yen_mach_2.jpg,Yến mạch,Yến mạch,0.0,True,98.85
+Yen_mach\yen_mach_3.jpg,Yến mạch,Yến mạch,0.0,True,100.75
+Yen_mach\yen_mach_4.jpg,Yến mạch,Cà chua,0.0,False,104.92
+Yen_mach\yen_mach_5.jpg,Yến mạch,Yến mạch,0.0,True,103.49
+Yen_mach\yen_mach_6.jpg,Yến mạch,Yến mạch,0.0,True,109.19
+Yen_mach\yen_mach_7.jpg,Yến mạch,Cơm,0.0,False,112.37
+Yen_mach\yen_mach_8.jpg,Yến mạch,Cam,0.0,False,95.27
+Yen_mach\yen_mach_9.jpg,Yến mạch,Yến mạch,0.0,True,97.22

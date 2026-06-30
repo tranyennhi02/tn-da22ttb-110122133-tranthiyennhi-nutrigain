@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Drink placeholder">
-  <rect width="320" height="200" fill="#ecfeff"/>
-  <ellipse cx="160" cy="150" rx="74" ry="22" fill="#bae6fd"/>
-  <path d="M119 64h82l-12 94h-58z" fill="#ffffff"/>
-  <path d="M128 96h64l-7 50h-50z" fill="#38bdf8"/>
-  <path d="M186 58l34-24" stroke="#0f766e" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="123" cy="72" r="18" fill="#fde68a"/>
-  <path d="M103 172h114" stroke="#06b6d4" stroke-width="6" stroke-linecap="round"/>
-</svg>

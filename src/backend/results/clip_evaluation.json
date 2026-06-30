@@ -1,0 +1,2401 @@
+{
+  "test_dir": "D:\\DOANTOTNGHIEP\\NutriGain\\src\\backend\\..\\data\\clip_test_images",
+  "evaluated_at": "2026-06-28T19:02:56.115153",
+  "total_images": 269,
+  "total_correct": 172,
+  "total_incorrect": 55,
+  "total_failed": 42,
+  "accuracy": 75.77,
+  "per_ingredient_results": {
+    "Bí đỏ": {
+      "ground_truth": "Bí đỏ",
+      "total_images": 9,
+      "correct": 1,
+      "incorrect": 8,
+      "failed": 0,
+      "accuracy": 11.11,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 8423.12
+    },
+    "Cá": {
+      "ground_truth": "Cá",
+      "total_images": 11,
+      "correct": 7,
+      "incorrect": 0,
+      "failed": 4,
+      "accuracy": 63.64,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 103.99
+    },
+    "Cà chua": {
+      "ground_truth": "Cà chua",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 100.49
+    },
+    "Cá hồi": {
+      "ground_truth": "Cá hồi",
+      "total_images": 10,
+      "correct": 9,
+      "incorrect": 0,
+      "failed": 1,
+      "accuracy": 90.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 100.36
+    },
+    "Cà rốt": {
+      "ground_truth": "Cà rốt",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 98.35
+    },
+    "Cam": {
+      "ground_truth": "Cam",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 96.26
+    },
+    "Chuối": {
+      "ground_truth": "Chuối",
+      "total_images": 10,
+      "correct": 8,
+      "incorrect": 2,
+      "failed": 0,
+      "accuracy": 80.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 164.36
+    },
+    "Cơm": {
+      "ground_truth": "Cơm",
+      "total_images": 12,
+      "correct": 6,
+      "incorrect": 6,
+      "failed": 0,
+      "accuracy": 50.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 103.57
+    },
+    "Cua": {
+      "ground_truth": "Cua",
+      "total_images": 10,
+      "correct": 8,
+      "incorrect": 0,
+      "failed": 2,
+      "accuracy": 80.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 97.98
+    },
+    "Đậu hũ": {
+      "ground_truth": "Đậu hũ",
+      "total_images": 10,
+      "correct": 2,
+      "incorrect": 8,
+      "failed": 0,
+      "accuracy": 20.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 119.08
+    },
+    "Đậu nành": {
+      "ground_truth": "Đậu nành",
+      "total_images": 11,
+      "correct": 6,
+      "incorrect": 5,
+      "failed": 0,
+      "accuracy": 54.55,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 131.12
+    },
+    "Hàu": {
+      "ground_truth": "Hàu",
+      "total_images": 10,
+      "correct": 0,
+      "incorrect": 0,
+      "failed": 10,
+      "accuracy": 0.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 122.46
+    },
+    "Khoai lang": {
+      "ground_truth": "Khoai lang",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 100.63
+    },
+    "Khoai tây": {
+      "ground_truth": "Khoai tây",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 99.38
+    },
+    "Nấm": {
+      "ground_truth": "Nấm",
+      "total_images": 10,
+      "correct": 3,
+      "incorrect": 7,
+      "failed": 0,
+      "accuracy": 30.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 105.05
+    },
+    "Rau cải": {
+      "ground_truth": "Rau cải",
+      "total_images": 12,
+      "correct": 5,
+      "incorrect": 7,
+      "failed": 0,
+      "accuracy": 41.67,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 120.9
+    },
+    "Sò": {
+      "ground_truth": "Sò",
+      "total_images": 10,
+      "correct": 0,
+      "incorrect": 0,
+      "failed": 10,
+      "accuracy": 0.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 101.97
+    },
+    "Sữa": {
+      "ground_truth": "Sữa",
+      "total_images": 10,
+      "correct": 9,
+      "incorrect": 0,
+      "failed": 1,
+      "accuracy": 90.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 102.13
+    },
+    "Táo": {
+      "ground_truth": "Táo",
+      "total_images": 10,
+      "correct": 9,
+      "incorrect": 1,
+      "failed": 0,
+      "accuracy": 90.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 108.07
+    },
+    "Thịt bò": {
+      "ground_truth": "Thịt bò",
+      "total_images": 10,
+      "correct": 8,
+      "incorrect": 1,
+      "failed": 1,
+      "accuracy": 80.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 100.25
+    },
+    "Thịt gà": {
+      "ground_truth": "Thịt gà",
+      "total_images": 11,
+      "correct": 6,
+      "incorrect": 1,
+      "failed": 4,
+      "accuracy": 54.55,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 100.21
+    },
+    "Thịt lợn": {
+      "ground_truth": "Thịt lợn",
+      "total_images": 10,
+      "correct": 2,
+      "incorrect": 3,
+      "failed": 5,
+      "accuracy": 20.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 98.37
+    },
+    "Tôm": {
+      "ground_truth": "Tôm",
+      "total_images": 11,
+      "correct": 8,
+      "incorrect": 0,
+      "failed": 3,
+      "accuracy": 72.73,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 101.78
+    },
+    "Trứng": {
+      "ground_truth": "Trứng",
+      "total_images": 10,
+      "correct": 10,
+      "incorrect": 0,
+      "failed": 0,
+      "accuracy": 100.0,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 97.31
+    },
+    "Xúc xích": {
+      "ground_truth": "Xúc xích",
+      "total_images": 11,
+      "correct": 7,
+      "incorrect": 3,
+      "failed": 1,
+      "accuracy": 63.64,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 114.63
+    },
+    "Yến mạch": {
+      "ground_truth": "Yến mạch",
+      "total_images": 11,
+      "correct": 8,
+      "incorrect": 3,
+      "failed": 0,
+      "accuracy": 72.73,
+      "avg_confidence": 0.0,
+      "avg_processing_time_ms": 103.77
+    }
+  },
+  "confusion_matrix": {
+    "Bí đỏ": {
+      "Bí đỏ": 1,
+      "Cà rốt": 2,
+      "Khoai lang": 5,
+      "Khoai tây": 1
+    },
+    "Cá": {
+      "Cá": 7
+    },
+    "Cà chua": {
+      "Cà chua": 10
+    },
+    "Cá hồi": {
+      "Cá hồi": 9
+    },
+    "Cà rốt": {
+      "Cà rốt": 10
+    },
+    "Cam": {
+      "Cam": 10
+    },
+    "Chuối": {
+      "Chuối": 8,
+      "Khoai tây": 2
+    },
+    "Cơm": {
+      "Cơm": 6,
+      "Bí đỏ": 3,
+      "Khoai tây": 3
+    },
+    "Cua": {
+      "Cua": 8
+    },
+    "Đậu hũ": {
+      "Khoai lang": 1,
+      "Đậu hũ": 2,
+      "Sữa": 5,
+      "Khoai tây": 2
+    },
+    "Đậu nành": {
+      "Đậu nành": 6,
+      "Sữa": 4,
+      "Khoai tây": 1
+    },
+    "Khoai lang": {
+      "Khoai lang": 10
+    },
+    "Khoai tây": {
+      "Khoai tây": 10
+    },
+    "Nấm": {
+      "Cà chua": 4,
+      "Nấm": 3,
+      "Khoai lang": 1,
+      "Khoai tây": 2
+    },
+    "Rau cải": {
+      "Cà chua": 4,
+      "Khoai lang": 3,
+      "Rau cải": 5
+    },
+    "Sữa": {
+      "Sữa": 9
+    },
+    "Táo": {
+      "Táo": 9,
+      "Khoai lang": 1
+    },
+    "Thịt bò": {
+      "Sữa": 1,
+      "Thịt bò": 8
+    },
+    "Thịt gà": {
+      "Thịt gà": 6,
+      "Cam": 1
+    },
+    "Thịt lợn": {
+      "Thịt lợn": 2,
+      "Bí đỏ": 1,
+      "Thịt bò": 2
+    },
+    "Tôm": {
+      "Tôm": 8
+    },
+    "Trứng": {
+      "Trứng": 10
+    },
+    "Xúc xích": {
+      "Xúc xích": 7,
+      "Khoai lang": 1,
+      "Khoai tây": 2
+    },
+    "Yến mạch": {
+      "Yến mạch": 8,
+      "Cà chua": 1,
+      "Cơm": 1,
+      "Cam": 1
+    }
+  },
+  "failed_images": [
+    {
+      "file": "Ca\\ca_3.jpg",
+      "ground_truth": "Cá",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Ca\\ca_4.jpg",
+      "ground_truth": "Cá",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Ca\\ca_7.jpg",
+      "ground_truth": "Cá",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Ca\\ca_8.jpg",
+      "ground_truth": "Cá",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_8.jpg",
+      "ground_truth": "Cá hồi",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Cua\\cua_7.jpg",
+      "ground_truth": "Cua",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Cua\\cua_9.jpg",
+      "ground_truth": "Cua",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_1.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_10.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_2.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_3.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_4.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_5.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_6.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_7.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_8.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Hau\\hau_9.jpg",
+      "ground_truth": "Hàu",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_1.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_10.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_2.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_3.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_4.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_5.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_6.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_7.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_8.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "So\\so_9.jpg",
+      "ground_truth": "Sò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Sua\\sua_6.jpg",
+      "ground_truth": "Sữa",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_bo\\beef_2.jpg",
+      "ground_truth": "Thịt bò",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_ga\\chicken_6.jpg",
+      "ground_truth": "Thịt gà",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_ga\\chicken_7.jpg",
+      "ground_truth": "Thịt gà",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_ga\\chicken_8.jpg",
+      "ground_truth": "Thịt gà",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_ga\\chicken_9.jpg",
+      "ground_truth": "Thịt gà",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_lon\\thit_lon_1.jpg",
+      "ground_truth": "Thịt lợn",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_lon\\thit_lon_3.jpg",
+      "ground_truth": "Thịt lợn",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_lon\\thit_lon_5.jpg",
+      "ground_truth": "Thịt lợn",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_lon\\thit_lon_6.jpg",
+      "ground_truth": "Thịt lợn",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Thit_lon\\thit_lon_7.jpg",
+      "ground_truth": "Thịt lợn",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Tom\\tom_10.jpg",
+      "ground_truth": "Tôm",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Tom\\tom_5.jpg",
+      "ground_truth": "Tôm",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Tom\\tom_8.jpg",
+      "ground_truth": "Tôm",
+      "error": "Recognition failed or empty result"
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_7.jpg",
+      "ground_truth": "Xúc xích",
+      "error": "Recognition failed or empty result"
+    }
+  ],
+  "detailed_results": [
+    {
+      "file": "Bi_do\\bi_do_1.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Bí đỏ",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 74921.53
+    },
+    {
+      "file": "Bi_do\\bi_do_2.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 162.5
+    },
+    {
+      "file": "Bi_do\\bi_do_3.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 105.14
+    },
+    {
+      "file": "Bi_do\\bi_do_4.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 107.3
+    },
+    {
+      "file": "Bi_do\\bi_do_5.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 98.66
+    },
+    {
+      "file": "Bi_do\\bi_do_6.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 101.71
+    },
+    {
+      "file": "Bi_do\\bi_do_7.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 105.22
+    },
+    {
+      "file": "Bi_do\\bi_do_8.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 104.14
+    },
+    {
+      "file": "Bi_do\\bi_do_9.jpg",
+      "ground_truth": "Bí đỏ",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 101.85
+    },
+    {
+      "file": "Ca\\ca_1.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.33
+    },
+    {
+      "file": "Ca\\ca_10.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.7
+    },
+    {
+      "file": "Ca\\ca_11.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.1
+    },
+    {
+      "file": "Ca\\ca_2.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.52
+    },
+    {
+      "file": "Ca\\ca_5.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.61
+    },
+    {
+      "file": "Ca\\ca_6.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 102.16
+    },
+    {
+      "file": "Ca\\ca_9.jpg",
+      "ground_truth": "Cá",
+      "predicted": "Cá",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 94.1
+    },
+    {
+      "file": "Ca_chua\\ca_chua_1.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.96
+    },
+    {
+      "file": "Ca_chua\\ca_chua_10.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 102.07
+    },
+    {
+      "file": "Ca_chua\\ca_chua_2.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.16
+    },
+    {
+      "file": "Ca_chua\\ca_chua_3.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.23
+    },
+    {
+      "file": "Ca_chua\\ca_chua_4.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.64
+    },
+    {
+      "file": "Ca_chua\\ca_chua_5.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.99
+    },
+    {
+      "file": "Ca_chua\\ca_chua_6.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 96.93
+    },
+    {
+      "file": "Ca_chua\\ca_chua_7.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.14
+    },
+    {
+      "file": "Ca_chua\\ca_chua_8.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.92
+    },
+    {
+      "file": "Ca_chua\\ca_chua_9.jpg",
+      "ground_truth": "Cà chua",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.86
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_1.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 128.12
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_10.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.94
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_2.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 94.3
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_3.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 103.26
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_4.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.77
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_5.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.64
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_6.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.85
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_7.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.3
+    },
+    {
+      "file": "Ca_hoi\\ca_hoi_9.jpg",
+      "ground_truth": "Cá hồi",
+      "predicted": "Cá hồi",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.49
+    },
+    {
+      "file": "Ca_rot\\ca_rot_1.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.3
+    },
+    {
+      "file": "Ca_rot\\ca_rot_10.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.21
+    },
+    {
+      "file": "Ca_rot\\ca_rot_2.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 88.05
+    },
+    {
+      "file": "Ca_rot\\ca_rot_3.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.7
+    },
+    {
+      "file": "Ca_rot\\ca_rot_4.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.61
+    },
+    {
+      "file": "Ca_rot\\ca_rot_5.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 96.99
+    },
+    {
+      "file": "Ca_rot\\ca_rot_6.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.13
+    },
+    {
+      "file": "Ca_rot\\ca_rot_7.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.05
+    },
+    {
+      "file": "Ca_rot\\ca_rot_8.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.81
+    },
+    {
+      "file": "Ca_rot\\ca_rot_9.jpg",
+      "ground_truth": "Cà rốt",
+      "predicted": "Cà rốt",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.69
+    },
+    {
+      "file": "Cam\\cam_1.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 96.32
+    },
+    {
+      "file": "Cam\\cam_10.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 94.2
+    },
+    {
+      "file": "Cam\\cam_2.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.14
+    },
+    {
+      "file": "Cam\\cam_3.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.8
+    },
+    {
+      "file": "Cam\\cam_4.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.29
+    },
+    {
+      "file": "Cam\\cam_5.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.14
+    },
+    {
+      "file": "Cam\\cam_6.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 106.99
+    },
+    {
+      "file": "Cam\\cam_7.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 85.64
+    },
+    {
+      "file": "Cam\\cam_8.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.53
+    },
+    {
+      "file": "Cam\\cam_9.jpg",
+      "ground_truth": "Cam",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.58
+    },
+    {
+      "file": "Chuoi\\chuoi_1.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.76
+    },
+    {
+      "file": "Chuoi\\chuoi_10.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.88
+    },
+    {
+      "file": "Chuoi\\chuoi_2.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.67
+    },
+    {
+      "file": "Chuoi\\chuoi_3.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 104.43
+    },
+    {
+      "file": "Chuoi\\chuoi_4.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.31
+    },
+    {
+      "file": "Chuoi\\chuoi_5.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 102.98
+    },
+    {
+      "file": "Chuoi\\chuoi_6.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 109.66
+    },
+    {
+      "file": "Chuoi\\chuoi_7.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.38
+    },
+    {
+      "file": "Chuoi\\chuoi_8.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Chuối",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.18
+    },
+    {
+      "file": "Chuoi\\chuoi_9.jpg",
+      "ground_truth": "Chuối",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 720.32
+    },
+    {
+      "file": "Com\\com_1.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.91
+    },
+    {
+      "file": "Com\\com_10.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Bí đỏ",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 112.98
+    },
+    {
+      "file": "Com\\com_11.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.59
+    },
+    {
+      "file": "Com\\com_12.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 110.63
+    },
+    {
+      "file": "Com\\com_2.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Bí đỏ",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 113.32
+    },
+    {
+      "file": "Com\\com_3.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 109.66
+    },
+    {
+      "file": "Com\\com_4.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 90.08
+    },
+    {
+      "file": "Com\\com_5.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.9
+    },
+    {
+      "file": "Com\\com_6.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 103.84
+    },
+    {
+      "file": "Com\\com_7.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 107.84
+    },
+    {
+      "file": "Com\\com_8.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 105.0
+    },
+    {
+      "file": "Com\\com_9.jpg",
+      "ground_truth": "Cơm",
+      "predicted": "Bí đỏ",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 100.09
+    },
+    {
+      "file": "Cua\\cua_1.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.81
+    },
+    {
+      "file": "Cua\\cua_10.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.48
+    },
+    {
+      "file": "Cua\\cua_2.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.5
+    },
+    {
+      "file": "Cua\\cua_3.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.34
+    },
+    {
+      "file": "Cua\\cua_4.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.46
+    },
+    {
+      "file": "Cua\\cua_5.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.91
+    },
+    {
+      "file": "Cua\\cua_6.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.02
+    },
+    {
+      "file": "Cua\\cua_8.jpg",
+      "ground_truth": "Cua",
+      "predicted": "Cua",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.98
+    },
+    {
+      "file": "Dau_hu\\dau_hu_1.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 94.78
+    },
+    {
+      "file": "Dau_hu\\dau_hu_10.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Đậu hũ",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.91
+    },
+    {
+      "file": "Dau_hu\\dau_hu_2.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 114.91
+    },
+    {
+      "file": "Dau_hu\\dau_hu_3.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 127.61
+    },
+    {
+      "file": "Dau_hu\\dau_hu_4.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 125.29
+    },
+    {
+      "file": "Dau_hu\\dau_hu_5.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Đậu hũ",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 126.47
+    },
+    {
+      "file": "Dau_hu\\dau_hu_6.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 121.62
+    },
+    {
+      "file": "Dau_hu\\dau_hu_7.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 135.93
+    },
+    {
+      "file": "Dau_hu\\dau_hu_8.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 121.91
+    },
+    {
+      "file": "Dau_hu\\dau_hu_9.jpg",
+      "ground_truth": "Đậu hũ",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 121.41
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_1.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 135.38
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_10.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 127.39
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_11.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 128.31
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_2.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 129.19
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_3.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 126.67
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_4.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 129.02
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_5.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 150.84
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_6.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 122.57
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_7.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 113.42
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_8.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 140.27
+    },
+    {
+      "file": "Dau_nanh\\dau_nanh_9.jpg",
+      "ground_truth": "Đậu nành",
+      "predicted": "Đậu nành",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 139.24
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_1.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.61
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_10.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.37
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_2.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.51
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_3.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.91
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_4.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 91.22
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_5.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.87
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_6.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 111.74
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_7.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 108.45
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_8.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.57
+    },
+    {
+      "file": "Khoai_lang\\khoai_lang_9.jpg",
+      "ground_truth": "Khoai lang",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 107.04
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_1.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.89
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_10.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 106.76
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_2.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 91.3
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_3.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.46
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_4.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 108.99
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_5.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.26
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_6.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 110.41
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_7.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 86.75
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_8.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 88.15
+    },
+    {
+      "file": "Khoai_tay\\khoai_tay_9.jpg",
+      "ground_truth": "Khoai tây",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.8
+    },
+    {
+      "file": "Nam\\nam_1.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 122.0
+    },
+    {
+      "file": "Nam\\nam_10.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 104.26
+    },
+    {
+      "file": "Nam\\nam_2.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 106.14
+    },
+    {
+      "file": "Nam\\nam_3.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Nấm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.23
+    },
+    {
+      "file": "Nam\\nam_4.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 105.04
+    },
+    {
+      "file": "Nam\\nam_5.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Nấm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 113.97
+    },
+    {
+      "file": "Nam\\nam_6.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 97.75
+    },
+    {
+      "file": "Nam\\nam_7.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 99.34
+    },
+    {
+      "file": "Nam\\nam_8.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 97.92
+    },
+    {
+      "file": "Nam\\nam_9.jpg",
+      "ground_truth": "Nấm",
+      "predicted": "Nấm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 99.81
+    },
+    {
+      "file": "Rau_cai\\rau_cai_1.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 112.43
+    },
+    {
+      "file": "Rau_cai\\rau_cai_10.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 105.85
+    },
+    {
+      "file": "Rau_cai\\rau_cai_11.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 99.81
+    },
+    {
+      "file": "Rau_cai\\rau_cai_12.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 96.73
+    },
+    {
+      "file": "Rau_cai\\rau_cai_2.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 90.93
+    },
+    {
+      "file": "Rau_cai\\rau_cai_3.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 114.79
+    },
+    {
+      "file": "Rau_cai\\rau_cai_4.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Rau cải",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 107.93
+    },
+    {
+      "file": "Rau_cai\\rau_cai_5.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Rau cải",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 113.38
+    },
+    {
+      "file": "Rau_cai\\rau_cai_6.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Rau cải",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 129.29
+    },
+    {
+      "file": "Rau_cai\\rau_cai_7.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Rau cải",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 282.32
+    },
+    {
+      "file": "Rau_cai\\rau_cai_8.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Rau cải",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.74
+    },
+    {
+      "file": "Rau_cai\\rau_cai_9.jpg",
+      "ground_truth": "Rau cải",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 101.58
+    },
+    {
+      "file": "Sua\\sua_1.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.74
+    },
+    {
+      "file": "Sua\\sua_10.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.46
+    },
+    {
+      "file": "Sua\\sua_2.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.93
+    },
+    {
+      "file": "Sua\\sua_3.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.79
+    },
+    {
+      "file": "Sua\\sua_4.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.4
+    },
+    {
+      "file": "Sua\\sua_5.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 103.79
+    },
+    {
+      "file": "Sua\\sua_7.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.05
+    },
+    {
+      "file": "Sua\\sua_8.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 106.6
+    },
+    {
+      "file": "Sua\\sua_9.jpg",
+      "ground_truth": "Sữa",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 103.39
+    },
+    {
+      "file": "Tao\\tao_1.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.38
+    },
+    {
+      "file": "Tao\\tao_10.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 114.84
+    },
+    {
+      "file": "Tao\\tao_2.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 108.62
+    },
+    {
+      "file": "Tao\\tao_3.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 111.92
+    },
+    {
+      "file": "Tao\\tao_4.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.03
+    },
+    {
+      "file": "Tao\\tao_5.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 108.77
+    },
+    {
+      "file": "Tao\\tao_6.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 95.78
+    },
+    {
+      "file": "Tao\\tao_7.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.52
+    },
+    {
+      "file": "Tao\\tao_8.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Táo",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 114.32
+    },
+    {
+      "file": "Tao\\tao_9.jpg",
+      "ground_truth": "Táo",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 124.55
+    },
+    {
+      "file": "Thit_bo\\beef_1.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Sữa",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 100.63
+    },
+    {
+      "file": "Thit_bo\\beef_10.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 102.72
+    },
+    {
+      "file": "Thit_bo\\beef_3.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.64
+    },
+    {
+      "file": "Thit_bo\\beef_4.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.17
+    },
+    {
+      "file": "Thit_bo\\beef_5.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.79
+    },
+    {
+      "file": "Thit_bo\\beef_6.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.34
+    },
+    {
+      "file": "Thit_bo\\beef_7.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 94.95
+    },
+    {
+      "file": "Thit_bo\\beef_8.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.33
+    },
+    {
+      "file": "Thit_bo\\beef_9.jpg",
+      "ground_truth": "Thịt bò",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 110.12
+    },
+    {
+      "file": "Thit_ga\\chicken_1.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 112.12
+    },
+    {
+      "file": "Thit_ga\\chicken_10.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.71
+    },
+    {
+      "file": "Thit_ga\\chicken_11.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 104.01
+    },
+    {
+      "file": "Thit_ga\\chicken_2.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.41
+    },
+    {
+      "file": "Thit_ga\\chicken_3.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 92.51
+    },
+    {
+      "file": "Thit_ga\\chicken_4.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 97.36
+    },
+    {
+      "file": "Thit_ga\\chicken_5.jpg",
+      "ground_truth": "Thịt gà",
+      "predicted": "Thịt gà",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 91.73
+    },
+    {
+      "file": "Thit_lon\\thit_lon_10.jpg",
+      "ground_truth": "Thịt lợn",
+      "predicted": "Thịt lợn",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 88.65
+    },
+    {
+      "file": "Thit_lon\\thit_lon_2.jpg",
+      "ground_truth": "Thịt lợn",
+      "predicted": "Bí đỏ",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 111.18
+    },
+    {
+      "file": "Thit_lon\\thit_lon_4.jpg",
+      "ground_truth": "Thịt lợn",
+      "predicted": "Thịt lợn",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.48
+    },
+    {
+      "file": "Thit_lon\\thit_lon_8.jpg",
+      "ground_truth": "Thịt lợn",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 99.58
+    },
+    {
+      "file": "Thit_lon\\thit_lon_9.jpg",
+      "ground_truth": "Thịt lợn",
+      "predicted": "Thịt bò",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 95.11
+    },
+    {
+      "file": "Tom\\tom_1.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.42
+    },
+    {
+      "file": "Tom\\tom_11.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 107.04
+    },
+    {
+      "file": "Tom\\tom_2.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 109.59
+    },
+    {
+      "file": "Tom\\tom_3.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 107.43
+    },
+    {
+      "file": "Tom\\tom_4.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 94.96
+    },
+    {
+      "file": "Tom\\tom_6.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 110.72
+    },
+    {
+      "file": "Tom\\tom_7.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.6
+    },
+    {
+      "file": "Tom\\tom_9.jpg",
+      "ground_truth": "Tôm",
+      "predicted": "Tôm",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 101.39
+    },
+    {
+      "file": "Trung\\trung_1.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 90.19
+    },
+    {
+      "file": "Trung\\trung_10.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 124.77
+    },
+    {
+      "file": "Trung\\trung_2.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 90.63
+    },
+    {
+      "file": "Trung\\trung_3.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 96.27
+    },
+    {
+      "file": "Trung\\trung_4.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 89.96
+    },
+    {
+      "file": "Trung\\trung_5.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.07
+    },
+    {
+      "file": "Trung\\trung_6.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.33
+    },
+    {
+      "file": "Trung\\trung_7.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 93.87
+    },
+    {
+      "file": "Trung\\trung_8.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 91.21
+    },
+    {
+      "file": "Trung\\trung_9.jpg",
+      "ground_truth": "Trứng",
+      "predicted": "Trứng",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.77
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_1.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 90.62
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_10.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Khoai lang",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 97.46
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_11.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.52
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_2.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.6
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_3.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 97.25
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_4.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 102.45
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_5.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.81
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_6.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 111.27
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_8.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Khoai tây",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 94.87
+    },
+    {
+      "file": "Xuc_xich\\xuc_xich_9.jpg",
+      "ground_truth": "Xúc xích",
+      "predicted": "Xúc xích",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 91.38
+    },
+    {
+      "file": "Yen_mach\\yen_mach_1.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 103.21
+    },
+    {
+      "file": "Yen_mach\\yen_mach_10.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 110.82
+    },
+    {
+      "file": "Yen_mach\\yen_mach_11.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 105.41
+    },
+    {
+      "file": "Yen_mach\\yen_mach_2.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 98.85
+    },
+    {
+      "file": "Yen_mach\\yen_mach_3.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 100.75
+    },
+    {
+      "file": "Yen_mach\\yen_mach_4.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Cà chua",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 104.92
+    },
+    {
+      "file": "Yen_mach\\yen_mach_5.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 103.49
+    },
+    {
+      "file": "Yen_mach\\yen_mach_6.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 109.19
+    },
+    {
+      "file": "Yen_mach\\yen_mach_7.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Cơm",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 112.37
+    },
+    {
+      "file": "Yen_mach\\yen_mach_8.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Cam",
+      "confidence": 0.0,
+      "correct": false,
+      "processing_time_ms": 95.27
+    },
+    {
+      "file": "Yen_mach\\yen_mach_9.jpg",
+      "ground_truth": "Yến mạch",
+      "predicted": "Yến mạch",
+      "confidence": 0.0,
+      "correct": true,
+      "processing_time_ms": 97.22
+    }
+  ]
+}

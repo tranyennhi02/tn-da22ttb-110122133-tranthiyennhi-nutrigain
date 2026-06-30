@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Food placeholder">
+  <rect width="320" height="200" fill="#f8fafc"/>
+  <circle cx="160" cy="102" r="62" fill="#ecfdf5"/>
+  <ellipse cx="160" cy="125" rx="92" ry="34" fill="#dbeafe"/>
+  <ellipse cx="160" cy="118" rx="70" ry="24" fill="#ffffff"/>
+  <circle cx="132" cy="104" r="16" fill="#34d399"/>
+  <circle cx="164" cy="94" r="18" fill="#fb923c"/>
+  <circle cx="194" cy="108" r="15" fill="#38bdf8"/>
+  <path d="M98 158h124" stroke="#94a3b8" stroke-width="6" stroke-linecap="round"/>
+</svg>

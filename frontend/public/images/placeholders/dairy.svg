@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Dairy placeholder">
-  <rect width="320" height="200" fill="#f8fafc"/>
-  <ellipse cx="160" cy="136" rx="92" ry="28" fill="#dbeafe"/>
-  <path d="M124 70h72l10 24v48c0 13-10 23-23 23h-46c-13 0-23-10-23-23V94z" fill="#ffffff"/>
-  <path d="M124 70l14-22h44l14 22z" fill="#bfdbfe"/>
-  <rect x="132" y="104" width="56" height="30" rx="10" fill="#93c5fd"/>
-  <path d="M106 172h108" stroke="#60a5fa" stroke-width="6" stroke-linecap="round"/>
-</svg>
