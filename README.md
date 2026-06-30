@@ -457,50 +457,50 @@ run-local.bat  # Windows
 ```
 
 
-### Frontend Setup
+### Cài Đặt Frontend
 
 ```bash
-# Navigate to frontend
+# Mở terminal mới, di chuyển đến thư mục frontend
 cd src/frontend
 
-# Install dependencies
+# Cài đặt dependencies
 npm install
 
-# Start dev server
+# Khởi động dev server
 npm run dev
 ```
 
-**Server URLs:**
+**URL Servers:**
 - Backend: http://localhost:8000
 - Frontend: http://localhost:5173
 
 </details>
 
 <details>
-<summary><b>☁️ Production Deployment</b></summary>
+<summary><b>☁️ Triển Khai Production</b></summary>
 
-### Deploy to VPS
+### Triển Khai Lên VPS
 
 ```bash
-# SSH into server
+# SSH vào server
 ssh user@your-server-ip
 
-# Install Docker
+# Cài đặt Docker
 curl -fsSL https://get.docker.com | sh
 
-# Clone and deploy
+# Clone và deploy
 git clone <repo-url>
 cd NutriGain/src
 
-# Configure production environment
+# Cấu hình môi trường production
 cp backend/.env.example backend/.env
-nano backend/.env  # Edit with production values
+nano backend/.env  # Chỉnh sửa với giá trị production
 
-# Start services
+# Khởi động services
 docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
-### Deploy to Cloud Platforms
+### Triển Khai Lên Cloud Platforms
 
 **Railway.app:**
 ```bash
@@ -510,8 +510,8 @@ railway up
 ```
 
 **Render.com:**
-1. Connect GitHub repository
-2. Select `docker-compose.yml`
+1. Kết nối GitHub repository
+2. Chọn `docker-compose.yml`
 3. Deploy
 
 </details>
@@ -519,7 +519,7 @@ railway up
 ---
 
 
-## 📡 API Reference
+## 📡 Tài Liệu API
 
 ### Base URL
 
@@ -528,9 +528,9 @@ Development: http://localhost:8000/api/v1
 Production: https://your-domain.com/api/v1
 ```
 
-### Authentication
+### Xác Thực
 
-All protected endpoints require a JWT token in the Authorization header:
+Tất cả endpoints được bảo vệ yêu cầu JWT token trong Authorization header:
 
 ```bash
 Authorization: Bearer <your-jwt-token>
@@ -539,9 +539,9 @@ Authorization: Bearer <your-jwt-token>
 ### Endpoints
 
 <details>
-<summary><b>🔐 Authentication</b></summary>
+<summary><b>🔐 Xác Thực</b></summary>
 
-#### Register User
+#### Đăng Ký Người Dùng
 ```http
 POST /auth/register
 Content-Type: application/json
@@ -549,11 +549,11 @@ Content-Type: application/json
 {
   "email": "user@example.com",
   "password": "secure_password",
-  "full_name": "John Doe"
+  "full_name": "Nguyễn Văn A"
 }
 ```
 
-#### Login
+#### Đăng Nhập
 ```http
 POST /auth/login
 Content-Type: application/json
@@ -564,7 +564,7 @@ Content-Type: application/json
 }
 ```
 
-**Response:**
+**Phản Hồi:**
 ```json
 {
   "access_token": "eyJhbGci...",
@@ -572,7 +572,7 @@ Content-Type: application/json
   "user": {
     "id": 1,
     "email": "user@example.com",
-    "full_name": "John Doe"
+    "full_name": "Nguyễn Văn A"
   }
 }
 ```
@@ -580,21 +580,21 @@ Content-Type: application/json
 </details>
 
 <details>
-<summary><b>🍽️ Meal Recommendations</b></summary>
+<summary><b>🍽️ Gợi Ý Bữa Ăn</b></summary>
 
-#### Get Recommendations
+#### Lấy Gợi Ý
 ```http
 GET /meals/recommend?limit=10
 Authorization: Bearer <token>
 ```
 
-**Response:**
+**Phản Hồi:**
 ```json
 {
   "recommendations": [
     {
       "food_id": 42,
-      "name": "Grilled Chicken Breast",
+      "name": "Ức Gà Nướng",
       "calories": 165,
       "protein": 31,
       "carbs": 0,
@@ -606,7 +606,7 @@ Authorization: Bearer <token>
 ```
 
 
-#### Log Meal Consumption
+#### Ghi Nhận Tiêu Thụ Bữa Ăn
 ```http
 POST /meals/log
 Authorization: Bearer <token>
@@ -622,9 +622,9 @@ Content-Type: application/json
 </details>
 
 <details>
-<summary><b>📸 Image Recognition</b></summary>
+<summary><b>📸 Nhận Diện Hình Ảnh</b></summary>
 
-#### Recognize Ingredients
+#### Nhận Diện Nguyên Liệu
 ```http
 POST /ingredients/recognize
 Authorization: Bearer <token>
@@ -633,7 +633,7 @@ Content-Type: multipart/form-data
 image: <binary-file>
 ```
 
-**Response:**
+**Phản Hồi:**
 ```json
 {
   "detected_ingredients": [
@@ -655,9 +655,9 @@ image: <binary-file>
 </details>
 
 <details>
-<summary><b>📊 Tracking & Analytics</b></summary>
+<summary><b>📊 Theo Dõi & Phân Tích</b></summary>
 
-#### Log Weight
+#### Ghi Nhận Cân Nặng
 ```http
 POST /weight-logs
 Authorization: Bearer <token>
@@ -669,7 +669,7 @@ Content-Type: application/json
 }
 ```
 
-#### Get Dashboard Stats
+#### Lấy Thống Kê Dashboard
 ```http
 GET /dashboard/stats
 Authorization: Bearer <token>
@@ -680,13 +680,13 @@ Authorization: Bearer <token>
 <details>
 <summary><b>🎮 Gamification</b></summary>
 
-#### Get Gamification Summary
+#### Lấy Tóm Tắt Gamification
 ```http
 GET /gamification/summary
 Authorization: Bearer <token>
 ```
 
-**Response:**
+**Phản Hồi:**
 ```json
 {
   "streak": 7,
@@ -703,80 +703,80 @@ Authorization: Bearer <token>
 
 </details>
 
-> 📚 **Full API Documentation:** Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive Swagger UI
+> 📚 **Tài Liệu API Đầy Đủ:** Truy cập [http://localhost:8000/docs](http://localhost:8000/docs) để xem Swagger UI tương tác
 
 ---
 
 
-## 🤖 CLIP Model Performance
+## 🤖 Hiệu Suất Mô Hình CLIP
 
-### Overview
+### Tổng Quan
 
-- **Model:** CLIP ViT-B/32 (OpenAI)
+- **Mô Hình:** CLIP ViT-B/32 (OpenAI)
 - **Framework:** PyTorch 2.6.0 (CPU)
-- **Test Dataset:** 219 images across 26 ingredients
-- **Overall Accuracy:** **76.26%** (167/219 correct recognitions)
+- **Bộ Dữ Liệu Test:** 219 hình ảnh trên 26 nguyên liệu
+- **Độ Chính Xác Tổng Thể:** **76.26%** (167/219 nhận diện đúng)
 
-### Accuracy Breakdown
+### Phân Tích Độ Chính Xác
 
-| Performance Tier | Ingredients | Count | Accuracy Range |
+| Mức Hiệu Suất | Nguyên Liệu | Số Lượng | Phạm Vi Độ Chính Xác |
 |-----------------|-------------|-------|----------------|
-| 🟢 **Excellent** (100%) | Cam, Cà chua, Cà rốt, Khoai lang, Khoai tây, Trứng | 6 | 100% |
-| 🟡 **Very Good** (80-99%) | Cá hồi, Sữa, Táo, Chuối, Cua, Thịt bò | 6 | 80-99% |
-| 🟠 **Good** (60-79%) | Yến mạch, Tôm, Cá, Đậu nành, Rau cải, Thịt gà | 7 | 60-79% |
-| 🔴 **Fair** (<60%) | Cơm, Nấm, Đậu hũ, Thịt lợn, Bí đỏ, Hàu, Sò | 7 | <60% |
+| 🟢 **Xuất Sắc** (100%) | Cam, Cà chua, Cà rốt, Khoai lang, Khoai tây, Trứng | 6 | 100% |
+| 🟡 **Rất Tốt** (80-99%) | Cá hồi, Sữa, Táo, Chuối, Cua, Thịt bò | 6 | 80-99% |
+| 🟠 **Tốt** (60-79%) | Yến mạch, Tôm, Cá, Đậu nành, Rau cải, Thịt gà | 7 | 60-79% |
+| 🔴 **Khá** (<60%) | Cơm, Nấm, Đậu hũ, Thịt lợn, Bí đỏ, Hàu, Sò | 7 | <60% |
 
-### Supported Ingredients
+### Nguyên Liệu Được Hỗ Trợ
 
 <div align="center">
 
-| Nguyên Liệu (Vietnamese) | English | Category |
+| Nguyên Liệu | Tiếng Anh | Nhóm |
 |---------------------------|---------|----------|
-| 🍊 Cam | Orange | Fruit |
-| 🍅 Cà chua | Tomato | Vegetable |
-| 🥕 Cà rốt | Carrot | Vegetable |
+| 🍊 Cam | Orange | Trái cây |
+| 🍅 Cà chua | Tomato | Rau củ |
+| 🥕 Cà rốt | Carrot | Rau củ |
 | 🐟 Cá | Fish | Protein |
 | 🦐 Tôm | Shrimp | Protein |
 | 🥚 Trứng | Egg | Protein |
 | 🍗 Thịt gà | Chicken | Protein |
 | 🥩 Thịt bò | Beef | Protein |
-| 🍚 Cơm | Rice | Starch |
-| 🍌 Chuối | Banana | Fruit |
+| 🍚 Cơm | Rice | Tinh bột |
+| 🍌 Chuối | Banana | Trái cây |
 
-*...and 16 more ingredients*
+*...và 16 nguyên liệu khác*
 
 </div>
 
-> 📖 **Detailed Report:** See [CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md)
+> 📖 **Báo Cáo Chi Tiết:** Xem [CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md)
 
 ---
 
 
-## 🧪 Testing
+## 🧪 Kiểm Thử
 
-### Backend Tests
+### Kiểm Thử Backend
 
 ```bash
 cd src/backend
 pytest
 ```
 
-### CLIP Model Evaluation
+### Đánh Giá Mô Hình CLIP
 
 ```bash
 cd src/backend
 
-# Quick test with sample images
+# Test nhanh với hình ảnh mẫu
 python -m scripts.quick_test_clip
 
-# Full evaluation on test dataset
+# Đánh giá đầy đủ trên bộ dữ liệu test
 python -m scripts.evaluate_clip_accuracy --test-dir ../data/clip_test_images
 
-# Test specific ingredient
+# Test nguyên liệu cụ thể
 python -m scripts.test_clip_recognition --ingredient "Cam"
 ```
 
-### Frontend Tests
+### Kiểm Thử Frontend
 
 ```bash
 cd src/frontend
@@ -785,21 +785,21 @@ npm run test
 
 ---
 
-## 🐛 Troubleshooting
+## 🐛 Khắc Phục Sự Cố
 
 <details>
-<summary><b>❌ CLIP Model Not Loading</b></summary>
+<summary><b>❌ Mô Hình CLIP Không Tải Được</b></summary>
 
-**Problem:** CLIP model fails to load or gives DLL errors
+**Vấn Đề:** Mô hình CLIP không tải được hoặc báo lỗi DLL
 
-**Solutions:**
-1. Ensure using `run-local.bat` which sets correct cache paths
-2. Install Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe
-3. Verify PyTorch installation:
+**Giải Pháp:**
+1. Đảm bảo sử dụng `run-local.bat` để set đúng cache paths
+2. Cài đặt Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe
+3. Kiểm tra cài đặt PyTorch:
    ```bash
    python -c "import torch; print(torch.__version__)"
    ```
-4. Clear cache and reinstall:
+4. Xóa cache và cài lại:
    ```bash
    rm -rf src/.cache/
    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -808,21 +808,21 @@ npm run test
 </details>
 
 <details>
-<summary><b>❌ Database Connection Failed</b></summary>
+<summary><b>❌ Kết Nối Cơ Sở Dữ Liệu Thất Bại</b></summary>
 
-**Problem:** Cannot connect to MySQL database
+**Vấn Đề:** Không thể kết nối đến cơ sở dữ liệu MySQL
 
-**Solutions:**
-1. Check if database container is running:
+**Giải Pháp:**
+1. Kiểm tra container cơ sở dữ liệu đang chạy:
    ```bash
    docker ps
    ```
-2. Start database if not running:
+2. Khởi động cơ sở dữ liệu nếu chưa chạy:
    ```bash
    cd src
    docker-compose up -d db
    ```
-3. Verify connection string in `.env`:
+3. Xác minh connection string trong `.env`:
    ```
    DATABASE_URL=mysql+pymysql://nutrigain:password@localhost:3307/food_recommender
    ```
@@ -830,26 +830,26 @@ npm run test
 </details>
 
 <details>
-<summary><b>❌ Frontend CORS Error</b></summary>
+<summary><b>❌ Lỗi CORS Ở Frontend</b></summary>
 
-**Problem:** Frontend cannot connect to backend API
+**Vấn Đề:** Frontend không thể kết nối đến backend API
 
-**Solutions:**
-1. Check `VITE_API_BASE_URL` in `src/frontend/.env`
-2. Verify backend is running on correct port
-3. Check FastAPI CORS configuration in `src/backend/app/main.py`
+**Giải Pháp:**
+1. Kiểm tra `VITE_API_BASE_URL` trong `src/frontend/.env`
+2. Xác minh backend đang chạy trên đúng port
+3. Kiểm tra cấu hình CORS của FastAPI trong `src/backend/app/main.py`
 
 </details>
 
 <details>
-<summary><b>❌ Docker Build Fails</b></summary>
+<summary><b>❌ Docker Build Thất Bại</b></summary>
 
-**Problem:** Docker build fails with memory or timeout errors
+**Vấn Đề:** Docker build thất bại với lỗi memory hoặc timeout
 
-**Solutions:**
-1. Increase Docker memory limit (Settings > Resources)
-2. Use multi-stage builds (already configured)
-3. Build services separately:
+**Giải Pháp:**
+1. Tăng giới hạn memory của Docker (Settings > Resources)
+2. Sử dụng multi-stage builds (đã cấu hình sẵn)
+3. Build services riêng lẻ:
    ```bash
    docker-compose build backend
    docker-compose build frontend
@@ -860,46 +860,46 @@ npm run test
 ---
 
 
-## 🚧 Future Improvements
+## 🚧 Cải Tiến Trong Tương Lai
 
-- [ ] **Mobile App** - React Native version for iOS and Android
-- [ ] **Collaborative Filtering** - Hybrid recommendation system combining content-based and collaborative filtering
-- [ ] **Meal Planning Calendar** - Weekly meal plan generation with grocery lists
-- [ ] **Social Features** - Share progress, recipes, and achievements with friends
-- [ ] **Nutrition Chatbot** - AI assistant for nutrition queries using LLM
-- [ ] **Multi-language Support** - English, Vietnamese, and more
-- [ ] **Barcode Scanner** - Scan food products for instant nutrition info
-- [ ] **Integration with Fitness Trackers** - Sync with Apple Health, Google Fit
-- [ ] **Recipe Generator** - AI-powered recipe suggestions based on available ingredients
-- [ ] **Meal Prep Guides** - Step-by-step cooking instructions with timers
-- [ ] **Professional Dietitian Support** - Connect users with certified nutritionists
-- [ ] **Advanced Analytics** - Predictive weight gain models using ML
+- [ ] **Ứng Dụng Mobile** - Phiên bản React Native cho iOS và Android
+- [ ] **Collaborative Filtering** - Hệ thống gợi ý kết hợp content-based và collaborative filtering
+- [ ] **Lịch Lập Kế Hoạch Bữa Ăn** - Tạo kế hoạch bữa ăn hàng tuần với danh sách mua sắm
+- [ ] **Tính Năng Xã Hội** - Chia sẻ tiến trình, công thức và thành tích với bạn bè
+- [ ] **Chatbot Dinh Dưỡng** - Trợ lý AI cho các câu hỏi dinh dưỡng sử dụng LLM
+- [ ] **Hỗ Trợ Đa Ngôn Ngữ** - Tiếng Anh, Tiếng Việt và nhiều hơn nữa
+- [ ] **Quét Mã Vạch** - Quét sản phẩm thực phẩm để có thông tin dinh dưỡng ngay lập tức
+- [ ] **Tích Hợp Thiết Bị Theo Dõi Sức Khỏe** - Đồng bộ với Apple Health, Google Fit
+- [ ] **Tạo Công Thức** - Gợi ý công thức bằng AI dựa trên nguyên liệu có sẵn
+- [ ] **Hướng Dẫn Chuẩn Bị Bữa Ăn** - Hướng dẫn nấu ăn từng bước với bộ đếm thời gian
+- [ ] **Hỗ Trợ Chuyên Gia Dinh Dưỡng** - Kết nối người dùng với chuyên gia dinh dưỡng được chứng nhận
+- [ ] **Phân Tích Nâng Cao** - Mô hình dự đoán tăng cân sử dụng ML
 
 ---
 
-## 📚 Documentation
+## 📚 Tài Liệu
 
-| Document | Description | Link |
+| Tài Liệu | Mô Tả | Link |
 |----------|-------------|------|
-| **Thesis Report (Vietnamese)** | Complete graduation thesis | [docs/BAOCAOĐATN.pdf](docs/BAOCAOĐATN.pdf) |
-| **Project Poster** | Visual project summary | [docs/POSTERTN.pdf](docs/POSTERTN.pdf) |
-| **CLIP Evaluation Report** | Detailed AI model performance analysis | [src/backend/CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md) |
-| **Project Structure** | Detailed folder structure explanation | [src/STRUCTURE.md](src/STRUCTURE.md) |
-| **API Documentation** | Interactive Swagger UI | http://localhost:8000/docs |
+| **Báo Cáo Đồ Án (Tiếng Việt)** | Báo cáo đồ án tốt nghiệp hoàn chỉnh | [docs/BAOCAOĐATN.pdf](docs/BAOCAOĐATN.pdf) |
+| **Poster Đồ Án** | Tóm tắt dự án trực quan | [docs/POSTERTN.pdf](docs/POSTERTN.pdf) |
+| **Báo Cáo Đánh Giá CLIP** | Phân tích hiệu suất chi tiết mô hình AI | [src/backend/CLIP_EVALUATION_REPORT_76.26.md](src/backend/CLIP_EVALUATION_REPORT_76.26.md) |
+| **Cấu Trúc Dự Án** | Giải thích cấu trúc thư mục chi tiết | [src/STRUCTURE.md](src/STRUCTURE.md) |
+| **Tài Liệu API** | Swagger UI tương tác | http://localhost:8000/docs |
 
 ---
 
 
-## 👥 Authors
+## 👥 Tác Giả
 
 <div align="center">
 
 ### Trần Thị Yến Nhi
 
-**Student ID:** 110122133  
-**Class:** DA22TTB  
-**Major:** Information Technology  
-**University:** Trà Vinh University
+**Mã Sinh Viên:** 110122133  
+**Lớp:** DA22TTB  
+**Ngành:** Công Nghệ Thông Tin  
+**Trường:** Đại Học Trà Vinh
 
 [![Email](https://img.shields.io/badge/Email-110122133@st.tvu.edu.vn-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:110122133@st.tvu.edu.vn)
 [![GitHub](https://img.shields.io/badge/GitHub-tranyennhi02-181717?style=for-the-badge&logo=github)](https://github.com/tranyennhi02)
@@ -908,63 +908,63 @@ npm run test
 
 ---
 
-## 🙏 Acknowledgements
+## 🙏 Lời Cảm Ơn
 
-This graduation thesis project would not have been possible without the support and guidance of:
+Đồ án tốt nghiệp này không thể hoàn thành nếu không có sự hỗ trợ và hướng dẫn từ:
 
-- **Trà Vinh University** - Faculty of Engineering and Technology, Department of Information Technology
-- **Thesis Advisors** - For invaluable guidance and mentorship throughout the project
-- **OpenAI** - For the CLIP model and vision-language research
-- **HuggingFace** - For Transformers library and model hosting
-- **FastAPI Community** - For excellent documentation and support
-- **React Community** - For modern frontend development tools
-- **Open Source Contributors** - For amazing libraries and frameworks
+- **Đại Học Trà Vinh** - Khoa Kỹ Thuật và Công Nghệ, Bộ Môn Công Nghệ Thông Tin
+- **Giảng Viên Hướng Dẫn** - Cho những hướng dẫn và chỉ bảo quý giá trong suốt dự án
+- **OpenAI** - Cho mô hình CLIP và nghiên cứu vision-language
+- **HuggingFace** - Cho thư viện Transformers và hosting mô hình
+- **Cộng Đồng FastAPI** - Cho tài liệu và hỗ trợ tuyệt vời
+- **Cộng Đồng React** - Cho các công cụ phát triển frontend hiện đại
+- **Những Người Đóng Góp Mã Nguồn Mở** - Cho những thư viện và frameworks tuyệt vời
 
-### Technology Credits
+### Công Nghệ Được Sử Dụng
 
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
-- [React](https://reactjs.org/) - Frontend UI library
-- [PyTorch](https://pytorch.org/) - Deep learning framework
-- [CLIP](https://github.com/openai/CLIP) - Vision-language model by OpenAI
-- [TailwindCSS](https://tailwindcss.com/) - Utility-first CSS framework
-- [Recharts](https://recharts.org/) - Charting library for React
+- [FastAPI](https://fastapi.tiangolo.com/) - Framework web Python hiện đại
+- [React](https://reactjs.org/) - Thư viện UI frontend
+- [PyTorch](https://pytorch.org/) - Framework deep learning
+- [CLIP](https://github.com/openai/CLIP) - Mô hình vision-language của OpenAI
+- [TailwindCSS](https://tailwindcss.com/) - Framework CSS utility-first
+- [Recharts](https://recharts.org/) - Thư viện biểu đồ cho React
 - [SQLAlchemy](https://www.sqlalchemy.org/) - Python SQL toolkit
-- [Vite](https://vitejs.dev/) - Next generation frontend tooling
+- [Vite](https://vitejs.dev/) - Công cụ frontend thế hệ mới
 
 ---
 
 
-## 📄 License
+## 📄 Giấy Phép
 
-This project is a graduation thesis submitted to Trà Vinh University.
+Dự án này là đồ án tốt nghiệp được nộp cho Đại Học Trà Vinh.
 
-**Copyright © 2024 Trần Thị Yến Nhi**
+**Bản Quyền © 2024 Trần Thị Yến Nhi**
 
-All rights reserved. This project and its documentation are the intellectual property of the author and Trà Vinh University.
+Mọi quyền được bảo lưu. Dự án này và tài liệu của nó là tài sản trí tuệ của tác giả và Đại Học Trà Vinh.
 
 ---
 
-## 📞 Contact & Support
+## 📞 Liên Hệ & Hỗ Trợ
 
-For questions, suggestions, or collaboration opportunities:
+Đối với các câu hỏi, đề xuất hoặc cơ hội hợp tác:
 
 - 📧 **Email:** 110122133@st.tvu.edu.vn
-- 🐛 **Issues:** [GitHub Issues](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/issues)
-- 📖 **Documentation:** [Project Wiki](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/wiki)
+- 🐛 **Báo Lỗi:** [GitHub Issues](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/issues)
+- 📖 **Tài Liệu:** [Project Wiki](https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain/wiki)
 
 ---
 
 <div align="center">
 
-### ⭐ If you find this project helpful, please consider giving it a star!
+### ⭐ Nếu bạn thấy dự án này hữu ích, hãy cho một ngôi sao nhé!
 
-**Made with ❤️ by Yến Nhi at Trà Vinh University**
+**Được Tạo Với ❤️ Bởi Yến Nhi Tại Đại Học Trà Vinh**
 
-[![Trà Vinh University](https://img.shields.io/badge/Trà_Vinh_University-0066CC?style=for-the-badge)](https://tvu.edu.vn/)
-[![Graduation Thesis](https://img.shields.io/badge/Graduation_Thesis-2024-green?style=for-the-badge)](.)
+[![Trà Vinh University](https://img.shields.io/badge/Đại_Học_Trà_Vinh-0066CC?style=for-the-badge)](https://tvu.edu.vn/)
+[![Đồ Án Tốt Nghiệp](https://img.shields.io/badge/Đồ_Án_Tốt_Nghiệp-2024-green?style=for-the-badge)](.)
 
 ---
 
-**NutriGain** • *Intelligent Weight Gain, Powered by AI*
+**NutriGain** • *Tăng Cân Thông Minh, Được Hỗ Trợ Bởi AI*
 
 </div>
