@@ -2,9 +2,9 @@
 
 # 🥗 NutriGain
 
-### *Intelligent Weight Gain Meal Recommendation System*
+### *Hệ Thống Gợi Ý Thực Đơn Tăng Cân Thông Minh*
 
-**AI-Powered Nutrition Tracking • Personalized Meal Planning • Gamified Health Journey**
+**Theo Dõi Dinh Dưỡng Bằng AI • Lập Kế Hoạch Bữa Ăn Cá Nhân Hóa • Gamification Động Lực**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
@@ -13,90 +13,90 @@
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 
-[Features](#-features) • [Tech Stack](#-tech-stack) • [Installation](#-installation) • [Documentation](#-documentation) • [API](#-api-reference) • [Authors](#-authors)
+[Tính Năng](#-tính-năng) • [Công Nghệ](#-công-nghệ-sử-dụng) • [Cài Đặt](#-hướng-dẫn-cài-đặt) • [Tài Liệu](#-tài-liệu) • [API](#-tài-liệu-api) • [Tác Giả](#-tác-giả)
 
 ---
 
 </div>
 
-## 📖 Overview
+## 📖 Tổng Quan
 
-**NutriGain** is an intelligent meal recommendation system designed to help underweight individuals (BMI < 23) gain weight safely and scientifically through personalized nutrition planning, AI-powered ingredient recognition, and gamified progress tracking.
+**NutriGain** là hệ thống gợi ý thực đơn thông minh được thiết kế để giúp người gầy (BMI < 23) tăng cân một cách an toàn và khoa học thông qua lập kế hoạch dinh dưỡng cá nhân hóa, nhận diện nguyên liệu bằng AI, và theo dõi tiến trình được gamification.
 
-### 🎯 The Problem We Solve
+### 🎯 Vấn Đề Chúng Tôi Giải Quyết
 
-Many underweight individuals struggle with:
-- **Lack of personalized guidance** for healthy weight gain
-- **Difficulty tracking** nutritional intake accurately
-- **Low motivation** to maintain consistent eating habits
-- **Confusion** about appropriate food choices
+Nhiều người gầy gặp khó khăn với:
+- **Thiếu hướng dẫn cá nhân hóa** cho tăng cân lành mạnh
+- **Khó theo dõi** lượng dinh dưỡng nạp vào một cách chính xác
+- **Động lực thấp** để duy trì thói quen ăn uống đều đặn
+- **Bối rối** về việc lựa chọn thực phẩm phù hợp
 
-### 💡 Our Solution
+### 💡 Giải Pháp Của Chúng Tôi
 
 
-NutriGain provides:
-- 🤖 **AI-Powered Meal Recommendations** using content-based filtering and nutrition similarity
-- 📸 **Image Recognition** with CLIP model (76.26% accuracy across 26 ingredients)
-- 🎮 **Gamification System** with streaks, achievements, and challenges
-- 📊 **Real-time Progress Tracking** with BMI, weight logs, and nutrition analytics
-- 🔐 **Secure Authentication** with JWT tokens
-- 📱 **Responsive Design** optimized for mobile and desktop
+NutriGain cung cấp:
+- 🤖 **Gợi Ý Thực Đơn Bằng AI** sử dụng content-based filtering và tính toán độ tương đồng dinh dưỡng
+- 📸 **Nhận Diện Hình Ảnh** với mô hình CLIP (độ chính xác 76.26% trên 26 nguyên liệu)
+- 🎮 **Hệ Thống Gamification** với streak, thành tích và thử thách
+- 📊 **Theo Dõi Tiến Trình Thời Gian Thực** với BMI, nhật ký cân nặng và phân tích dinh dưỡng
+- 🔐 **Xác Thực An Toàn** với JWT tokens
+- 📱 **Thiết Kế Responsive** tối ưu cho mobile và desktop
 
-### 👥 Target Users
+### 👥 Đối Tượng Sử Dụng
 
-- Individuals with BMI < 23 seeking healthy weight gain
-- People who need nutritional guidance and meal planning
-- Users wanting to track their progress scientifically
-- Anyone looking for motivation to maintain healthy eating habits
+- Người có BMI < 23 muốn tăng cân lành mạnh
+- Người cần hướng dẫn dinh dưỡng và lập kế hoạch bữa ăn
+- Người muốn theo dõi tiến trình một cách khoa học
+- Bất kỳ ai cần động lực để duy trì thói quen ăn uống lành mạnh
 
 ---
 
-## ✨ Features
+## ✨ Tính Năng
 
 <div align="center">
 
-| Feature | Description | Status |
+| Tính Năng | Mô Tả | Trạng Thái |
 |---------|-------------|--------|
-| **🍽️ Personalized Meal Recommendations** | Content-based filtering with nutrition similarity matching | ✅ Live |
-| **🤖 AI Ingredient Recognition** | CLIP ViT-B/32 model recognizing 26 ingredients | ✅ Live |
-| **📊 Nutrition Tracking** | Automatic calorie and macro calculation | ✅ Live |
-| **⚖️ BMI & Weight Logging** | Track weight changes with visual analytics | ✅ Live |
+| **🍽️ Gợi Ý Thực Đơn Cá Nhân Hóa** | Content-based filtering với tính toán độ tương đồng dinh dưỡng | ✅ Hoạt động |
+| **🤖 Nhận Diện Nguyên Liệu AI** | Mô hình CLIP ViT-B/32 nhận diện 26 nguyên liệu | ✅ Hoạt động |
+| **📊 Theo Dõi Dinh Dưỡng** | Tự động tính toán calo và chất dinh dưỡng đa lượng | ✅ Hoạt động |
+| **⚖️ Ghi Nhận BMI & Cân Nặng** | Theo dõi thay đổi cân nặng với biểu đồ trực quan | ✅ Hoạt động |
 
-| **🎮 Gamification System** | Streaks, achievements, challenges, and levels | ✅ Live |
-| **📈 Progress Dashboard** | Interactive charts with nutrition insights | ✅ Live |
-| **🔐 Secure Authentication** | JWT-based auth with password encryption | ✅ Live |
-| **📱 Responsive UI** | Mobile-first design with TailwindCSS | ✅ Live |
-| **🐳 Docker Support** | One-command deployment with Docker Compose | ✅ Live |
-| **💾 Export Reports** | PDF nutrition reports with charts | ✅ Live |
+| **🎮 Hệ Thống Gamification** | Streak, thành tích, thử thách và cấp độ | ✅ Hoạt động |
+| **📈 Bảng Điều Khiển Tiến Trình** | Biểu đồ tương tác với thống kê dinh dưỡng | ✅ Hoạt động |
+| **🔐 Xác Thực An Toàn** | Xác thực JWT với mã hóa mật khẩu | ✅ Hoạt động |
+| **📱 Giao Diện Responsive** | Thiết kế mobile-first với TailwindCSS | ✅ Hoạt động |
+| **🐳 Hỗ Trợ Docker** | Triển khai một lệnh với Docker Compose | ✅ Hoạt động |
+| **💾 Xuất Báo Cáo** | Báo cáo dinh dưỡng PDF với biểu đồ | ✅ Hoạt động |
 
 </div>
 
 <details>
-<summary><b>🎮 Gamification Details</b></summary>
+<summary><b>🎮 Chi Tiết Gamification</b></summary>
 
-### Achievement System
-- **First Steps**: Log first meal, first weight entry, complete first day
-- **Consistency**: 3-day streak, 7-day streak, perfect week
-- **Diversity**: Try 10 different foods, eat from all food groups
-- **Progress**: Reach target calories, balanced nutrition day
+### Hệ Thống Thành Tích
+- **Bước Đầu Tiên**: Ghi nhận bữa ăn đầu tiên, cân nặng đầu tiên, hoàn thành ngày đầu tiên
+- **Kiên Trì**: Streak 3 ngày, streak 7 ngày, tuần hoàn hảo
+- **Đa Dạng**: Thử 10 món ăn khác nhau, ăn từ tất cả nhóm thực phẩm
+- **Tiến Bộ**: Đạt mục tiêu calo, ngày dinh dưỡng cân bằng
 
-### Challenges
-- Daily calorie target
-- Macro balance challenge
-- Food diversity challenge
-- Consistency streak challenge
+### Thử Thách
+- Mục tiêu calo hàng ngày
+- Thử thách cân bằng chất dinh dưỡng đa lượng
+- Thử thách đa dạng thực phẩm
+- Thử thách duy trì streak
 
-### Level System
-- 20 levels based on experience points
-- Earn XP by completing meals, maintaining streaks, achieving goals
-- Visual level progression indicators
+### Hệ Thống Cấp Độ
+- 20 cấp độ dựa trên điểm kinh nghiệm
+- Kiếm XP bằng cách hoàn thành bữa ăn, duy trì streak, đạt mục tiêu
+- Chỉ báo tiến trình cấp độ trực quan
 
 </details>
 
 ---
 
 
-## 🛠 Tech Stack
+## 🛠 Công Nghệ Sử Dụng
 
 <div align="center">
 
@@ -116,7 +116,7 @@ NutriGain provides:
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 ![Transformers](https://img.shields.io/badge/🤗_Transformers-yellow?style=flat-square)
 
-### Database & Infrastructure
+### Cơ Sở Dữ Liệu & Hạ Tầng
 
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-latest-2496ED?style=flat-square&logo=docker&logoColor=white)
@@ -128,31 +128,31 @@ NutriGain provides:
 ---
 
 
-## 🏗️ System Architecture
+## 🏗️ Kiến Trúc Hệ Thống
 
 ```mermaid
 graph TB
-    subgraph Client["🖥️ Client Layer"]
-        UI["React App<br/>Port 5173/3000"]
-        Upload["Image Upload"]
-        Charts["Interactive Charts"]
+    subgraph Client["🖥️ Lớp Client"]
+        UI["Ứng Dụng React<br/>Port 5173/3000"]
+        Upload["Tải Lên Hình Ảnh"]
+        Charts["Biểu Đồ Tương Tác"]
     end
 
-    subgraph API["⚙️ Application Layer"]
+    subgraph API["⚙️ Lớp Ứng Dụng"]
         FastAPI["FastAPI Server<br/>Port 8000"]
-        Auth["Authentication<br/>(JWT)"]
-        Meals["Meal API"]
-        Track["Tracking API"]
-        Image["Image Recognition API"]
+        Auth["Xác Thực<br/>(JWT)"]
+        Meals["API Bữa Ăn"]
+        Track["API Theo Dõi"]
+        Image["API Nhận Diện Hình Ảnh"]
     end
 
-    subgraph AI["🤖 AI/ML Layer"]
-        CLIP["CLIP ViT-B/32<br/>76.26% Accuracy"]
-        Rec["Recommendation Engine<br/>(Content-Based)"]
-        Nutr["Nutrition Calculator"]
+    subgraph AI["🤖 Lớp AI/ML"]
+        CLIP["CLIP ViT-B/32<br/>Độ Chính Xác 76.26%"]
+        Rec["Hệ Thống Gợi Ý<br/>(Content-Based)"]
+        Nutr["Tính Toán Dinh Dưỡng"]
     end
 
-    subgraph Data["💾 Data Layer"]
+    subgraph Data["💾 Lớp Dữ Liệu"]
         MySQL["MySQL 8.0<br/>Port 3307"]
         Cache["HuggingFace Cache<br/>~600MB"]
     end
@@ -179,41 +179,41 @@ graph TB
 ---
 
 
-## 🔄 User Flow
+## 🔄 Luồng Người Dùng
 
 ```mermaid
 flowchart TD
-    Start([👤 User Visits App]) --> Check{Authenticated?}
-    Check -->|No| Register[📝 Register/Login]
-    Check -->|Yes| Profile[👤 Complete Profile]
+    Start([👤 Người Dùng Truy Cập]) --> Check{Đã Xác Thực?}
+    Check -->|Chưa| Register[📝 Đăng Ký/Đăng Nhập]
+    Check -->|Rồi| Profile[👤 Hoàn Thiện Hồ Sơ]
     
     Register --> Profile
     Profile --> BMI{BMI < 23?}
     
-    BMI -->|No| Restrict[❌ Access Restricted]
-    BMI -->|Yes| Dashboard[📊 Dashboard]
+    BMI -->|Không| Restrict[❌ Hạn Chế Truy Cập]
+    BMI -->|Có| Dashboard[📊 Bảng Điều Khiển]
     
-    Dashboard --> Action{Choose Action}
+    Dashboard --> Action{Chọn Hành Động}
     
-    Action --> Recommend[🍽️ Get Meal<br/>Recommendations]
-    Action --> Upload[📸 Upload Food Image]
-    Action --> Log[📝 Log Weight]
-    Action --> View[📈 View Progress]
+    Action --> Recommend[🍽️ Nhận Gợi Ý<br/>Thực Đơn]
+    Action --> Upload[📸 Tải Lên Hình Món Ăn]
+    Action --> Log[📝 Ghi Nhận Cân Nặng]
+    Action --> View[📈 Xem Tiến Trình]
     
-    Recommend --> AI1[🤖 AI Recommendation<br/>Engine]
-    AI1 --> Display1[📋 Display Meals]
+    Recommend --> AI1[🤖 Hệ Thống Gợi Ý AI]
+    AI1 --> Display1[📋 Hiển Thị Bữa Ăn]
     
-    Upload --> AI2[🤖 CLIP Recognition]
-    AI2 --> Display2[🏷️ Detected<br/>Ingredients]
+    Upload --> AI2[🤖 Nhận Diện CLIP]
+    AI2 --> Display2[🏷️ Nguyên Liệu<br/>Phát Hiện]
     
-    Log --> Save[💾 Save to Database]
-    Save --> Calculate[🔢 Calculate BMI]
+    Log --> Save[💾 Lưu Vào CSDL]
+    Save --> Calculate[🔢 Tính BMI]
     
-    View --> Charts[📊 Show Analytics<br/>& Charts]
+    View --> Charts[📊 Hiện Phân Tích<br/>& Biểu Đồ]
     
-    Display1 --> Track[✅ Track Consumption]
+    Display1 --> Track[✅ Theo Dõi Tiêu Thụ]
     Display2 --> Track
-    Track --> Gamify[🎮 Update Gamification]
+    Track --> Gamify[🎮 Cập Nhật Gamification]
     Gamify --> Dashboard
     
     style Start fill:#4CAF50,stroke:#2E7D32,stroke-width:3px,color:#fff
@@ -391,66 +391,66 @@ NutriGain/
 ---
 
 
-## 🚀 Installation
+## 🚀 Hướng Dẫn Cài Đặt
 
-### Prerequisites
+### Yêu Cầu Hệ Thống
 
-| Software | Version | Purpose |
+| Phần Mềm | Phiên Bản | Mục Đích |
 |----------|---------|---------|
 | **Python** | 3.13+ | Backend runtime |
 | **Node.js** | 18+ | Frontend build tool |
 | **Docker** | 20+ | Container runtime |
-| **Git** | Latest | Version control |
+| **Git** | Mới nhất | Quản lý phiên bản |
 
-### Quick Start with Docker (Recommended)
+### Khởi Động Nhanh Với Docker (Khuyến Nghị)
 
 ```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/tranyennhi02/tn-da22ttb-110122133-tranthiyennhi-nutrigain.git
 cd tn-da22ttb-110122133-tranthiyennhi-nutrigain/src
 
-# Copy environment files
+# Copy file môi trường
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 
-# Start all services
+# Khởi động tất cả services
 docker-compose up -d --build
 
-# Check status
+# Kiểm tra trạng thái
 docker-compose ps
 ```
 
-**Access the application:**
+**Truy cập ứng dụng:**
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+- Tài liệu API: http://localhost:8000/docs
 
 <details>
-<summary><b>🔧 Local Development Setup</b></summary>
+<summary><b>🔧 Cài Đặt Phát Triển Local</b></summary>
 
-### Backend Setup
+### Cài Đặt Backend
 
 ```bash
-# Navigate to backend
+# Di chuyển đến thư mục backend
 cd src/backend
 
-# Create virtual environment
+# Tạo môi trường ảo
 python -m venv .venv
 
-# Activate virtual environment
+# Kích hoạt môi trường ảo
 # Windows:
 .venv\Scripts\activate
 # Linux/Mac:
 source .venv/bin/activate
 
-# Install dependencies
+# Cài đặt dependencies
 pip install -r requirements.txt
 
-# Start MySQL database
+# Khởi động cơ sở dữ liệu MySQL
 cd ..
 docker-compose up -d db
 
-# Run backend server
+# Chạy backend server
 cd backend
 run-local.bat  # Windows
 ./run-local.sh # Linux/Mac
